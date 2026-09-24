@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UYAP Archive • Denetim Raporu</title>
+  <link rel="stylesheet" href="report.css">
+</head>
+<body>
+  <main class="report-shell">
+    <header class="report-header">
+      <div>
+        <p class="eyebrow">DENETİM RAPORU</p>
+        <h1 id="reportTitle">UYAP Archive</h1>
+        <p id="reportMeta" class="muted">Rapor hazırlanıyor…</p>
+      </div>
+      <div class="toolbar">
+        <button id="workspaceButton">Çalışma Alanı</button>
+        <button id="csvButton">CSV indir</button>
+        <button id="jsonButton">JSON indir</button>
+        <button id="repackageButton" hidden>Final paketi oluştur</button>
+        <button id="printButton" class="primary">PDF Raporu</button>
+      </div>
+    </header>
+
+    <section id="integrityBanner" class="integrity-banner neutral">
+      <div><span id="integrityIcon">…</span><div><strong id="integrityTitle">Bütünlük kontrol ediliyor</strong><p id="integrityText">Kaynak, doğrulanan evrak, manifest ve ZIP bilgileri hazırlanıyor.</p></div></div>
+      <span id="archiveStatusPill" class="status-pill">-</span>
+    </section>
+
+    <section id="summary" class="summary-grid"></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><p class="eyebrow">ARŞİV YAPISI</p><h2>UYAP arşiv ağacı</h2><p class="muted">Dosyaların hedef klasör yapısındaki dağılımını gösterir.</p></div>
+        <div class="filter-row"><input id="treeSearch" type="search" placeholder="Klasör veya evrak ara"><button id="openArchiveButton">Arşiv klasörünü aç</button></div>
+      </div>
+      <div id="archiveTree" class="archive-tree"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><p class="eyebrow">KONTROL</p><h2>Sorunlar ve uyarılar</h2><p class="muted">Müdahale gereken kayıtlar ile doğrulanmış fakat kontrol önerilen kayıtlar ayrıdır.</p></div>
+        <span id="problemCount" class="status-pill">0 kayıt</span>
+      </div>
+      <div class="filter-row">
+        <select id="issueFilter"><option value="problems">Müdahale gerekli</option><option value="warnings">Kontrol önerilir</option><option value="all">Tümü</option></select>
+        <input id="issueSearch" type="search" placeholder="Evrak veya hata ara">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Evrak</th><th>Tür</th><th>Durum</th><th>Açıklama</th><th>Hedef yol</th></tr></thead>
+          <tbody id="problemRows"></tbody>
+        </table>
+      </div>
+      <p id="emptyProblems" class="empty" hidden>Bu filtrede kayıt bulunmuyor. ✓</p>
+    </section>
+
+    <details class="expert-panel">
+      <summary>Denetim ayrıntıları</summary>
+      <div id="expertDetails" class="expert-details"></div>
+    </details>
+  </main>
+  <script src="report.js"></script>
+</body>
+</html>

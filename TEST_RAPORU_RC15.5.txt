@@ -1,0 +1,45 @@
+UYAP Archive AI v2.9.0 RC15.5 AGENT-LIFECYCLE-CLEANUP
+TEST RAPORU
+
+Kapsam
+- Native Agent lifecycle: current / rollback / staging
+- RC15.4 ve daha eski UUID versions kurulumlarinin guvenli temizligi
+- Registry geri yukleme mekanizmasi
+- Repair / rollback / uninstall komutlari
+- Kullanici arsiv verilerinin cleanup kapsamindan dislanmasi
+- Onceki RC15.x regresyonlarinin korunmasi
+
+Yeni RC15.5 testi
+- rc15_5_agent_lifecycle_regression_test.py: PASS
+  * versions klasoru temizleniyor
+  * .staging-* ve .swap-* kalintilari temizleniyor
+  * Agent/current korunuyor
+  * Agent/rollback korunuyor
+  * ajan alani disindaki ornek kullanici durumu korunuyor
+  * sabit current Native Messaging host yolu uretiliyor
+  * repair / rollback / uninstall giris noktalari mevcut
+  * KUR / ONAR / GERI_AL / KALDIR BAT dosyalari mevcut
+
+Korunan regresyonlar
+- adaptive_pacing_regression_test.py: PASS
+- finalization_regression_test.py: PASS
+- large_case_batch_regression_test.py: PASS (11923 -> 24 batch, son batch 423)
+- local_bulk_reconciliation_regression_test.py: PASS
+- local_duplicate_guard_regression_test.py: PASS
+- rc15_1_hotfix_regression_test.py: PASS
+- rc15_2_throughput_regression_test.py: PASS
+- rc15_3_unmatched_recovery_regression_test.py: PASS
+- rc15_4_clean_install_regression_test.py: PASS
+- scale_hotpath_regression_test.py: PASS
+- validator_regression_test.py: PASS
+
+Guvenlik davranisi
+- Yeni ajan staging alaninda dogrulanmadan current yapilmaz.
+- Mevcut saglam current yukseltme sirasinda rollback olarak korunur.
+- Registry/current dogrulamasi basarisiz olursa onceki registry ve current geri yuklenmeye calisilir.
+- Legacy versions temizligi ancak yeni current + registry + ping dogrulandiktan sonra calisir.
+- Cleanup ve uninstall UYAP arsiv evraklarini, indirme klasorlerini ve tarayici IndexedDB/kuyruk verilerini hedeflemez.
+
+Gelistirme paketi siniri
+- Windows Native Agent EXE ilk kurulumda Python 3.11+ ile yerelde derlenir.
+- Son kullanici dagitiminda imzali hazir Setup/EXE paketi ayri bir sonraki asamadir.

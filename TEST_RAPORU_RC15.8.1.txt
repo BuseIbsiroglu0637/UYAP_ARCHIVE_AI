@@ -1,0 +1,27 @@
+UYAP Archive AI v2.9.0 RC15.8.1 DOWNLOAD-COUNT-UI-HOTFIX
+Test zamanı: 2026-09-19
+
+Amaç:
+- Popup ana sayacının yalnız aktif işte yerele indirilen + doğrulanan (counts.verified) evrakları göstermesi.
+- Önceden yerelde bulunan (skipped/local archive recognized) kayıtların ayrı gösterilmesi.
+- Genel arşiv tamamlanmasının ikincil bilgi olarak verified + skipped kalması.
+- Arşiv Merkezi'nin varsayılan olarak Seçili iş + Bu işte indirilenler filtresiyle açılması.
+- queued kayıtların "Hazır" yerine "İndirilecek" olarak görünmesi.
+- Fiziksel dosyası henüz oluşmamış kayıtlarda planlanan .bin hedefinin "Henüz indirilmedi" olarak gösterilmesi.
+
+Sonuçlar:
+- RC15.8.1 download-count UI regression: PASS
+- RC15.8 auto pipeline regression: PASS
+- RC15.8 performance hotpath regression: PASS
+- RC15.8 portable installer regression: PASS
+- 11.923 evrak / 24 batch regression: PASS
+- Finalization regression: PASS
+- Local bulk reconciliation: PASS
+- Local duplicate guard: PASS
+- RC15.3 unmatched recovery: PASS
+- Format matrix validator: PASS
+- Tüm JavaScript dosyaları node --check: PASS
+- Tüm native Python kaynakları compileall: PASS
+
+Native Agent: 2.7.39 (değişmedi)
+Not: RC15.8 / Agent 2.7.39 zaten kuruluysa yerel ajanı yeniden kurmak gerekmez; uzantıyı RC15.8.1 ile yeniden yüklemek yeterlidir.

@@ -1,0 +1,75 @@
+{
+  "manifest_version": 3,
+  "name": "UYAP Archive AI • Clean Flow",
+  "description": "Başka bilgisayardan taşınan yarım UYAP arşivini fiziksel doğrulamayla kaldığı yerden tamamlama akışı.",
+  "version": "2.9.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArDopD5twFP6qrZX45BOSY/x5ljisrFoX4AVxMwnh+rJrGHYbtE1+Foy1jxSFpCsqeC6/Dtzow88HdL1q1VUA4lVqTDPkjspSk1JMkzSxx3ZEV4sDRQuQgFK0TeMc4V0xqOBProuZ+vg7v7kYnGigcODgQZxXApQbmS5utJZ4PAXGGnTB+YEufeoFbIjDRID7oZTOOuixWM7KogdobR5dGundfqKv7dXh449SejMgtyfoiuUcOvqHXR3a5/esWLACYxgf2rGKKV2qZUd4aUWK4wTufSp0BE/6cCs7RadhSq1edTTwwXVcoSH6MH0bURhoyNIsgA9XsDKQt/fe2OS4dQIDAQAB",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "downloads",
+    "downloads.ui",
+    "notifications",
+    "nativeMessaging",
+    "scripting",
+    "storage",
+    "webRequest",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://*.uyap.gov.tr/*",
+    "https://*.supabase.co/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "UYAP Archive AI • Auto Pipeline Engine",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/uyap-archive-16.png",
+      "32": "icons/uyap-archive-32.png",
+      "48": "icons/uyap-archive-48.png",
+      "128": "icons/uyap-archive-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.uyap.gov.tr/*"
+      ],
+      "js": [
+        "content/kurum-page-bridge.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.uyap.gov.tr/*"
+      ],
+      "js": [
+        "content/uyap-profile.js",
+        "content/source-adapters.js",
+        "content/tree-expansion.js",
+        "content/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
+    }
+  ],
+  "icons": {
+    "16": "icons/uyap-archive-16.png",
+    "32": "icons/uyap-archive-32.png",
+    "48": "icons/uyap-archive-48.png",
+    "128": "icons/uyap-archive-128.png"
+  },
+  "version_name": "2.9.0 RC15.9.38 ARCHIVE-SYNC-RACE-FIX"
+}

@@ -1,0 +1,30 @@
+UYAP Archive AI v2.9.0 RC15.7.1 PORTABLE-NATIVE-BOOTSTRAP-HOTFIX
+Native Agent: 2.7.37
+
+Kritik düzeltme:
+- RC15.7 self-test sırasında portable_sitecustomize.py tüm argv içinde chrome-extension:// aradığı için,
+  self-test ana prosesi yanlışlıkla Native Messaging host olarak başlatılıyordu.
+- Bu durumda PowerShell/console stdin ilk 4 baytı Native Messaging length header sanılabiliyor ve
+  "Native Messaging iletisi çok büyük" hatası oluşuyordu.
+- RC15.7.1 yalnız sys.argv[0] gerçek extension origin ise bootstrap başlatır.
+- Installer self-test ana prosesi -S ile başlatılır; sitecustomize yalnız child host prosesinde etkinleşir.
+- Windows PowerShell 5.1 için .ps1 dosyaları UTF-8 BOM ile paketlendi.
+
+Regresyonlar:
+- RC15.7.1 bootstrap false-positive: PASS
+- RC15.7 portable installer: PASS
+- RC15.6 max safe throughput: PASS
+- RC15.5 lifecycle cleanup: PASS
+- RC15.4 clean install/browser host: PASS
+- RC15.3 unmatched recovery: PASS
+- RC15.2 throughput: PASS
+- RC15.1 PDF hotfix: PASS
+- Adaptive pacing: PASS
+- 11.923 / 24 large-case batch: PASS
+- Format matrix: PASS
+- Local duplicate guard: PASS
+- Finalization: PASS
+- Local bulk reconciliation: PASS
+- 10K+ hot path: PASS
+- JavaScript syntax: PASS
+- Python compileall: PASS

@@ -1,0 +1,24 @@
+RC15.9.19 SOURCE-RECOVERY-LIVENESS
+Build date: 2026-09-20
+Native Agent: 2.7.54 (unchanged)
+
+Diagnostic trigger:
+- Session entered RECOVERING / SOURCE_PAGE_NOT_READY.
+- sourceWaitRecoveryCount reached 5.
+- sourceWaitNextRetryAt expired while no Chrome alarm remained.
+- stale pendingDownload remained queued without downloadId and with expired lease.
+- frame injection telemetry showed repeated transient failures.
+
+Fixes:
+1. In-memory operational timer no longer clears persistent MV3 fallback before handler success.
+2. If hot-path alarm handler throws, persistent >=30s fallback remains armed.
+3. One-shot chrome.alarms handler errors bootstrap recoverSession from service-worker.
+4. Expired orphan pendingDownload state is cleared at queue entry, source recovery and runtime recovery.
+5. Active AWAITING_BROWSER/DOWNLOADING attempts remain protected.
+6. RC15.9.18 OPAQUE/IMAGE proof and all earlier finalization protections preserved.
+
+Validation:
+- node --check background/download-manager.js: PASS
+- node --check background/service-worker.js: PASS
+- standalone regression suite: 41/41 PASS
+- host_self_test.py / portable_protocol_self_test.py: manual host-parameter tests, excluded

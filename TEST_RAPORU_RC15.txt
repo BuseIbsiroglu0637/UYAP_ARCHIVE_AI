@@ -1,0 +1,30 @@
+UYAP Archive AI v2.9.0 RC15 ADAPTIVE-PACING
+TEST RAPORU
+
+Tarih: 2026-09-19
+Temel: RC14.1 LARGE-CASE HOTFIX
+Native Agent: 2.7.33
+
+Uygulanan kontroller:
+- JavaScript syntax: background/download-manager.js PASS
+- JavaScript syntax: shared/performance-policy.js PASS
+- JavaScript syntax: popup/popup.js PASS
+- adaptive_pacing_regression_test.py PASS
+- finalization_regression_test.py PASS
+- large_case_batch_regression_test.py PASS (11.923 evrak -> 24 batch; son batch 423)
+- local_bulk_reconciliation_regression_test.py PASS
+- local_duplicate_guard_regression_test.py PASS
+- scale_hotpath_regression_test.py PASS
+- validator_regression_test.py PASS
+- Python py_compile PASS
+- Native Messaging 2/2 ping PASS (Agent 2.7.33)
+
+RC15 davranış özeti:
+- <=1000 evrak: standard-fast profil, başlangıç pacing FAST.
+- >1000 evrak: partitioned-controlled profil.
+- <=1000 evrakta doğrulanmış toplam ham veri 1 GiB sınırını aşarsa kontrollü profile çalışma sırasında otomatik geçiş.
+- >=3000 evrak: 500 kayıtlık Large Case runtime batch sistemi korunur.
+- Sabit 4 saniyelik batch beklemesi yoktur.
+- Batch geçişi sağlık durumuna göre 250 / 500 / 750 / 1000 / 2000 ms adaptiftir.
+- Parçalı işlerde son pencere HTML/hata baskısı yükselirse FAST -> NORMAL/CAUTIOUS otomatik düşürülür.
+- Final ZIP hedefi 1 GiB ve parça başına en fazla 1000 evrak olarak değişmeden korunur.

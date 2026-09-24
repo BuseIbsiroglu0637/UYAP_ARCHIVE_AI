@@ -1,0 +1,32 @@
+UYAP Archive AI v2.9.0 RC15.9.10 - CONTENT TRUTH + TRAILING SAFE CIRCUIT
+Native Agent: 2.7.47
+
+TEST OZETI
+- Python compile: PASS
+- JavaScript syntax: PASS (32 dosya)
+- Native Messaging open-pipe ping: PASS (2/2, Agent 2.7.47)
+- Regression suite: PASS (29/29)
+- 11.923 evrak / 24 batch: PASS
+- AUTO pipeline / dual native lane: PASS
+- Network observer + session recovery: PASS
+- Legitimate HTML document validation: PASS
+- Exact-correlated HTML content truth (URL evidence olmadan): PASS
+- JPEG strict + UYAP compatible validation: PASS
+- Windows WIC + GDI+ fallback orchestration: PASS
+- Exact UYAP JPEG trailing metadata preserve gate: PASS
+- Unsafe embedded trailer fail-closed: PASS
+- HTML circuit dedicated deadline + single HALF_OPEN probe gate: PASS
+- Finalization / legacy recovery: PASS
+- Local reconciliation / duplicate guard: PASS
+- 10K+ hotpath: PASS
+- Format matrix: PASS
+
+RC15.9.10 KRITIK DUZELTMELER
+1) Gercek UYAP HTML evraki URL/finalUrl kaybolsa bile exact tek-aday native UYAP correlation ile dogrulanabilir. Login, session ve bilinen hata HTML markerlari her zaman once reddedilir.
+2) UYAP JPEG dosyalarinda EOI sonrasindaki sinirli opaque kaynak metadatasi silinmez. Yalniz exact UYAP provenance + guvenli trailer sinifi + gercek Windows raster decode birlikte gecerse orijinal dosya VERIFIED olur.
+3) Windows decoder tam dosyadaki trailer nedeniyle acamazsa yalniz dogrulama icin EOI-bounded gecici kopya decode edilir. Arsivlenen/hashlenen dosya her zaman UYAP'tan gelen orijinal baytlardir.
+4) JPEG trailer icinde ikinci dosya/imza, HTML payload veya izin verilen siniri asan veri fail-closed reddedilir.
+5) HTML circuit cooldown normal pacing tarafindan kisaltilamaz. htmlCircuitNextProbeAt otoritatif deadline olarak korunur ve HALF_OPEN modunda ayni anda yalniz tek probe calisir.
+
+NOT
+Gercek Windows WIC/GDI+ codec davranisi bu Linux build ortaminda fiziksel olarak calistirilamaz. Windows kod yolu mock/orchestration regresyonlariyla dogrulandi; final saha dogrulamasi Windows + UYAP canli testidir.

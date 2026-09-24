@@ -1,0 +1,22 @@
+UYAP Archive AI v2.9.0 RC15.9.10 - TRANSIENT ERROR STATE CLEANUP
+Native Agent: 2.7.47
+
+KOK NEDEN
+- UYAP Kurum testinde Native Agent calisiyor ve ping basarili olmasina ragmen tek evrak NATIVE_AGENT_UNAVAILABLE olarak isaretleniyordu.
+- Gercek hata Native Messaging kopmasi degil, Windows FileNotFoundError / WinError 3 ile gecici staging dosya yolunun bulunamamasiydi.
+- Eski kod bu yerel dosya-yolu hatasini global Native Agent arizasi gibi yorumlayip tum oturumu NATIVE_AGENT_RECOVERY durumuna sokuyordu.
+
+RC15.9.10 DUZELTMELERI
+- Staging downloads-root hesaplamasi artik mevcut olmayan _incoming/session klasorlerinde Path.resolve() gerektirmiyor.
+- SOURCE_FILE_MISSING yapisal ve otomatik kurtarilabilir bir indirme hatasi olarak ayrildi.
+- Native Agent FileNotFoundError validate_download sirasinda structured SOURCE_FILE_MISSING cevabina donusuyor.
+- SOURCE_FILE_MISSING taze yeniden indirme stratejisine giriyor; global oturum NATIVE_AGENT_RECOVERY durumuna sokulmuyor.
+- Eski/ara ajan cevabinda FileNotFoundError/WinError 2-3 gelirse extension compatibility katmani da otomatik taze indirme kuyruğuna aliyor.
+- Native Agent gercekten kopuksa NATIVE_AGENT_UNAVAILABLE davranisi aynen korunuyor.
+- Yeni capability: source_path_self_heal_v1.
+
+TESTLER
+- 30/30 Python regression: PASS
+- JavaScript syntax (background/shared/content/popup): PASS
+- Python compile: PASS
+- RC15.9.10 missing staging path self-heal regression: PASS

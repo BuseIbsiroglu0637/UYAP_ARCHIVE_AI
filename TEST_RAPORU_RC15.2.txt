@@ -1,0 +1,14 @@
+UYAP Archive AI v2.9.0 RC15.2 PRIMARY-QUEUE-THROUGHPUT
+
+Amaç:
+- 11.923 evraklık gerçek testte görülen düşük throughput'u, güvenlik kapılarını gevşetmeden iyileştirmek.
+- HTML_RESPONSE üreten az sayıdaki/noisy evrakın ana primary kuyruğu yavaşlatmasını önlemek.
+
+Beklenen davranış:
+- Concurrency = 1.
+- Large-case batch = 500.
+- Scheduler floor = 100 ms.
+- Partitioned FAST = 120-220 ms; NORMAL = 200-300 ms.
+- HTML retry, sonraki primary batch varsa sonraki batch'e geçişi engellemez.
+- Session/native/correlation/download timeout gibi sistemik arızalarda CAUTIOUS/BACKOFF korunur.
+- Avision PDF trailing comment hotfix korunur.

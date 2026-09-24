@@ -1,0 +1,17 @@
+UYAP Archive AI RC15.9.30 - ATTEMPT OWNER REPLAY
+
+Tanılama sonucu:
+- Oturum çalışıyor; 11.923 toplam kaydın 6.324'ü yerel arşivden eşleşti.
+- 87 yeni evrak doğrulandı, anlık hız 19 evrak/dk ve native zaman aşımı 0.
+- 17 kayıt `ValueError: ATTEMPT_ID_REUSED_WITH_DIFFERENT_DOCUMENT` nedeniyle yanlış olarak incelemeye düştü.
+
+Kök neden ve düzeltme:
+- Aynı indirme denemesinde gerçek uzantı/kaynak kimliği sonradan öğrenildiğinde hedef yol değişebiliyordu.
+- Transfer günlüğü tüm istek anahtarını birebir karşılaştırdığı için aynı belgeyi farklı belge sanıyordu.
+- Tekrar sahipliği artık değişmez sessionId + documentId + stagingPath ile doğrulanır.
+- Önceki doğrulanmış hedef ve SHA-256 sonucu tekrar oynatılır; yeni hedefe yönlendirme veya üzerine yazma yapılmaz.
+- Farklı belge, oturum ya da staging yolu aynı attemptId'yi kullanırsa işlem yine fail-closed reddedilir.
+
+Doğrulama:
+- 51/51 standalone regresyon testi PASS.
+- Native Agent 2.7.62 zorunludur.

@@ -1,0 +1,14 @@
+UYAP Archive AI RC15.9.29 - WORKSPACE ARCHIVE RECOVERY
+
+Kök neden:
+- Workspace üst dosya seçicisi yalnız tarayıcı IndexedDB içindeki session kayıtlarını kullanıyordu.
+- Native Agent yerel `_archive.db` ve caseIndex verisini başarıyla okusa bile oturum kaybolduğunda dosya seçicide görünmüyordu.
+
+Düzeltme:
+- Yerel caseIndex kayıtları üst seçiciye ve Dosyalar tablosuna salt-okunur kurtarma kayıtları olarak eklenir.
+- Seçilen yerel dosya fiziksel uygun/toplam sayılarıyla Çalışma Merkezi'nde gösterilir.
+- Devam işlemi aynı UYAP ekranından yeni envanter oluşturarak fiziksel arşivle uzlaşır; mevcut dosyalar korunur.
+
+Doğrulama:
+- 50/50 standalone regresyon testi PASS.
+- Native Agent 2.7.61 değişmedi.

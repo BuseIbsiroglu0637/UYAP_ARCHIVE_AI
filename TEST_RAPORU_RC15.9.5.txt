@@ -1,0 +1,22 @@
+UYAP Archive AI v2.9.0 RC15.9.5 - WINDOWS JPEG DECODE FALLBACK
+
+TESTLER
+- RC15.9.5 Windows JPEG decode fallback orchestration: PASS
+- RC15.9.5 arbitrary post-EOI payload rejection: PASS
+- Kullanici tarafindan yuklenen JPEG kontrolu (2047x2047): PASS / jpeg_marker_structure
+- RC15.9.4 legitimate HTML document regression: PASS
+- RC15.9.4 network HTML evidence regression: PASS
+- 11,923 evrak / 24 batch large-case regression: PASS
+- Local bulk reconciliation: PASS
+- Local duplicate guard: PASS
+- 10K+ scale hot path: PASS
+- Format matrix validator: PASS
+- Finalization + legacy recovery: PASS
+- JavaScript syntax checks: PASS
+- Python compile: PASS
+
+NOT
+Windows GDI+ decoderinin fiziksel calismasi bu Linux test ortaminda calistirilamaz.
+Bu nedenle Windows decoder yolu fail-closed orchestration testiyle dogrulandi; canli decode testi
+hedef Windows bilgisayarda Agent 2.7.43 ile gerceklesecektir. Decoder fallback sadece iki dahili
+JPEG parseri reddettiginde, SOI/EOI mevcut ve EOI sonrasi keyfi payload yoksa devreye girer.

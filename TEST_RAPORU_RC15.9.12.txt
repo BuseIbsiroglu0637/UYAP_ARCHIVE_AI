@@ -1,0 +1,27 @@
+UYAP Archive AI v2.9.0 RC15.9.12 TEST RAPORU
+Native Agent: 2.7.48
+Tarih: 2026-09-20
+
+KOK NEDEN
+- Native host baglantisi acik kalmasina ragmen ajan icindeki islem hatalari NATIVE_AGENT_UNAVAILABLE olarak siniflandiriliyordu.
+- Sonraki ping basarili oldugu icin hata kaniti temizleniyor, ayni dosya yeniden dogrulanmadan kuyruk devam edebiliyor ve kok dizinde evrak_* indirme artiklari kalabiliyordu.
+
+UYGULANAN ONARIM
+- Native yanit alindigi bridgeResponseReceived alaniyla kanitlanir; gercek transport hatasi ile yerel islem hatasi ayrilir.
+- SQLite kilidi, Windows dosya kilidi ve genel islem hatasi structured hata kodlariyla doner.
+- Tamamlanmis tarayici indirmesi silinmeden en fazla 3 kez ayni baytlarla yeniden dogrulanir.
+- Yeniden dogrulama sirasinda kuyruk ilerlemesi durur; gecmis kaydi yoksa kontrollu taze indirmeye donulur.
+- Kok dizindeki canonical evrak_* dosyasi ancak VERIFIED yerel arsiv dosyasiyla boyut ve SHA-256 birebir eslesirse, en az 120 saniye yasindaysa ve normal dosyaysa silinir.
+- Farkli icerik, kanitsiz dosya, yeni dosya, sembolik baglanti ve kullanici adli dosya korunur.
+
+TEST SONUCLARI
+- 34 Python regresyon testi: PASS
+- Native Messaging acik-pipe testi: PASS (Agent 2.7.48, 2/2 ping)
+- Portable protokol testi: PASS (protocolVersion 2, 2/2 ping)
+- 6 kritik JavaScript dosyasi node --check: PASS
+- Olumsuz native yanitin baglanti kopmasi sayilmadigi dinamik bridge testi: PASS
+- Byte-identical cleanup, farkli byte koruma, DB kaydi olmayan dosya koruma ve kullanici dosyasi koruma testi: PASS
+
+NOT
+- Windows/UYAP canli ortamina bu Linux test ortamindan baglanilmadi.
+- Bu surum Native Agent 2.7.48 gerektirir; kurulum/onarim BAT dosyasi calistirilmali ve tarayici tamamen yeniden baslatilmalidir.

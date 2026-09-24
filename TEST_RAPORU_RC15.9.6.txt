@@ -1,0 +1,46 @@
+UYAP Archive AI v2.9.0 RC15.9.6 - DOCUMENT TYPE TRUTH + WIC HOTFIX
+Native Agent: 2.7.44
+
+UYGULANAN DUZELTMELER
+1) Document Type Truth
+- UYAP view_document_brd.uyap + evrakId + mimeType=Html kaniti dogrudan Chrome DownloadItem finalUrl/url bilgisinden okunur.
+- Network observer artik tek kaynak degildir; fallback/advisory kalir.
+- Ham URL, evrakId, dosyaId veya token kalici storage/diagnostic'e yazilmaz.
+- Sadece expectedDocumentKind=uyap_html_document ve documentKindEvidence gibi kaba kanit saklanir.
+
+2) JPEG WIC fallback
+- strict JPEG marker validator korunur.
+- UYAP/scanner compatible marker validator korunur.
+- Ucuncu katman Windows Imaging Component (WIC) / JpegBitmapDecoder ile gercek raster decode yapar.
+- WIC basarisizsa GDI+ dorduncu katman olarak denenir.
+- EOI yoksa veya EOI sonrasi keyfi payload varsa Windows decoder fallback kesinlikle calismaz.
+- INVALID_IMAGE redlerinde WIC/GDI+ hata modu tanilamaya yazilir.
+
+3) HTML Circuit State Machine
+- CLOSED -> OPEN -> HALF_OPEN -> CLOSED durum makinesi eklendi.
+- Ayni burst icin HTML_CIRCUIT_OPEN olayi tekrar tekrar uretilmez.
+- Half-open probe hatalari HTML_CIRCUIT_PROBE_FAILED olarak ayrilir.
+- Iki saglikli VERIFIED kayit circuit'i kapatir.
+
+TESTLER
+- Tum *regression_test.py dosyalari: PASS
+- 11.923 evrak / 24 batch: PASS
+- Finalization + legacy recovery: PASS
+- Local bulk reconciliation: PASS
+- Local duplicate guard: PASS
+- Unmatched recovery: PASS
+- AUTO pipeline: PASS
+- Performance hotpath: PASS
+- JPEG compat: PASS
+- Legitimate HTML document: PASS
+- Network/session recovery: PASS
+- 10K+ scale hotpath: PASS
+- Format matrix: PASS
+- RC15.9.6 Document Type Truth + WIC regression: PASS
+- Tum JavaScript node --check: PASS
+- Python compile: PASS
+- Agent ping: protocol v2 / Agent 2.7.44 / WIC capability / document_type_truth capability: PASS
+- Kullanici tarafindan yuklenen 1,172,160-byte JPEG ornegi mevcut strict validator ile 2047x2047 VALID: PASS
+
+ORTAM SINIRI
+Bu gelistirme ortami Windows degildir. WIC ve GDI+ gercek Windows codec cagrilari burada fiziksel olarak calistirilamadi; orchestration mock/regression testleriyle dogrulandi. Nihai WIC davranisi hedef Windows bilgisayarda canli UYAP testiyle dogrulanmalidir.

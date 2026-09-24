@@ -1,0 +1,32 @@
+UYAP Archive AI v2.9.0 RC15.9.11 STATE-RACE-SECURITY-HARDENING
+Test tarihi: 2026-09-20
+Native Agent: 2.7.47 (degismedi)
+
+TESPIT EDILEN KOK NEDENLER
+1) getProblemItems/Sorun Merkezi, native saglik kaniti olmadan transient state cleanup cagiriyordu. Bu, aktif bir Native Agent kesintisinin isaretini ve pacing kanitini erken temizleyebiliyordu.
+2) 12.000+ kayitta terminal warning taramasi surerken yeni bir native kesintisi baslarsa eski basari islemi daha yeni session state'ini ezebiliyordu.
+3) Reliability schema v4 startup migration'i aktif NATIVE_AGENT_RECOVERY durumunda bile nativeTransientFailureActive ve pacing state'ini temizliyordu.
+4) Native Messaging negatif yanitlarinda structured errorCode/diagnostic alanlari kayboluyor; timeout sinifsiz kaliyor; explicit disconnect aktif ve kuyruktaki Promise'leri askida birakabiliyordu.
+5) Popup kayitli-is kartinda UYAP kaynakli kurum/dosya adi innerHTML ile basiliyordu. Ozel HTML karakterleri arayuzu bozabiliyor ve extension UI icin injection yuzeyi olusturuyordu.
+6) Uyumsuz ajan mesaji gercek minimum 2.7.47 yerine eski 2.7.35 degerini gosteriyordu.
+
+UYGULANAN DUZELTMELER
+- UI refresh kaynakli native health cleanup kaldirildi; cleanup yalniz basarili ping, validation veya local inventory kanitiyla calisir.
+- Her yeni native kesintisine benzersiz generation token verildi; cleanup baslangicindan sonra degisen token daha yeni arizayi korur.
+- Cleanup pacing yazmadan once session'i yeniden okur ve forceDocuments ile terminal ghost warning'leri recovery aninda temizler.
+- Reliability schema v5 aktif native recovery state'ini migration sirasinda korur.
+- Native bridge negatif yanit alanlarini korur; timeout/disconnect errorCode'lari eklendi ve disconnect tum istekleri deterministik sonlandirir.
+- Popup resumable-job DOM'u textContent/dataset ile olusturulur; UYAP kaynakli metin HTML olarak yorumlanmaz.
+- Minimum ajan mesaji 2.7.47 olarak duzeltildi.
+
+OTOMATIK DOGRULAMA
+- Regression suite: 33/33 PASS
+- JavaScript syntax: 32/32 PASS
+- Python compile: 38/38 PASS
+- 11.923 evrak / 24 batch sentetik large-case regression: PASS
+- Finalization, local reconciliation, duplicate guard ve format matrix: PASS
+- RC15.9.11 state-race + UI security regression: PASS
+
+ORTAM SINIRI
+- Windows Chrome/Edge Native Messaging registry zinciri ve canli UYAP portali bu Linux ortaminda fiziksel olarak calistirilamaz.
+- Paket icindeki Windows portable installer kendi 2/2 protocol ping kapisini kurulum sirasinda zorunlu tutmaya devam eder.

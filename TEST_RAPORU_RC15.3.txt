@@ -1,0 +1,24 @@
+UYAP Archive AI v2.9.0 RC15.3 UNMATCHED-RECOVERY-HOTFIX
+Native Agent: 2.7.35
+
+TEST SONUÇLARI
+- RC15.3 unmatched recovery regression: PASS
+- Adaptive pacing regression: PASS
+- RC15.2 throughput regression: PASS
+- RC15.1 PDF hotfix regression: PASS
+- 11.923 evrak / 24 batch regression: PASS
+- 10K+ hot-path regression: PASS
+- Local bulk reconciliation: PASS
+- Local duplicate guard: PASS
+- Finalization regression: PASS
+- Format matrix regression: PASS
+- Tüm JavaScript dosyaları node --check: PASS
+- Tüm Python dosyaları py_compile: PASS
+- Kullanıcının yüklediği evrak_13729417527.tif: format/content validation PASS
+- Kullanıcının yüklediği evrak_13927951598.udf: format/content validation PASS
+
+GÜVENLİK KAPILARI
+- Concurrency = 1 korunur.
+- _unmatched dosyası yalnız aynı session + attempt kimliğiyle Native Agent tarafından staging'e alınabilir.
+- Güvenli correlation oluşmazsa dosya _unmatched altında kalır ve VERIFIED olamaz.
+- Eski root-level canonical recovery yalnız tam 1 aday olduğunda yapılır; birden fazla adayda fail-closed kalır.

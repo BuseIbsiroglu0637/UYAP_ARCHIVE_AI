@@ -1,0 +1,48 @@
+RC15.9.15 RESIDUAL-RECOVERY / Native Agent 2.7.51
+====================================================
+
+KOK NEDEN 1 - FINAL PAKETLEMEDE HTML KANITI KAYBI
+- Saha tanilamasinda finalizasyon baslangici: expected=215, unresolved=1, reviewRequired=1.
+- Finalizasyon bitisi: unresolved=26, gatePassed=false.
+- Son durum: 26 HTML_RESPONSE + 1 diger sorunlu kayit.
+- Indirme sirasinda gercek UYAP HTML evragi htmlDocumentValidated/htmlValidationMode ile dogrulaniyordu.
+- Eski final paketleme validate_content(path, path.suffix) cagrisi ile source/correlation kanitini tasimadan tekrar dogrulama yapiyordu.
+- Tiny KEP/notification HTML'leri bu nedenle final asamasinda yanlis HTML_RESPONSE durumuna dusuyordu.
+
+DUZELTME 1
+- Native documents tablosuna validation_kind + validation_mode eklendi.
+- VERIFIED indirmede native dogrulama kaniti kalici saklaniyor.
+- RC15.9.13 eski oturumlari icin committed transfer_journal icindeki htmlDocumentValidated kaniti geriye donuk okunuyor.
+- Kanit yalniz documentId + final path + size + SHA-256 birebir eslesiyorsa kabul ediliyor.
+- Byte/path/hash degisirse kanit kullanilamiyor; finalizasyon fail-closed kaliyor.
+- RC15.9.13 finalizasyonunun yanlislikla review_required durumuna indirdigi daha once HTML_DOCUMENT olarak dogrulanmis kayitlar yerel yeniden paketleme ile kontrollu kurtarilabiliyor.
+
+KOK NEDEN 2 - .UYAP TAS IYICI DOSYA ADI
+- UYAP bazi indirmeleri evrak_<numeric-id>.uyap kaynak adi ile veriyor.
+- Eski canonical_source_id ve dis kaynak dosya adi regex'i .uyap uzantisini tanimadigi icin ValueError uretiyordu.
+- Icerik algilayici ayni dosyanin gercek turunu zaten XML/UDF/PDF vb. olarak belirleyebiliyordu.
+
+DUZELTME 2
+- evrak_<id>.uyap canonical UYAP kaynak adi olarak kabul ediliyor.
+- .uyap bir arsiv dosya turu olarak kabul edilmiyor.
+- Nihai uzanti daima payload imzasi/yapisal icerik tespitinden geliyor.
+- Regresyon orneginde evrak_<id>.uyap kaynak dosyasi gercek XML olarak algilanip .xml ile arsivlendi ve baytlar degismedi.
+
+GUVENLIK KONTROLLERI
+- Login/session HTML hala HTML_RESPONSE ile reddediliyor.
+- UYAP hata sayfalari hala HTML_RESPONSE ile reddediliyor.
+- Yanlis SHA-256 ile eski HTML kaniti kullanilamiyor.
+- Hedef yol, fiziksel dosya, boyut ve SHA-256 final gate kontrolleri korunuyor.
+- .uyap yalniz canonical evrak_<id>.uyap adinda kimlik kaniti; rastgele dosya adi kabul edilmiyor.
+
+TESTLER
+- RC15.9.15 FINALIZATION PROOF + .UYAP CARRIER: PASS
+- Tum native regresyon paketi: 36/36 PASS
+- Python syntax/compile: PASS
+- background/download-manager.js syntax: PASS
+- background/native-agent.js syntax: PASS
+
+SURUM
+- Extension: 2.9.0 RC15.9.15 RESIDUAL-RECOVERY
+- Native Agent: 2.7.51
+- Native Agent yeniden kurulmalidir.

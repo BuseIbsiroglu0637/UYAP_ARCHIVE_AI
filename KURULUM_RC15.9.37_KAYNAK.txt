@@ -1,0 +1,34 @@
+UYAP ARCHIVE AI v2.9.0 RC15.9.37 - WORKSPACE LIVE SYNC
+
+Bu surum Native Agent 2.7.64 gerektirir. SETUP_UYAP_ARCHIVE_AI.bat dosyasini calistirin.
+
+UYAP belge servisi art arda Hata.html/Invalid request dondururse uzanti yeni istekleri guvenli bicimde durdurur. UYAP dava ve Evrak ekranini bir kez yenileyin; liste gorundugunde "Yeniledim, guvenli devam et" dugmesine basin.
+Mevcut C:\UYAP, C:\UYAP KURUM HUKUK ve UYAP_Arsiv klasorlerini kurulum icin SILMEYIN.
+Kurulumdan sonra Chrome/Edge'i tamamen kapatip yeniden acin.
+
+Yeni kural:
+- Baska bilgisayardan gelen yarim arsiv icin popup'ta “Baska bilgisayardaki arsivden devam et” dugmesine basin.
+- `UYAP_Arsiv` klasorunu veya onu iceren ust klasoru secin. Tarayicinin indirme klasorunu degistirmeniz gerekmez.
+- Sonra ayni UYAP dava/dosya ekranini acip arsivlemeyi baslatin. Fiziksel dosyalar SHA-256 ile kontrol edilir, yalniz eksikler indirilir.
+- RC15.9.26 veya daha eski surumle baslamis bir is varsa once popup'tan duraklatin, tarayiciyi kapatip bu surumu kurun; eski eksik tarama onbellegi otomatik gecersiz kilinir.
+- `UYAP_Arsiv` yanindaki eski `evrak_<id>.*` dosyalarini SILMEYIN veya TASIMAYIN. Ajan DB boyut/SHA-256 ve icerik yapisini dogrulayip kaynaklari yerinde koruyarak kanonik arsive alir.
+- Kurulumdan sonra ayni UYAP dava/dosya ekranini acin ve yeni is olusturmak yerine mevcut isi devam ettirin.
+- RC15.9.27'de ilerlemeyen bir is icin once duraklatin, Chrome/Edge'i tamamen kapatin, bu surumu kurun ve ayni isi devam ettirin. Mevcut dogrulanan/atlanmis dosyalar korunur.
+- Tarayici is oturumu kaybolmussa yerel `_archive.db` dosyalari Workspace ust secicisinde ve Dosyalar ekraninda otomatik gorunur. Ayni UYAP ekrani acikken “UYAP'tan isi yeniden olustur” yalniz eksikleri kuyruga baglar.
+- Yeniden olusturulan iste ayni indirme denemesinin gec ogrenilen dosya turu/hedef yolu degisse bile ajan daha once dogruladigi byte'lari guvenli bicimde tekrar oynatir; `ATTEMPT_ID_REUSED_WITH_DIFFERENT_DOCUMENT` yalanci hatasi olusmaz.
+- Workspace artik buyuk yerel arsiv taramasini beklemez; calisan oturum ve ilerleme once gorunur, yerel arsiv indeksi arka planda tamamlanir.
+- Popup ve Workspace ayni anda arşiv taraması isterse istekler tek taramada birlestirilir; kuyrukta yinelenen tam DB taramalari birikmez.
+- Kurum UYAP iframe/about:blank gecislerinden gelen gercek dava acma baglami artik sekme ve origin birlikte dogrulanarak kabul edilir; `KURUM_CONTEXT_NOT_AUTHORIZED` yanlis hatasi olusmaz.
+- `PDF_TRAILING_DATA` olarak bekleyen ve karantinada korunan PDF'ler kurulum sonrasi otomatik yeniden dogrulanir. Guvenli tek satirlik uretici yorumuysa tekrar indirilmeden tamamlanir.
+- PDF govdesi/xref yapisi bozuksa veya son ek HTML, aktif icerik ya da rastgele ikili veri ise kayit yine reddedilir.
+- `_archive.db` kaydi arşiv var demek degildir.
+- Ilk acilis tablosu fiziksel mevcut/boyut uyumunu gosterir.
+- ALREADY_ARCHIVED karari SHA-256 ile fiziksel dosya kanitlanmadan verilmez.
+- Arsiv dosyalari silinmis ama DB kalmissa satir metadata olarak gorulebilir; fiziksel eksik olarak isaretlenir ve yeniden indirmeyi engellemez.
+RC15.9.37 canli Workspace duzeltmeleri:
+- Workspace acikken aktif is ozeti 4 saniyede bir yenilenir; ilerleyen sayaçlar ve durumlar sayfayi kapatip acmadan gorunur.
+- Dosyalar gorunumu, secili is degistiginde kontrollu aralikla yeniden okunur; yerel arsiv indeksi yalniz degisiklik oldugunda taze taranir.
+- Native registry onbellegi dogrulama/senkron/karantina islemlerinden sonra gecersiz kilinir; 60 saniyelik eski goruntuye takilma engellenir.
+- Baska bilgisayardan kopyalanan DB satirlarinda eski mutlak Windows yolu yerine secili arsiv kokundeki target_path yeniden baglanir.
+- DB satiri olmayan ama fiziksel olarak bulunan evraklar Workspace dosya secicisinde "kontrol gerekli" olarak gorunur; sessizce kaybolmaz.
+

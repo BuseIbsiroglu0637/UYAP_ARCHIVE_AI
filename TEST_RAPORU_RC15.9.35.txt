@@ -1,0 +1,49 @@
+UYAP Archive AI RC15.9.37 - WORKSPACE LIVE SYNC
+Debug / Regresyon Raporu
+Tarih: 21 Eylül 2026
+Native Agent: 2.7.64
+
+ÖZET
+RC15.9.34 kaynak kodu üzerinde Workspace'e işlenen dosyaların geç/geçersiz görünmesi sorununa odaklanan debug çalışması yapıldı. Sorun yalnız indirme katmanında değildi; Workspace ve yerel arşiv registry katmanında birden fazla görünürlük/tazelik açığı bulundu ve giderildi.
+
+BULUNAN KÖK NEDENLER
+1) Workspace canlı yenilenmiyordu.
+   - Popup tarafında periyodik yenileme vardı fakat workspace/workspace.js aktif işi ve rapor satırlarını açılıştan sonra otomatik yenilemiyordu.
+   - Sonuç: arka planda evrak doğrulanıp arşive alınsa bile Workspace sayaçları ve Dosyalar tablosu eski durumda kalabiliyordu.
+
+2) Yerel arşiv registry cache'i 60 saniye bayat kalabiliyordu.
+   - Başarılı sync_inventory / validate / karantina revalidation / HTML dışlama işlemleri registry cache'ini geçersiz kılmıyordu.
+   - Sonuç: manuel veya arka plan yenilemesi gerçek diskteki son durumu hemen göstermeyebiliyordu.
+
+3) Cross-PC Windows caseIndex yol çözümlemesinde stale local_path kullanılabiliyordu.
+   - Başka bilgisayardan kopyalanan _archive.db içinde eski sürücü harfli mutlak local_path Windows'ta doğrudan kullanılabiliyordu.
+   - target_path yeni seçili arşiv kökünde mevcut olsa bile dosya caseIndex'te eksik görünebiliyordu.
+
+4) DB satırı olmayan fiziksel evraklar caseIndex'e girmiyordu.
+   - Bir crash/yarım commit sonrası dosya UYAP_Arsiv altında fiziksel olarak kalmış fakat SQLite satırı yazılmamışsa documents listesinde kurtarılabiliyor, fakat üst dosya/case seçicisinde görünmeyebiliyordu.
+
+UYGULANAN DÜZELTMELER
+- Workspace görünürken aktif oturum özeti 4 saniyede bir hafif sorguyla yenileniyor.
+- Seçili oturumun Dosyalar raporu değişiklik halinde 12 saniyelik kontrollü aralıkla tazeleniyor.
+- Yerel arşiv registry'si dirty olduğunda 15 saniyelik debounce ile forceRefresh alıyor.
+- Registry cache başarılı arşiv mutasyonlarından sonra invalid ediliyor.
+- Workspace eski bir async registry sonucunu, kullanıcı başka oturuma geçtiyse ekrana uygulamıyor.
+- Native Agent registry yol çözümü _portable_row_paths üzerinden mevcut rebased target_path'i tercih ediyor.
+- DB satırı olmayan fiziksel dosyalar caseIndex'e present-but-unverified olarak ekleniyor; otomatik VERIFIED sayılmıyor, problemCount altında görünür tutuluyor.
+- Sürüm RC15.9.37 QUEUE-RECOVERY, Native Agent 2.7.64 olarak güncellendi.
+
+DOĞRULAMA
+- JavaScript syntax: 33/33 dosya PASS.
+- Python compile: 61/61 dosya PASS.
+- Standalone regression suite: 56/56 PASS.
+- Özellikle RC15.9.25 cross-PC, RC15.9.29 Workspace archive recovery, RC15.9.31 nonblocking registry, RC15.9.34 content endpoint recovery ve yeni RC15.9.37 Workspace live sync regresyonları PASS.
+- host_self_test.py ve portable_protocol_self_test.py standalone suite'e dahil değildir; gerçek native-host/CLI parametresi isteyen entegrasyon self-testleridir.
+
+SAHA TESTİ SINIRI
+Bu ortam Linux tabanlıdır; gerçek Windows Registry/Native Messaging kurulumu ve canlı UYAP oturumu burada uçtan uca çalıştırılamadı. Kod seviyesi, simülasyon ve regresyon kontrolleri geçmiştir. Hedef Windows makinede kurulum sonrası kısa bir canlı UYAP smoke testi yine yapılmalıdır.
+
+KURULUM NOTU
+- Mevcut UYAP_Arsiv klasörünü SİLMEYİN.
+- RC15.9.37 ile Native Agent 2.7.64 gerektiği için SETUP_UYAP_ARCHIVE_AI.bat çalıştırılmalıdır.
+- Tarayıcı tamamen kapatılıp yeniden açılmalıdır.
+- Aynı UYAP dava/dosya ekranında mevcut iş devam ettirilmelidir; yeni iş açılması zorunlu değildir.

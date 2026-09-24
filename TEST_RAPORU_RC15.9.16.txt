@@ -1,0 +1,25 @@
+RC15.9.16 STABILITY-RECENT-ARCHIVE / Native Agent 2.7.52
+
+SONUC
+- 38/38 standalone regression testi PASS.
+- JavaScript syntax kontrolleri PASS.
+- Python compile kontrolleri PASS.
+
+KOK DUZELTMELER
+1. Exact/canonical browser adoption artik Chrome tamamlama ve byte boyutu kanitindan ONCE dosyayi staging'e tasimaz.
+   - Boyut uyusmazsa kaynak dosya yerinde korunur.
+   - Karantinaya yanlis dosya tasinmaz.
+   - fresh_redownload istenir.
+2. Native islem basarili olup yanit koprude kayboldugunda, kaynak dosya artik tasinmis olsa bile ayni attempt transfer_journal uzerinden replay edilir.
+   - session/document/staging/target kimligi kontrol edilir.
+   - final dosya size + SHA-256 + content validation ile yeniden kanitlanir.
+3. Finalization tarafinda fiziksel dosyasi yeniden dogrulanan kayitlar VERIFIED durumuna uzlastirilirken eski NATIVE/ARCHIVE/TRANSFER hata warning alanlari temizlenir.
+4. RC15.9.15 residual recovery korunur: exact download-ID, XML/ZIP gercek tur algilama, staging collision korumasi, HTML finalization proof.
+
+SON INDIRILENLER
+- Native registry artik fileModifiedAt alanini dondurur.
+- Siralama DB updatedAt yerine once fiziksel fileModifiedAt kullanir.
+- Popup: ilk 5 son yerel evrak.
+- Arsiv Merkezi: ilk 12 son yerel evrak.
+- Popup yerel arsiv taramasi acilista yapilir, ardindan en fazla 60 saniyede bir yenilenir.
+- IndexedDB/session kaydi olmasa bile Native Agent fiziksel UYAP_Arsiv klasorunu kesfedebilir.

@@ -1,0 +1,13 @@
+RC15.9.13 CLEAN-FLOW / Native Agent 2.7.49
+
+35 Python regresyon dosyasi: PASS
+33 JavaScript dosyasi sozdizimi: PASS
+Native Messaging acik-pipe testi: 2/2 ping PASS
+JavaScript indirme kimligi ve sinirli tekrar politikasi: PASS
+Kullanicinin HTML ornegi ile validate_download uctan uca: PASS
+Arsivlenen HTML baytlari kaynakla birebir ayni: PASS
+Eski staging/adoption ValueError yeniden uretimi: PASS
+Giris/hata HTML reddi, yanlis download ID reddi, farkli staging iceriginin korunmasi: PASS
+
+Canli Windows/UYAP testi yapilmadi. Tarayici olay akisi ve kurulum sonrasi eski isin kurtarilmasi kullanici ortaminda dogrulanmalidir.
+Onceki TEST_RAPORU dosyalari tarihsel test sonuclaridir.

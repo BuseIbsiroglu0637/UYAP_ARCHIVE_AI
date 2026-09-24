@@ -1,0 +1,26 @@
+UYAP Archive AI RC15.9.21 LOCAL-CASE-INDEX
+Native Agent: 2.7.55
+
+SONUCLAR
+- Standalone regresyon: 43/43 PASS
+- Python py_compile: PASS
+- Node syntax: download-manager/native-agent/frame-client/service-worker/popup/workspace PASS
+- Yeni RC15.9.21 case index testi: PASS
+- Native registry read-only DB testi: PASS
+- Document output limit=1 iken tum caseIndex: PASS
+- Duplicate session document_id dedup: PASS
+- Frame session-baseline diagnostic wiring: PASS
+
+GERCEK _archive.db TESTI
+- DB COUNT documents: 7.839
+- Kurtarilabilen satir: 7.837
+- registryWarnings: REGISTRY_DB_PARTIAL_RECOVERY
+- caseIndex: 17 dosya
+- Kurum/Daire + Dosya No + evrak/dogrulanan/sorun sayilari onceki manuel tabloyla eslesti.
+
+SON PAYLASILAN CANLI TANILAMA
+- 459/459 yerel arsivde eslesti
+- 0 unmatched
+- 0 problem document
+- ALREADY_ARCHIVED beklenen ve dogru davranis
+- Indirme girisimi yapilmadi.

@@ -1,0 +1,26 @@
+UYAP Archive AI v2.9.0 RC15.9.5 - WINDOWS JPEG DECODE FALLBACK
+Native Agent: 2.7.43
+
+PASS
+- Gercek UYAP HTML evragi (mimeType=Html + evrakId endpoint kaniti) dogrulama
+- Login formu HTML reddi
+- UYAP hata sayfasi HTML reddi
+- Network observer token-free declaredDocumentKind aktarimi
+- Save capture view_document_brd.uyap + mimeType=Html puanlamasi
+- JavaScript syntax
+- Python compile
+- Finalization regression
+- 11.923 evrak / 24 batch regression
+- Local bulk reconciliation
+- Local duplicate guard
+- RC15.1 PDF hotfix
+- RC15.2 throughput
+- RC15.3 unmatched recovery
+- RC15.4 clean install
+- RC15.5 lifecycle
+- RC15.6 throughput
+- RC15.8.1/15.8.2/15.8.3 UI regressions
+- 10K+ hotpath
+- Format matrix
+
+Not: Eski surum numarasini birebir bekleyen tarihsel regression dosyalari yeni release kimligiyle dogal olarak kosulmaz.

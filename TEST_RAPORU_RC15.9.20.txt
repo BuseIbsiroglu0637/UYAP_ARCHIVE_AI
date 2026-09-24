@@ -1,0 +1,19 @@
+UYAP Archive AI RC15.9.20 FINAL-RECOVERY-CANONICAL
+Build: 2026-09-20
+Native Agent: 2.7.54
+
+Kok neden:
+- Finalization baslangicinda unresolved=0 iken bir yerel arsiv alias kaydi duplicate-path sahiplik uzlastirmasinda invalid/missing adayi olabiliyordu.
+- queueFinalRecovery bu kaydi tekrar QUEUED yapiyor, fakat normal local duplicate guard ayni fiziksel aliasi tekrar bulup DOWNLOAD_BLOCKED_LOCAL_DUPLICATE ile skip ediyordu.
+- Dongu final recovery pass limiti dolunca 53/54 benzeri INCOMPLETE durumda bitiyordu.
+
+Duzeltme:
+- Yalniz final_integrity recovery icinde, daha once UNCHANGED_LOCAL_ARCHIVE + localArchiveMatchState=found olan adaylar forceCanonicalRecovery ile isaretlenir.
+- Bu aday local duplicate gate'i gecici olarak bypass eder ve kendi deterministic targetPath'ine materialize edilir.
+- Basarili dogrulama sonrasi forceCanonicalRecovery bayragi temizlenir.
+- Normal duplicate korumasi degismedi.
+- RC15.9.19 source-recovery liveness, RC15.9.18 opaque/JPEG proof ve onceki davranislar korundu.
+
+Regresyon:
+- 42/42 standalone test PASS.
+- host_self_test.py ve portable_protocol_self_test.py kurulu Windows host/protokol parametresi isteyen manuel testlerdir; sayiya dahil degildir.

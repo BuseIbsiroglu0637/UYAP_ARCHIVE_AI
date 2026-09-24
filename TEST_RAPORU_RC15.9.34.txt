@@ -1,0 +1,32 @@
+UYAP Archive AI RC15.9.34 - CONTENT ENDPOINT RECOVERY
+
+İncelenen gerçek tanılama:
+- Toplam envanter: 11.924
+- Fiziksel yerel arşivden doğrulanan/atlanan: 9.044
+- Kuyruk: 2.865
+- HTML_RESPONSE yeniden deneme: 12
+- PDF_TRAILING_DATA müdahale: 2
+- İki PDF'nin de %%EOF sonrası 17 bayt çekirdeği: `Invalid request`
+- HTML devresi: 6 başarısız half-open testi; önceki azami bekleme 8 saniye
+
+Uygulanan kök düzeltme:
+1. PDF sonundaki tam `Invalid request` UYAP belge-servisi yanıt hatası olarak sınıflandırılır.
+2. Bu yanıtlar PDF bozulması olarak kalıcı müdahaleye bırakılmaz; karantina korunarak taze evrak bağıyla yeniden indirilir.
+3. Mevcut eski karantina kayıtları sürüm açılışında otomatik olarak güvenli ertelenmiş kuyruğa taşınır.
+4. Devre kesici 15/30/60 saniyelik üç kontrollü test uygular.
+5. Üç test de başarısızsa tüm yeni UYAP indirme istekleri kesilir; oturum `CONTENT_ENDPOINT_REFRESH_REQUIRED` ile duraklatılır.
+6. Kullanıcı UYAP dava/Evrak ekranını yenileyip devam ettiğinde tam kaynak bağlama ve başlangıç önkontrolü tekrar çalışır.
+7. Devamın ilk indirmesi half-open tekil kapısından geçer; aynı hata sürerse kuyruk tekrar güvenli durur.
+
+Güvenlik:
+- Hata HTML/PDF byte'ları kanonik arşive alınmaz.
+- Doğrulanmış 9.044+ yerel kayıt ve bütün kuyruk korunur.
+- Rastgele PDF trailing data kabul edilmez.
+- Kullanıcı onayı olmadan hata yanıtı gerçek evrak sayılmaz.
+
+Doğrulama sonucu:
+- JavaScript syntax: PASS
+- Python compile: PASS
+- 55/55 regresyon testi: PASS
+- RC15.9.34 özel regresyon testi: PASS
+- Native Agent: 2.7.63 (değişiklik gerektirmez)
