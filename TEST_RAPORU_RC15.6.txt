@@ -1,0 +1,1 @@
+RC15.6 MAX-SAFE-THROUGHPUT test raporu. Otomatik regresyonlar paketleme asamasinda calistirilir.

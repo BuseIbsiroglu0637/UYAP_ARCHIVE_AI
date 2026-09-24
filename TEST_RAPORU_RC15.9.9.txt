@@ -1,0 +1,26 @@
+UYAP Archive AI v2.9.0 RC15.9.10 - TRANSIENT ERROR STATE CLEANUP
+Native Agent: 2.7.47
+
+RC15.9.10 KRITIK DUZELTMELER
+- LOCAL_ARCHIVE_AMBIGUOUS artik download oncesi bloklama/manual review degildir.
+- Yerel metadata yalniz aday bulur; final kimlik karari dogrulanmis SHA-256 ile verilir.
+- Fresh UYAP indirmesi once normal format/icerik validatorlerinden gecer, sonra SHA-256 hesaplanir.
+- Ayni SHA-256 ayni dava/source scope icinde mevcutsa benzersiz hedef yol icin hard-link denenir.
+- Hard-link kullanilamazsa dogrulanmis yeni indirme normal hedefe tasinir; veri kaybi riski alinmaz.
+- Ayni baslik/tarih fakat farkli SHA-256 olan evraklar ayri belge olarak arsivlenir.
+- Eski REVIEW_REQUIRED + LOCAL_ARCHIVE_AMBIGUOUS kayitlari reliability schema v3 migration ile otomatik QUEUED/hash-reconciliation durumuna tasinir.
+- Final paket icin her UYAP belge kimligi benzersiz local path korur; hash tekrarlarina izin verilir, path tekrarlarina izin verilmez.
+- SHA-256 scope lookup icin SQLite index eklendi.
+- Capability: content_hash_reconciliation_v1.
+
+TESTLER
+- Regression suite: 31/31 PASS
+- RC15.9.10 end-to-end content-hash/hard-link regression: PASS
+- Native Messaging self-test: BAGLANTI TESTI BASARILI - Ajan 2.7.47 - 2/2 ping
+- JavaScript syntax: 32/32 PASS
+- Python compile: 36/36 PASS
+- 11.923 / 24 batch regression: PASS
+- Finalization + local reconciliation + duplicate guard + format matrix + 10K hotpath: PASS
+
+NOT
+Windows/NTFS hard-link desteklemezse sistem hard-link zorlamaz; yeni dogrulanmis dosyayi benzersiz hedefte saklar. Arşiv bütünlüğü depolama optimizasyonundan daima once gelir.

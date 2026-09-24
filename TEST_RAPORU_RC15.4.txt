@@ -1,0 +1,14 @@
+UYAP Archive AI v2.9.0 RC15.4 CLEAN-INSTALL-BROWSER-HOST-HOTFIX
+Native Agent: 2.7.35
+
+Hedef:
+- Temiz ajan kurulumunda Chrome/Edge Native Messaging host keşfinin güvenilir olması.
+- Eski host silinmiş veya registry eski yola bakıyor olsa bile yeni kayıtların sıfırdan kurulması.
+- Generic 'Ajan gerekli' mesajı yerine gerçek native bridge hata sınıfının gösterilmesi.
+
+Regresyon kapsamı:
+- Browser registry root matrisi: PASS
+- Stable extension ID / allowed_origins: PASS
+- Install diagnostic contract: PASS
+- Native bridge error classifier source check: PASS
+- Önceki RC15.3 / RC15.2 / RC15.1 regresyonları: PASS

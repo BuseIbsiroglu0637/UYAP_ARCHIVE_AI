@@ -1,0 +1,15 @@
+UYAP Archive AI RC15.9.28 - REGISTRY LANE LIVENESS
+
+Kök neden:
+- Arşiv kayıt ekranının büyük `_archive.db` taraması ile indirme öncesi `sync_inventory` aynı bulk Native Messaging kanalını kullanıyordu.
+- Periyodik kayıt yenilemesi bulk kanalını tekrar tekrar zaman aşımına uğratarak indirme kuyruğunun uzlaştırma bekleyişinde kalmasına yol açabiliyordu.
+
+Düzeltme:
+- `list_archive_registry` ve `select_existing_archive` için bağımsız registry kanalı.
+- `sync_inventory` için 5 dakikalık kesin süre sınırı.
+- Uzlaştırma hatasında kuyruk kilidini serbest bırakan mevcut kurtarma davranışının regresyon testi.
+
+Doğrulama:
+- 49/49 standalone regresyon testi PASS.
+- Native Agent sürümü: 2.7.61 (değişmedi).
+- Mevcut VERIFIED/SKIPPED/inceleme kayıtları silinmez.

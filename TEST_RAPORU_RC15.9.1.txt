@@ -1,0 +1,43 @@
+UYAP Archive AI v2.9.0 RC15.9.1 JPEG-COMPAT-HOTFIX
+Native Agent: 2.7.41
+
+AMAÇ
+- RC15.8.x sırasında toplu INVALID_IMAGE üreten UYAP JPEG kayıtlarını güvenliği gevşetmeden daha uyumlu doğrulamak.
+- Eski INVALID_IMAGE kayıtlarını otomatik tekrar kuyruğundan ayırmak.
+- Karantinadaki görüntüleri yeniden UYAP'tan indirmeden yerelden yeniden doğrulayabilmek.
+
+UYGULANAN DÜZELTMELER
+- Strict JPEG doğrulayıcı birinci katman olarak korundu.
+- İkinci katmanda fail-closed UYAP/scanner uyumlu JPEG marker parser eklendi.
+- DNL (SOF yüksekliği 0 + Define Number of Lines), çoklu/progressive scan, 0xFF byte stuffing ve restart marker desteklendi.
+- Geçerlilik için SOI + SOF/boyut + SOS/entropy + EOI zorunlu.
+- EOI sonrası keyfi payload kabul edilmez.
+- Uyumlu doğrulanan kayıtlar imageValidationMode=jpeg_uyap_compatible_* ve validationNotes ile işaretlenir.
+- INVALID_IMAGE local quarantine revalidation listesine eklendi.
+- Problem Center açılırken legacy deterministik retry kayıtları review_required durumuna normalize edilir; otomatik tekrar sayacı şişmez.
+- Extension Agent 2.7.41 + jpeg_uyap_compatible_v1 capability ister.
+
+REGRESYONLAR
+- RC15.9.1 JPEG compatibility: PASS
+  * strict standart JPEG: PASS
+  * DNL uyumlu JPEG: PASS
+  * keyfi trailing payload: REJECT PASS
+  * SOF içermeyen sahte JPEG: REJECT PASS
+  * karantinadaki DNL JPEG'i yerelden revalidate + final hedefe taşıma: PASS
+- RC15.9 Network Observer + Session Recovery: PASS
+- RC15.8 Auto Pipeline: PASS
+- RC15.8 performance hotpath: PASS
+- RC15.8.1 download count UI: PASS
+- RC15.8.2 total progress UI: PASS
+- RC15.8.3 logout toolbar alert: PASS
+- 11.923 / 24 large-case batch: PASS
+- finalization + legacy recovery: PASS
+- local reconciliation: PASS
+- duplicate guard: PASS
+- 10K+ hotpath: PASS
+- format matrix: PASS
+- Python compile: PASS
+- JavaScript syntax: PASS
+
+ÖNEMLİ SINIR
+- Kullanıcının ekrandaki 90 INVALID_IMAGE kaydından gerçek bir JPEG örneği henüz analiz edilmedi. Bu sürüm standartlara uygun ancak önceki strict parser'ın kaçırdığı önemli JPEG varyantlarını güvenli biçimde kapsar. Eğer bazı kayıtlar RC15.9.1 ile de INVALID_IMAGE kalırsa bir örnek dosya üzerinden ek varyant nokta atışı incelenmelidir; validator keyfi biçimde gevşetilmemiştir.

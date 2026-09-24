@@ -1,0 +1,15 @@
+UYAP Archive AI RC15.9.27 SOURCE-ID-LOOSE-IMPORT TEST RAPORU
+
+Saha kanıtı:
+- RC15.9.26 tanılamasında Agent 2.7.60 sağlıklı çalışmasına rağmen `legacyLooseImported=0` kaldı.
+- Gerçek eski `_archive.db`: 7.839 satır, 17 dava/dosya grubu, 7.836 kaynak evrak numarası.
+- DB `local_path` alanı kanonik `C:\UYAP\UYAP_Arsiv\...` yolunu taşıyor; gevşek dosya adıyla aynı değil.
+
+Kök çözüm:
+- Seçilen kökteki `evrak_<sayısal-id>.*` dosyaları tek geçişte indekslenir.
+- DB `source_document_id` alanı bu indeksle bağlanır.
+- Dava/kurum kapsamı + boyut + SHA-256 + yapısal içerik doğrulaması geçmeden dosya kabul edilmez.
+- Kaynak dosya korunur; farklı içerikli hedef asla ezilmez; giriş/hata HTML'si reddedilir.
+- Tarama önbelleği v4'e çıkarıldı.
+
+Regresyon hedefi: 48/48 PASS

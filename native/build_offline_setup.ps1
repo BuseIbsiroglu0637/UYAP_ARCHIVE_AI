@@ -1,0 +1,96 @@
+param(
+  [ValidateSet('amd64','arm64','win32')]
+  [string]$Arch = 'amd64'
+)
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version 2.0
+$PackageRoot = Split-Path -Parent $PSScriptRoot
+$BuildRoot = Join-Path $env:TEMP ('UYAPArchiveAI-SetupBuild-' + [guid]::NewGuid().ToString('N'))
+$Work = Join-Path $BuildRoot 'work'
+$PayloadStage = Join-Path $BuildRoot 'payload'
+New-Item -ItemType Directory -Force -Path $Work,$PayloadStage | Out-Null
+
+$specs = @{
+  amd64 = @{file='python-3.13.15-embed-amd64.zip';url='https://www.python.org/ftp/python/3.13.15/python-3.13.15-embed-amd64.zip';sha='d1f04d990aee1253d8569e8e5104e30fa9f5fa830899f14843448872d936a2cf'}
+  arm64 = @{file='python-3.13.15-embed-arm64.zip';url='https://www.python.org/ftp/python/3.13.15/python-3.13.15-embed-arm64.zip';sha='cd992cbfb33be433ff20f150691595efb2862e56f4f1bec684c6077d4775af8e'}
+  win32 = @{file='python-3.13.15-embed-win32.zip';url='https://www.python.org/ftp/python/3.13.15/python-3.13.15-embed-win32.zip';sha='3f5506367943d16dffa89f0ea140ebf04481a80611eb119e76e95aea8c79f5ce'}
+}
+$spec=$specs[$Arch]
+$runtimeCache=Join-Path $PackageRoot 'native\runtime-cache'
+New-Item -ItemType Directory -Force -Path $runtimeCache | Out-Null
+$runtimeZip=Join-Path $runtimeCache $spec.file
+if (-not (Test-Path $runtimeZip) -or (Get-FileHash $runtimeZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $spec.sha) {
+  Write-Host 'Resmi Python embeddable runtime indiriliyor...'
+  try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+  Invoke-WebRequest -UseBasicParsing -Uri $spec.url -OutFile $runtimeZip
+}
+$hash=(Get-FileHash $runtimeZip -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($hash -ne $spec.sha) { throw 'Runtime SHA-256 dogrulamasi basarisiz.' }
+
+$copyRoot=Join-Path $PayloadStage 'UYAP_Archive_AI_RC15.9.37'
+New-Item -ItemType Directory -Force -Path $copyRoot | Out-Null
+Get-ChildItem -LiteralPath $PackageRoot -Force | Where-Object { $_.Name -notlike 'UYAP_Archive_AI_RC15.9.37_Setup*.exe' } | ForEach-Object {
+  Copy-Item -LiteralPath $_.FullName -Destination $copyRoot -Recurse -Force
+}
+$payloadZip=Join-Path $Work 'payload.zip'
+Compress-Archive -Path (Join-Path $PayloadStage '*') -DestinationPath $payloadZip -CompressionLevel Optimal -Force
+
+$bootstrap=Join-Path $Work 'bootstrap.cmd'
+@'
+@echo off
+setlocal
+chcp 65001 >nul
+set "DEST=%LOCALAPPDATA%\UYAPArsiv\Distribution\RC15.9.37"
+if exist "%DEST%" rmdir /s /q "%DEST%"
+mkdir "%DEST%" >nul 2>&1
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%~dp0payload.zip' -DestinationPath '%DEST%' -Force"
+if errorlevel 1 exit /b 1
+call "%DEST%\UYAP_Archive_AI_RC15.9.37\SETUP_UYAP_ARCHIVE_AI.bat"
+set "EC=%ERRORLEVEL%"
+if "%EC%"=="0" explorer "%DEST%\UYAP_Archive_AI_RC15.9.37"
+exit /b %EC%
+'@ | Set-Content -LiteralPath $bootstrap -Encoding ASCII
+
+$target=Join-Path $PackageRoot ("UYAP_Archive_AI_RC15.9.37_Setup_" + $Arch + '.exe')
+$sed=Join-Path $Work 'setup.sed'
+$workEsc=$Work.Replace('\','\\')
+$targetEsc=$target.Replace('\','\\')
+$sedText=@"
+[Version]
+Class=IEXPRESS
+SEDVersion=3
+[Options]
+PackagePurpose=InstallApp
+ShowInstallProgramWindow=1
+HideExtractAnimation=0
+UseLongFileName=1
+InsideCompressed=0
+CAB_FixedSize=0
+CAB_ResvCodeSigning=0
+RebootMode=N
+InstallPrompt=
+DisplayLicense=
+FinishMessage=
+TargetName=$target
+FriendlyName=UYAP Archive AI RC15.9.17 Setup
+AppLaunched=bootstrap.cmd
+PostInstallCmd=<None>
+AdminQuietInstCmd=
+UserQuietInstCmd=
+SourceFiles=SourceFiles
+[SourceFiles]
+SourceFiles0=$Work\
+[SourceFiles0]
+%FILE0%=
+%FILE1%=
+[Strings]
+FILE0=payload.zip
+FILE1=bootstrap.cmd
+"@
+$sedText | Set-Content -LiteralPath $sed -Encoding ASCII
+$iexpress=Join-Path $env:SystemRoot 'System32\iexpress.exe'
+if (-not (Test-Path $iexpress)) { throw 'IExpress bulunamadi. Bu Windows surumunde tek EXE olusturucu mevcut degil.' }
+& $iexpress /N $sed
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $target)) { throw 'IExpress Setup.exe olusturamadi.' }
+Write-Host ('Hazir offline kurulum EXE: ' + $target)
+Remove-Item -LiteralPath $BuildRoot -Recurse -Force -ErrorAction SilentlyContinue

@@ -1,0 +1,64 @@
+UYAP Archive AI v2.9.0 RC15.9.37 QUEUE-RECOVERY
+Native Agent: 2.7.64
+
+Temel: RC15.9.22 PHYSICAL-PROOF.
+
+Yeni taşınabilir devam modeli:
+- Popup'taki “Başka bilgisayardaki arşivden devam et” düğmesi Windows klasör seçicisini açar.
+- Kullanıcı `UYAP_Arsiv` klasörünü veya onu içeren üst klasörü seçebilir.
+- Seçim Native Agent tarafında kalıcı ve atomik olarak saklanır; tarayıcı yeniden başlasa da korunur.
+- Tarayıcının indirme klasörü ile arşiv kökü birbirinden ayrılmıştır. Yeni byte'lar seçilen eski arşivin `_incoming` alanına taşınır.
+- Aynı ada sahip farklı içerik üzerine yazılmaz; hash temelli yan dosyada korunur.
+- Canlı UYAP envanteri eski fiziksel dosyalarla SHA-256 üzerinden uzlaştırılır; yalnız eksikler indirilir.
+- Çalışan/kurtarılan iş sırasında arşiv kökü değiştirilemez.
+- RC15.9.24'te klasör seçici TopMost sahip pencereye bağlanır; Chromium arkasında görünmez biçimde bekleyemez.
+- RC15.9.25'te dava numarası ayraçları kanonikleştirilir ve eski bilgisayarın mutlak DB yolu seçili arşiv köküne güvenli biçimde yeniden bağlanır.
+- RC15.9.26'da kökte kalmış `evrak_<id>.*` dosyaları DB boyut/SHA-256 ve içerik doğrulamasıyla kanonik arşive kayıpsız alınır.
+- RC15.9.27'de gerçek eski DB'nin `source_document_id` alanı kökteki `evrak_<id>.*` dosyalarıyla güvenli biçimde eşleştirilir.
+- RC15.9.28'de arşiv kayıt/tarama trafiği indirme uzlaştırma kanalından ayrılır; büyük yerel indeks taraması artık çalışan kuyruğu kilitleyemez.
+- `sync_inventory` 5 dakikada kesin olarak sonlanır ve başarısızlıkta kuyruk kilidi serbest bırakılır.
+- RC15.9.29'da tarayıcı oturumu kaybolsa bile yerel `caseIndex` Workspace dosya seçicisine, Dosyalar tablosuna ve kurtarma özetine yansıtılır.
+- Yerel kayıt salt-okunur gösterilir; devam için aynı UYAP ekranından yeniden tarama başlatılır ve fiziksel dosyalar korunur.
+- RC15.9.30'da transfer günlüğü tekrarları değişebilir hedef yol yerine değişmez `session + document + staging` sahibine bağlanır.
+- Aynı sahibin geç öğrenilen uzantı/hedef farkı önceki doğrulanmış sonucu tekrar oynatır; farklı belge sahibi fail-closed reddedilmeye devam eder.
+- RC15.9.31'de Workspace oturumları yerel arşiv taramasını beklemeden anında gösterilir.
+- Eşzamanlı popup/Workspace arşiv taramaları tek uçuşta birleştirilir ve kısa süreli önbellekten paylaşılır.
+- RC15.9.32'de Kurum UYAP alt/geçiş çerçevelerinden gelen dava bağlamı, sekme ve gerçek `MessageSender.origin` birlikte doğrulanarak güvenli biçimde kabul edilir.
+- `KURUM_CONTEXT_NOT_AUTHORIZED` yanlış reddi kaldırılır; farklı origin ve farklı üst sekme mesajları reddedilmeye devam eder.
+- RC15.9.33'te yapısal xref kontrolünü geçen PDF'lerin `%%EOF` sonrasındaki tek satırlık, sınırlı ASCII üretici yorumu güvenli PDF yorum sözdizimi olarak kabul edilir.
+- Eski `PDF_TRAILING_DATA` karantina kayıtları sürüm açılışında yerelden otomatik yeniden doğrulanır; geçerse indirmeden VERIFIED yapılır.
+- Aktif içerik, iç içe PDF/EOF, HTML ve rastgele ikili kuyruklar reddedilmeye devam eder; suffix hex tanılamaya eklenir.
+- RC15.9.34'te `Hata.html` ile PDF sonuna eklenen `Invalid request` aynı UYAP belge-servisi hatası olarak ele alınır.
+- Devre kesici 15/30/60 saniyelik kontrollü aralıklarla en fazla üç test yapar; servis düzelmezse yeni istekleri tamamen durdurur ve UYAP ekranı yenilenene kadar arşiv/kuyruğu korur.
+- Eski `Invalid request` PDF karantinaları otomatik olarak güvenli yeniden indirme kuyruğuna taşınır; bozuk byte arşive alınmaz.
+- Önceki sürümün “0 eşleşme” tarama önbelleği sürüm yükseltmede geçersiz kılınır; bekleyen kayıtlar yeniden uzlaştırılır.
+
+RC15.9.37 QUEUE-RECOVERY:
+- Workspace aktif iş özetini 4 saniyede bir hafif oturum sorgusuyla yeniler; çalışan iş ve sayaçlar yeniden açma gerektirmeden görünür.
+- Seçili oturumun Dosyalar tablosu değişiklik olduğunda ve görünüm açıkken kontrollü aralıkla yeniden okunur.
+- Yerel arşiv registry'si yalnız veri değiştiğinde dirty işaretlenir; force refresh 15 saniyelik debounce ile yapılır ve indirme hot-path'ini bloke etmez.
+- Native registry önbelleği `sync_inventory`, başarılı doğrulama, HTML dışlama ve karantina yeniden doğrulaması sonrasında geçersiz kılınır.
+- Windows'ta başka bilgisayardan kopyalanmış `_archive.db` satırları, eski mutlak `local_path` yerine seçili köke rebased `target_path` ile caseIndex'e bağlanır.
+- DB satırı olmayan fiziksel arşiv dosyaları caseIndex'te görünür; mevcut fakat hash/DB kanıtı olmadığı için `problemCount` altında dürüstçe işaretlenir.
+- Native Agent 2.7.64 zorunludur.
+
+Yeni fiziksel kanit modeli:
+- `_archive.db` kaydi tek basina arsiv kaniti DEGILDIR.
+- Ilk acilis Yerel Arsiv indeksi fiziksel dosya varligi + boyut uyumunu ayri raporlar.
+- metadataVerifiedCount: DB'nin tarihsel VERIFIED kaydi.
+- physicalReadyCount: dosya su anda diskte mevcut ve DB boyutuyla uyumlu.
+- missingCount / sizeMismatchCount / staleMetadataCount: metadata ile fiziksel arsiv arasindaki farklar.
+- ALREADY_ARCHIVED yalniz Native Agent'in mevcut byte'lardan yeniden hesapladigi SHA-256 fiziksel kanitla verilir; karar aninda zorunlu reproof yapilir.
+- sync_inventory her unchanged evrak icin physicalProofs[level=sha256,pathExists=true,size,sha256] dondurur.
+- Extension bu kanit yoksa UNCHANGED_LOCAL_ARCHIVE durumuna gecmez.
+- Eski surumden kalan metadata-only SKIPPED kaydi bir kez zorunlu fiziksel yeniden kanitlamadan gecirilir.
+- Dosya silinmis/degismisse eski SKIPPED temizlenir, evrak QUEUED olur ve UYAP'tan yeniden indirilebilir.
+- Ayni boyutta farkli icerik SHA-256 uyusmazligi nedeniyle ALREADY_ARCHIVED olamaz.
+
+Gercek `_archive.db` metadata-only simulasyonu:
+- 7.837 okunabilir satir
+- 17 Kurum/Daire + Dosya No grubu korunarak okunabildi
+- Fiziksel dosyalar koyulmadiginda physicalReadyFiles=0
+- DB VERIFIED kayitlari stale metadata olarak raporlandi; arsivlenmis sayilmadi.
+
+Regresyon hedefi: 56/56 standalone PASS.

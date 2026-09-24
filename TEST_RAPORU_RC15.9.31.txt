@@ -1,0 +1,24 @@
+UYAP Archive AI RC15.9.31 - WORKSPACE NONBLOCKING REGISTRY
+
+Tanılama sonucu:
+- Aktif iş ve indirme kuyruğu çalışmasına rağmen Workspace dosya seçicisi boş görünüyordu.
+- Tanılama paketinde registry kanalında 4 bekleyen tam arşiv taraması görüldü.
+- Workspace, oturumları çizmeden önce 20.000 kayıtlık yerel arşiv sorgusunun bitmesini bekliyordu.
+- Popup'ın periyodik sorguları da aynı ağır taramaları registry kuyruğunda tekrarlıyordu.
+
+Kök neden ve düzeltme:
+- Oturum/aktif iş sorgusu yerel `_archive.db` taramasından ayrıldı.
+- Workspace önce aktif işi ve ilerlemeyi gösterir; arşiv indeksi arka planda tamamlanınca görünümü günceller.
+- Workspace içindeki yinelenen arşiv yenilemeleri tek promise üzerinde birleştirilir.
+- Background katmanında eşzamanlı registry çağrıları tek native taramaya katılır.
+- Başarılı sonuç 60 saniye önbellekten paylaşılır; yeni arşiv seçildiğinde önbellek geçersiz kılınır.
+
+Güvenlik:
+- Aktif oturum, kuyruk ve doğrulanmış/yerel dosyalar değiştirilmez.
+- Veri silme, işi sıfırlama veya yeniden indirme uygulanmaz.
+- Native Agent sürümü 2.7.62 olarak korunur.
+
+Doğrulama:
+- 52/52 standalone regresyon testi PASS.
+- JavaScript sözdizimi kontrolleri PASS.
+- Python derleme kontrolleri PASS.

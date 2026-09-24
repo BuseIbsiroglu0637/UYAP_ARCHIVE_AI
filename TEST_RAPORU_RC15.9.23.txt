@@ -1,0 +1,31 @@
+UYAP Archive AI RC15.9.24 PICKER-HOTFIX TEST RAPORU
+
+Sonuc: 45/45 standalone regresyon PASS
+
+Yeni akış kanıtları:
+- UYAP_Arsiv veya üst klasör seçimi doğrulanıyor.
+- Boş/yanlış arşiv klasörü reddediliyor.
+- Seçilen kök atomik yapılandırmaya yazılıyor ve yeni Native Agent süreçlerince tekrar okunuyor.
+- Farklı tarayıcı indirme kökündeki staging dosyası seçilen eski arşive taşınıyor.
+- Kaynak yol ilk taşımadan sonra yoksa yeniden deneme seçilen arşivdeki byte'ı buluyor.
+- Doğrudan Chrome DownloadItem kanıtlı canonical fallback de seçilen eski arşiv kökünü kullanıyor.
+- `portable_archive_resume_v1` zorunlu capability ve Native Agent 2.7.58 kontrol edildi.
+- Çalışan/kurtarılan iş sırasında arşiv kökü değiştirme kilidi statik entegrasyonla doğrulandı.
+- Popup -> Service Worker -> Download Manager -> Native Agent mesaj hattı doğrulandı.
+
+Korunan önceki kontroller:
+- Metadata tek başına arşiv kanıtı değildir.
+- Mevcut dosya için fiziksel boyut + SHA-256 yeniden kanıtı gerekir.
+- HTML oturum/hata yanıtı gerçek evrak olarak arşivlenmez.
+- Geçerli HTML evrakı yapısal doğrulamayla desteklenir.
+- Aynı ad/farklı içerik çakışmasında byte'lar ezilmez.
+- Final bütünlük, format, UDF/PDF/görüntü ve kurtarma regresyonlarının tamamı geçti.
+
+Ek kontroller:
+- node --check: background/download-manager.js PASS
+- node --check: background/service-worker.js PASS
+- node --check: background/native-agent.js PASS
+- node --check: popup/popup.js PASS
+- python3 -m py_compile: Native Agent ve kurucu PASS
+
+Not: Windows FolderBrowserDialog bu Linux test ortamında görsel olarak açılamaz; seçimden sonraki tüm dosya sistemi ve işlem hattı saf yollarla uçtan uca doğrulanmıştır.

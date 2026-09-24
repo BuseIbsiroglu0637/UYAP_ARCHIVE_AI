@@ -1,0 +1,22 @@
+UYAP Archive AI v2.9.0 RC15.1 SAFE-SPEED-PDF-HOTFIX
+Test tarihi: 2026-09-19
+Native Agent: 2.7.34
+
+PASS:
+- validator_regression_test.py
+- rc15_1_hotfix_regression_test.py
+- adaptive_pacing_regression_test.py
+- finalization_regression_test.py
+- large_case_batch_regression_test.py (11.923 -> 24 batch; son batch 423)
+- local_bulk_reconciliation_regression_test.py
+- local_duplicate_guard_regression_test.py
+- scale_hotpath_regression_test.py
+- background/download-manager.js syntax check
+- native Python compile checks
+- Kullanıcının yüklediği 2.242.227 bayt / 10 sayfalık Avision PDF doğrudan RC15.1 validator ile PASS
+
+Güvenlik notu:
+- %Avision yalnızca exact suffix olarak kabul edilir.
+- startxref/xref kontrolü zorunludur.
+- keyfi trailing payload halen PDF_TRAILING_DATA ile reddedilir.
+- Aynı anda tek aktif indirme kuralı değişmedi.

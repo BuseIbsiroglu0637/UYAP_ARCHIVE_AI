@@ -1,0 +1,18 @@
+UYAP Archive AI v2.9.0 RC15.9.10 TRANSIENT-ERROR-STATE-CLEANUP
+Test tarihi: 2026-09-20
+Native Agent: 2.7.47 (degismedi)
+
+SONUCLAR
+- Regression suite: 32/32 PASS
+- JavaScript syntax: 32/32 PASS
+- Python compile: 37/37 PASS
+- Native Messaging acik-pipe: 2/2 ping PASS, Agent 2.7.47
+- Transient pacing live logic: PASS
+
+HEDEFLENEN DUZELTMELER
+- VERIFIED/SKIPPED evraklarda eski NATIVE_AGENT_UNAVAILABLE warning hayaleti temizlenir.
+- Native basarili validation/ping sonrasi eski NATIVE_AGENT_UNAVAILABLE pacing outcome'lari silinir.
+- Yalniz eski native kesintisinden kalan session backoff kaldirilir; diger aktif sistemik hatalar korunur.
+- Yerelde kesin duplicate bulunan evraklarda transient warning hedef statuye tasinmaz.
+- Reliability schema v4 eski RC15.9.9 state'lerini migrate eder.
+- Problem Center UI terminal kayitta current error yoksa eski NATIVE_AGENT_UNAVAILABLE warning'ini savunmali olarak gostermez.

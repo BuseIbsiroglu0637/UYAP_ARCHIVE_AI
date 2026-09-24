@@ -1,0 +1,18 @@
+UYAP Archive AI RC15.9.26 LEGACY-LOOSE-IMPORT TEST RAPORU
+
+Hedeflenen hata:
+- `UYAP_Arsiv` yanında yaklaşık 7.000 eski `evrak_*` dosyası bulunmasına rağmen yerel sayaçta görünmemesi.
+
+Kök neden:
+- RC15.9.25, taşınmış DB içindeki kanonik `UYAP_Arsiv/...` yollarını yeni köke bağlıyordu; üst klasördeki eski gevşek Chrome indirmelerini taramıyordu.
+
+Kalıcı çözüm:
+- Yalnız `evrak_<sayısal-id>.<desteklenen-tür>` basename'i yeni kökte aday olur.
+- Eski DB satırındaki boyut ve SHA-256 mevcut dosyayla birebir doğrulanır.
+- PDF/UDF/HTML/XML/görüntü/ofis/arşiv türleri yapısal doğrulamadan geçirilir.
+- UYAP giriş/hata HTML'si reddedilir.
+- Kaynak dosya korunur; kanonik hedefe hard-link veya atomik doğrulanmış kopya oluşturulur.
+- Var olan farklı içerik asla ezilmez.
+- Tarama önbelleği v3 olduğundan devam eden iş aynı dava için yeniden uzlaştırılır.
+
+Regresyon hedefi: 48/48 PASS

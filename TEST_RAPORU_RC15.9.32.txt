@@ -1,0 +1,24 @@
+UYAP Archive AI RC15.9.32 - KURUM FRAME CONTEXT AUTH
+
+Tanılama sonucu:
+- Service Worker konsolunda `KURUM_CONTEXT_NOT_AUTHORIZED` iki farklı kontrol satırından oluşuyordu.
+- Content script manifest gereği bütün Kurum UYAP framelerinde çalışıyor.
+- Servis çalışanı ise yalnız üst frame (`frameId=0`) mesajını kabul ediyor ve geçiş frame'lerinde `about:blank` olabilen URL'yi denetliyordu.
+- Sonuç olarak gerçek Kurum dava açma bağlamı kaydedilemiyor, devam/kurtarma akışı bağlamı kaybedebiliyordu.
+
+Kök neden ve düzeltme:
+- Sabit `frameId=0` şartı kaldırıldı; frame kimliğinin geçerli olması yeterli hale getirildi.
+- Mesajın uzantının kendi content scriptinden gelmesi zorunlu tutuldu.
+- Üst sekmenin HTTPS `kurum.uyap.gov.tr` olması ayrıca doğrulandı.
+- Frame URL'si yanında Chrome'un `MessageSender.origin` kanıtı kullanıldı; `about:blank/srcdoc` geçişleri güvenli biçimde desteklenir.
+- Üst sekme veya frame origin'i farklıysa mesaj fail-closed reddedilir.
+
+Korunan davranış:
+- RC15.9.31 Workspace nonblocking registry düzeltmesi korunur.
+- Aktif iş, yerel arşiv, kuyruk ve doğrulanmış dosyalar değiştirilmez.
+- Native Agent 2.7.62 olarak kalır.
+
+Doğrulama:
+- 53/53 standalone regresyon testi PASS.
+- JavaScript sözdizimi kontrolleri PASS.
+- Python derleme kontrolleri PASS.

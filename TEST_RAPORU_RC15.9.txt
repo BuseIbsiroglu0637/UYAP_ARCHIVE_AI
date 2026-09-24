@@ -1,0 +1,29 @@
+UYAP Archive AI v2.9.0 RC15.9 NETWORK-OBSERVER-SESSION-RECOVERY
+Native Agent: 2.7.40
+
+STATIK / REGRESYON TESTLERI
+- RC15.9 Network Observer + Session Recovery regression: PASS
+- RC15.8 Auto Pipeline regression: PASS
+- RC15.8 performance hotpath regression: PASS
+- RC15.8.1 download-count UI regression: PASS
+- RC15.8.2 total-progress UI regression: PASS
+- RC15.8.3 logout toolbar alert regression: PASS
+- 11.923 evrak / 24 batch large-case regression: PASS
+- Finalization + legacy recovery: PASS
+- Local bulk reconciliation: PASS
+- Local duplicate guard: PASS
+- Format validation matrix: PASS
+- Native Messaging direct protocol: PASS (2/2 ping, Agent 2.7.40)
+- JavaScript syntax checks: PASS
+- Python compile checks: PASS
+
+RC15.9 GUVENLIK / GIZLILIK
+- webRequest observer read-only; blocking/cancel/redirect yapmaz.
+- Ham UYAP request URL/query/token verisi kalici extension storage veya diagnostige yazilmaz.
+- GET network hint sadece gecici bellekte fallback zamanlama kaniti olarak tutulur.
+- POST body network observer tarafindan yeniden uretilmez.
+- Final file identity/content validation fail-closed kalir.
+
+CANLI TEST GEREKTIREN NOKTALAR
+- Gercek Chrome/Edge + UYAP request event zamanlamasi bu Linux test ortaminda fiziksel olarak calistirilamadi.
+- Gercek UYAP logout -> AUTH tab -> kaynak sekme reload -> auto-resume zinciri Windows/UYAP uzerinde canli test edilmelidir.

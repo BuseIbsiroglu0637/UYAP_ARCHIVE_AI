@@ -1,0 +1,23 @@
+UYAP Archive AI RC15.9.33 - PDF COMMENT TAIL RECOVERY
+
+Tanılama sonucu:
+- Aktif iş: 11.923 kayıt; 8.389 yerel arşiv eşleşmesi; 3.530 kuyrukta.
+- Müdahale gerekli kayıt: 4.
+- Dört kaydın tamamı `PDF_TRAILING_DATA`; her birinde `%%EOF` sonrası 17 bayt bulunuyor.
+- Tarayıcı dosya boyutu, toplam indirme boyutu ve fiziksel dosya boyutu dört kayıtta da birebir eşit.
+- HTML yanıtı, kopmuş indirme, boyut uyuşmazlığı veya Native Agent bağlantı hatası yok.
+
+Kök neden ve düzeltme:
+- PDF gövdesi ve xref yapısı geçerli olmasına rağmen üreticinin sonradan eklediği kısa PDF yorum satırı rastgele veri kabul ediliyordu.
+- Yalnız tek satırlık, en fazla 256 baytlık, yazdırılabilir ASCII PDF yorumu xref doğrulaması şartıyla kabul edilir.
+- İç içe `%PDF`, yeni `%%EOF/startxref`, JavaScript, Launch/OpenAction, HTML ve ikili kuyruklar reddedilir.
+- Önceki sürümde karantinaya alınan `PDF_TRAILING_DATA` kayıtları başlangıçta Native Agent 2.7.63 ile otomatik yeniden doğrulanır.
+- Geçerli kayıtlar kaynak baytları değiştirilmeden, yeniden indirilmeden VERIFIED yapılır.
+- Geçmeyen kayıtlar korunur ve müdahale listesinde kalır.
+- Suffix hex değeri sonraki tanılamalara en fazla 256 bayt sınırıyla eklenir.
+
+Doğrulama:
+- 54/54 standalone regresyon testi PASS.
+- 17 baytlık güvenli üretici yorum örneği PASS.
+- Rastgele ikili, iç içe PDF, aktif içerik ve HTML negatif kontrolleri PASS.
+- JavaScript sözdizimi ve Python derleme kontrolleri PASS.

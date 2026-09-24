@@ -1,0 +1,17 @@
+UYAP Archive AI RC15.9.24 PICKER-HOTFIX TEST RAPORU
+
+Hedeflenen hata:
+- “Eski arşiv seçiliyor” durumunda kalıp Windows klasör penceresinin görünmemesi.
+
+Kök neden:
+- FolderBrowserDialog sahipsiz açılıyordu. Chromium/Windows odak kuralları nedeniyle pencere tarayıcının arkasında kalabiliyordu.
+
+Çözüm kanıtları:
+- TopMost sahip Form mevcut.
+- SetForegroundWindow çağrısı mevcut.
+- ShowDialog(owner) kullanılıyor; sahipsiz ShowDialog() yok.
+- Dialog ve owner her durumda Dispose ediliyor.
+- Yerel süreç 180 saniye, Native Messaging köprüsü 190 saniye ile sınırlı.
+- Native Agent 2.7.58 zorunlu.
+
+Tam regresyon sonucu: 46/46 PASS

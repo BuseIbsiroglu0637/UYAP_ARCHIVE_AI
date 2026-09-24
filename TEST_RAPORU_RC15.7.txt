@@ -1,0 +1,27 @@
+UYAP Archive AI v2.9.0 RC15.7.1 PORTABLE-NATIVE-BOOTSTRAP-HOTFIX
+=======================================================
+
+- RC15.6 MAX-SAFE-THROUGHPUT arşivleme motoru korunur.
+- Native Agent version: 2.7.37.
+- Sistem Python/PyInstaller gereksinimi kaldirildi.
+- Resmi CPython 3.13.15 embeddable runtime bootstrap eklendi.
+- x64 / ARM64 / win32 mimari secimi eklendi.
+- Python.org runtime SHA-256 sabit dogrulamasi eklendi.
+- Chrome / Edge / Chromium HKCU NativeMessagingHosts kayitlari eklendi.
+- Native Messaging origin bootstrap sitecustomize ile dogrudan stdio ajana baglandi.
+- Kurulum oncesi staging 2/2 ping; kurulum sonrasi current 2/2 ping zorunlu.
+- Kurulum hatasinda current/manifest/registry rollback akisi eklendi.
+- Her hata yolunda native-install.log ve native-install-diagnostic.json yazimi eklendi.
+- Diagnose / Repair / Rollback / Uninstall bakım akislari eklendi.
+- Eski versions ve stale staging klasorleri, yeni current dogrulandiktan sonra temizlenir.
+- Offline tek Setup.exe olusturmak icin IExpress builder eklendi.
+
+Not: Bu Linux geliştirme ortaminda Windows IExpress ve Native Messaging tarayici
+zinciri calistirilamaz. Windows tarafinda portable_installer.ps1 kendi 2/2 protocol
+self-testini kurulum kapisi olarak zorunlu tutar.
+
+Linux statik/protokol testleri:
+- portable_sitecustomize bootstrap, gercek length-prefixed Native Messaging protokolu ile 2/2 ping: PASS
+- Agent 2.7.37 ping/capabilities: PASS
+- Tum Python regression testleri: PASS
+- Tum extension JavaScript syntax kontrolleri: PASS

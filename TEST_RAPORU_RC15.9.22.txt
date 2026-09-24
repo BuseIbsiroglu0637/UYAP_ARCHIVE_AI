@@ -1,0 +1,25 @@
+UYAP Archive AI RC15.9.24 PICKER-HOTFIX TEST RAPORU
+
+1) Yeni fiziksel kanit regresyonu: PASS
+- VERIFIED DB + fiziksel dosya mevcut -> physicalProofs SHA-256 PASS
+- Fiziksel dosya silindi, DB VERIFIED kaldi -> unchanged yok / notFound / stale metadata PASS
+- Ilk acilis caseIndex -> physicalReadyCount=0, missing/staleMetadata=1 PASS
+- Ayni boyutta farkli icerik -> SHA-256 ALREADY_ARCHIVED kaniti RED PASS
+- Eski metadata-only SKIPPED -> zorunlu reproof ve QUEUED geri donusu kod kontrati PASS
+- ALREADY_ARCHIVED karar anı reproof zorunlulugu PASS
+
+2) Tum standalone regresyonlar: 44/44 PASS
+- host_self_test.py ve portable_protocol_self_test.py komut satiri/host parametresi isteyen entegrasyon yardimcilari oldugu icin standalone sayimina dahil degildir.
+
+3) Statik kontroller:
+- Python py_compile PASS
+- background/download-manager.js node --check PASS
+- background/native-agent.js node --check PASS
+- popup/popup.js node --check PASS
+- workspace/workspace.js node --check PASS
+
+4) Gercek kullanici `_archive.db` metadata-only simulasyonu:
+- 7.837 okunabilir DB satiri
+- 17 caseIndex grubu
+- fiziksel evraklar olmadan physicalReadyFiles=0
+- DB kayitlari stale metadata olarak raporlandi ve arşiv kaniti sayilmadi.

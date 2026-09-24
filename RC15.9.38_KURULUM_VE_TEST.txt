@@ -1,0 +1,39 @@
+UYAP Archive AI — RC15.9.38 ARCHIVE-SYNC-RACE-FIX
+
+KURULUM — YALNIZCA UZANTI GÜNCELLEMESİ
+1. UYAP Archive üzerinden çalışan işi duraklatın.
+2. ZIP içeriğini mevcut yüklü uzantının klasörüne çıkarıp aynı dosyaların üzerine yazın.
+   manifest.json mevcut manifest.json ile aynı konumda olmalıdır.
+3. chrome://extensions sayfasından mevcut UYAP Archive uzantısını Yenile düğmesiyle yenileyin.
+4. Workspace ve UYAP sekmesini yenileyip mevcut dosyadan devam edin.
+Uzantıyı kaldırmayın, tarayıcı verilerini temizlemeyin, yeni iş oluşturmayın.
+Yerel Agent 2.7.64 kurulu kalmalıdır. Bu paket ajan veya kurulum BAT dosyası içermez.
+
+DÜZELTİLEN KOD HATALARI
+- UYAP DOM taramasının eski tam evrak kaydını geri yazması, tarama sırasında
+  tamamlanan arşiv doğrulamasını silip SKIPPED kaydı QUEUED durumuna çevirebiliyordu.
+  Runtime güncellemeleri artık tek IndexedDB işleminde yalnızca bağlantı alanlarını
+  günceller; kuyruk ve fiziksel doğrulama alanlarına dokunmaz.
+- Aynı oturumdaki doğrudan ve ön yükleme kaynaklı arşiv taramaları tek sıraya alındı.
+  Sıradaki istek güncel durumu okur; tamamlanan aynı grup tekrar taranmaz.
+- Tamamlanan grup listesi güncel oturum kaydından birleştirilir.
+- Kuyruk, toplu tarama sonrasında güncel oturum bilgisini yeniden okur.
+- Eski sürümün grup önbelleği sürümlendi. Henüz sonuçlanmamış gruplar ilk geçişte
+  yeniden toplu doğrulanır; mevcut doğrulanmış evraklar silinmez.
+
+DOĞRULAMA
+PASS: 1500 evrak, 3 grup, 4 eşzamanlı istek -> 3 native toplu çağrı,
+      aynı oturumda en fazla 1 aktif tarama, 1500 korunmuş eşleşme.
+PASS: DOM taraması sırasında gelen SKIPPED ve SHA-256 bilgisi korunur.
+PASS: Başarısız toplu istek tamamlanmış sayılmaz; sonraki istek yeniden denenebilir.
+PASS: Fiziksel dosyası bulunmayan hash kaydı arşivlenmiş sayılmaz.
+PASS: 11934 kayıtla önceki kuyruk/grup onarımı ve HTML kurtarma davranış testleri.
+PASS: Yerel toplu eşleştirme ve mükerrer indirme koruması Python testleri.
+PASS: Değişen JavaScript dosyalarında sözdizimi kontrolü.
+
+SINIRLAR
+Windows/UYAP üzerinde canlı hız ölçümü yapılmadı. Tanılama kaydındaki registry
+kanalı zaman aşımlarının tamamen giderildiği henüz doğrulanmış değildir.
+Native 2.7.64 kaynak kodu bu çalışma kopyasında bulunmadığından ajan değiştirilmedi.
+SHA-256 fiziksel doğrulama ve son bütünlük denetimleri korunmuştur.
+İlk grup kontrolü zaman alabilir; kesin süre veya indirme hızı taahhüt edilmez.

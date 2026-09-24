@@ -1,0 +1,12 @@
+UYAP Archive AI RC15.9.25 CROSS-PC-RECONCILE TEST RAPORU
+
+Hedeflenen hata:
+- Yerel arşiv kartında fiziksel dosyalar görünürken “Önceden yerelde bulunan” sayacının 0 kalması.
+
+Kök neden ve çözüm:
+- Dava numarası ayraç farkı kanonikleştirildi: 2025_607 = 2025-607 = 2025/607.
+- Eski bilgisayardaki mutlak local_path kaybolmuşsa mevcut arşiv kökünde güvenli target_path yeniden bağlaması eklendi.
+- Path traversal ve arşiv dışı hedefler reddedilmeye devam ediyor.
+- Mevcut kabulü için fiziksel dosya + boyut + SHA-256 kanıtı zorunlu.
+
+Tam regresyon hedefi: 47/47 PASS

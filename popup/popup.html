@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UYAP Archive</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="../icons/uyap-archive-32.png" alt="" width="28" height="28">
+        <div>
+          <h1>UYAP Archive</h1>
+          <span id="jobContext" class="context">UYAP / UYAP Kurum</span>
+        </div>
+      </div>
+      <span id="healthBadge" class="health-badge neutral"><span class="health-dot"></span><span id="healthText">Hazır</span></span>
+    </header>
+
+    <section id="statusCard" class="status-card tone-info" aria-live="polite">
+      <div class="status-copy">
+        <span id="statusEyebrow" class="eyebrow">DURUM</span>
+        <strong id="statusTitle">Arşivlemeye hazır</strong>
+        <p id="message">UYAP'ta ilgili dava veya evrak ekranını açın.</p>
+      </div>
+      <span id="lastActivity" class="last-activity">Son hareket: -</span>
+    </section>
+
+    <section id="resumeJobsPanel" class="resume-jobs" hidden>
+      <div class="resume-jobs-head">
+        <div><span class="eyebrow">KAYITLI İŞLER</span><strong id="resumeJobsTitle">Kaldığın yerden devam et</strong></div>
+        <span id="resumeJobsCount" class="resume-count">0</span>
+      </div>
+      <div id="resumeJobsList" class="resume-jobs-list"></div>
+    </section>
+
+    <section id="recentArchivePanel" class="recent-archive" hidden>
+      <div class="recent-archive-head">
+        <div><span class="eyebrow">YEREL ARŞİV</span><strong>Kurum / Daire ve dosya indeksi</strong></div>
+        <button id="recentArchiveOpen" type="button">Tümünü gör</button>
+      </div>
+      <div class="recent-archive-table-head"><span>Kurum / Daire</span><span>Dosya No</span><span>Evrak</span></div>
+      <div id="recentArchiveList" class="recent-archive-list"></div>
+      <button id="selectExistingArchiveButton" class="portable-resume" type="button">Başka bilgisayardaki arşivden devam et</button>
+    </section>
+
+    <section id="casePickerPanel" class="case-picker" hidden>
+      <div>
+        <span class="eyebrow">UYAP KURUM • DOSYA SEÇİMİ</span>
+        <strong>Arşivlenecek dosyayı seçin</strong>
+        <p>Dosyayı burada seçtiğinizde UYAP Kurum'daki “Dosya Görüntüle” adımı otomatik yapılır ve gerçek evrak listesi açıldıktan sonra arşivleme devam eder.</p>
+      </div>
+      <select id="casePickerSelect" aria-label="Arşivlenecek UYAP Kurum dosyası"></select>
+      <div class="case-picker-actions">
+        <button id="casePickerCancel" type="button">Vazgeç</button>
+        <button id="casePickerOpen" type="button" class="primary">Dosyayı aç ve arşivle</button>
+      </div>
+    </section>
+
+    <section id="loginRoutePanel" class="login-panel" hidden>
+      <div>
+        <strong>UYAP Kurum oturumu sona erdi</strong>
+        <p><span id="safeCount">0</span> doğrulanmış evrak güvende. Giriş yaptıktan sonra aynı iş devam eder.</p>
+      </div>
+      <div class="login-actions">
+        <button id="kurumDirectLoginButton" type="button" class="primary">UYAP Kurum'u aç</button>
+        <button id="kurumEdevletLoginButton" type="button" class="secondary">e-Devlet ile giriş</button>
+      </div>
+    </section>
+
+    <section class="progress-card" aria-label="Arşiv ilerlemesi">
+      <div class="progress-heading">
+        <div>
+          <span class="eyebrow">YERELE İNDİRİLDİ VE DOĞRULANDI</span>
+          <strong class="progress-number"><span id="verified">0</span> <small>evrak</small></strong>
+        </div>
+        <div class="progress-percent-wrap">
+          <span>İŞ TAMAMLANMA</span>
+          <strong id="completionRatio" class="completion-ratio"><span id="completedCount">0</span> / <span id="total">0</span></strong>
+          <strong id="progressPercent" class="percent">0%</strong>
+        </div>
+      </div>
+      <div class="progress-breakdown">
+        <span>Önceden yerelde bulunan: <strong id="localExisting">0</strong></span>
+        <span>Kalan tamamlanacak: <strong id="remainingCount">0</strong></span>
+      </div>
+      <div class="progress-track" aria-hidden="true"><div id="progressBar"></div></div>
+      <div class="progress-foot">
+        <span id="etaLine">Kalan süre: -</span>
+        <span id="speedLine">-</span>
+      </div>
+    </section>
+
+    <section class="mini-stats" aria-label="İş özeti">
+      <button id="deferredCard" class="mini-stat" type="button">
+        <strong id="deferred">0</strong><span>Otomatik tekrar</span>
+      </button>
+      <button id="reviewCard" class="mini-stat" type="button">
+        <strong id="review">0</strong><span>Müdahale gerekli</span>
+      </button>
+      <div class="mini-stat readonly">
+        <strong id="warnings">0</strong><span>Kontrol önerilir</span>
+      </div>
+    </section>
+
+    <button id="attentionBanner" class="attention-banner" type="button" hidden>
+      <span>⚠</span><strong id="attentionText">Müdahale gereken kayıt var</strong><span>İncele →</span>
+    </button>
+
+    <section class="actions">
+      <button id="primaryButton" class="primary action-main" type="button">Arşivlemeyi başlat</button>
+      <button id="workspaceButton" class="workspace-launch action-main" type="button"><span aria-hidden="true">▦</span> Arşiv Merkezini Aç</button>
+    </section>
+
+    <details class="more-menu">
+      <summary>Daha fazla işlem</summary>
+      <div class="more-actions">
+        <button id="reportButton" type="button">Raporu aç</button>
+        <button id="rebindButton" type="button">UYAP ekranını yeniden bağla</button>
+        <button id="newJobButton" type="button">Yeni arşiv işi</button>
+        <button id="supportButton" type="button">Destek Merkezi</button>
+      </div>
+    </details>
+
+    <footer>
+      <span id="sourceMode">Kaynak bekleniyor</span>
+      <span id="versionBadge">v2.9.0 RC15.9.37 QUEUE-RECOVERY</span>
+    </footer>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

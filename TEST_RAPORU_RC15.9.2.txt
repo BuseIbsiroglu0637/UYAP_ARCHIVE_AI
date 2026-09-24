@@ -1,0 +1,38 @@
+UYAP Archive AI v2.9.0 RC15.9.2 HTML-CIRCUIT-BREAKER
+Native Agent: 2.7.41 (degismedi)
+
+AMAC
+- UYAP belge endpoint'i art arda HTML cevabi dondugunde onlarca yeni evragi gereksiz yere retry_wait durumuna dusurmemek.
+- Hiz ile guvenilirlik arasinda makul ve otomatik bir denge kurmak.
+- Logout/session recovery ile HTML endpoint bozulmasini birbirinden ayirmak.
+
+HTML CIRCUIT BREAKER AYARLARI
+- 3 ardisik farkli HTML_RESPONSE -> circuit OPEN.
+- Son 5 benzersiz sonuc icinde en az 4 HTML ve HTML orani >= %80 -> circuit OPEN.
+- HALF-OPEN kontrollu denemede tek HTML -> circuit aninda yeniden OPEN.
+- Cooldown basamaklari: 3 sn, 6 sn, 12 sn, 20 sn, maksimum 30 sn.
+- Cooldown bitince kaynak/login sagligi probe edilir ve tek kontrollu akisa HALF-OPEN donulur.
+- 2 ardisik dogrulanmis evrak -> circuit CLOSED ve normal akisa donus.
+- HTML kayitlari yine deferred_html olarak korunur; silinmez veya dogrulanmis sayilmaz.
+- INVALID_IMAGE gibi deterministik icerik hatalari circuit breaker'i tetiklemez.
+
+KULLANICI DENEYIMI
+- Popup circuit acikken 'Belge servisi kisa sure dinlendiriliyor' durumunu ve kalan saniyeyi gosterir.
+- Kullaniciya sistemin dondugu izlenimi verilmez; otomatik koruma durumu acikca gorulur.
+
+REGRESYONLAR
+- RC15.9.2 HTML circuit breaker: PASS
+- RC15.9.1 JPEG compatibility: PASS
+- RC15.9 Network Observer + Session Recovery: PASS
+- RC15.8 Auto Pipeline: PASS
+- RC15.8 performance hotpath: PASS
+- RC15.8.1 download count UI: PASS
+- RC15.8.2 total progress UI: PASS
+- RC15.8.3 logout toolbar alert: PASS
+- 11.923 / 24 large-case batch: PASS
+- finalization + legacy recovery: PASS
+- local reconciliation: PASS
+- duplicate guard: PASS
+- 10K+ hotpath: PASS
+- format matrix: PASS
+- Native Agent: 2.7.41; yeniden kurulum gerektiren native degisiklik yok.

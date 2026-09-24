@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UYAP Archive AI • Çalışma Merkezi</title>
+  <link rel="stylesheet" href="workspace.css">
+</head>
+<body>
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <img src="../icons/uyap-archive-48.png" alt="" width="36" height="36">
+        <div><strong>UYAP Archive AI</strong><span>Çalışma Merkezi</span></div>
+      </div>
+      <nav id="mainNav" aria-label="Ana menü">
+        <div class="nav-group-label">ÇALIŞMA ALANI</div>
+        <button data-view="overview" class="nav-item active"><span>⌂</span>Çalışma Merkezi</button>
+        <button data-view="jobs" class="nav-item"><span>▤</span>Dosyalar</button>
+        <button data-view="archive" class="nav-item"><span>▱</span>Evraklar</button>
+        <button data-view="timeline" class="nav-item"><span>◷</span>Zaman Çizelgesi</button>
+        <button data-view="problems" class="nav-item"><span>!</span>Sorun Merkezi <em id="navProblemCount" hidden>0</em></button>
+        <button data-view="reports" class="nav-item"><span>✓</span>Paket &amp; Rapor</button>
+        <button data-view="ai" class="nav-item ai-nav"><span>✦</span>UYAP AI <b>HAZIRLIK</b></button>
+        <div class="nav-group-label">SİSTEM</div>
+        <button data-view="health" class="nav-item"><span>◆</span>Sistem Sağlığı</button>
+        <button data-view="account" class="nav-item"><span>◉</span>Hesabım</button>
+        <button data-view="settings" class="nav-item"><span>⚙</span>Ayarlar</button>
+        <div class="nav-group-label">GELİŞMİŞ</div>
+        <button data-view="support" class="nav-item"><span>?</span>Destek &amp; Tanılama</button>
+        <button data-view="formatlab" class="nav-item"><span>⌬</span>Format Laboratuvarı</button>
+      </nav>
+      <div class="sidebar-foot">
+        <span id="sideVersion">v2.9.0 RC15.9.37 QUEUE-RECOVERY</span>
+        <span id="sideAgent">Ajan kontrol ediliyor</span>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="workspace-header">
+        <div>
+          <p id="pageEyebrow" class="eyebrow">ÇALIŞMA MERKEZİ</p>
+          <h1 id="pageTitle">Genel Bakış</h1>
+        </div>
+        <div class="header-actions">
+          <label class="global-search-wrap"><span>⌕</span><input id="globalSearch" type="search" placeholder="Dosya no, mahkeme veya kurum ara" aria-label="Dosyalarda ara"></label>
+          <button id="headerNewJob" class="header-quick" title="Açık UYAP ekranından yeni iş oluştur">+ Yeni iş</button>
+          <label class="job-picker-label">Seçili dosya
+            <select id="sessionPicker" aria-label="Dosya seç"></select>
+          </label>
+          <button id="refreshButton" class="icon-action" title="Yenile" aria-label="Yenile">↻</button>
+          <button id="accountMenuButton" class="account-pill" title="Hesabım"><span id="accountAvatar">Y</span><span><strong id="accountName">Yerel Mod</strong><small id="accountPlan">Hesap bağlı değil</small></span></button>
+        </div>
+      </header>
+
+      <div id="globalBanner" class="global-banner" hidden></div>
+      <div id="toast" class="toast" hidden></div>
+
+      <section id="view-overview" class="view active" data-view-panel="overview">
+        <div id="activeJobHero" class="hero-card"></div>
+        <div class="case-tabs" id="caseTabs" aria-label="Dosya çalışma sekmeleri">
+          <button data-case-view="overview" class="active">Özet</button>
+          <button data-case-view="archive">Evraklar</button>
+          <button data-case-view="timeline">Zaman Çizelgesi</button>
+          <button data-case-view="jobs">Arşiv Geçmişi</button>
+          <button data-case-view="reports">Paketler</button>
+          <button data-case-view="ai" class="ai-tab">✦ AI</button>
+        </div>
+        <div class="overview-workbench">
+          <div class="overview-main">
+            <div id="overviewCommandBar" class="command-bar">
+              <div class="command-context">
+                <span class="command-kicker">SIRADAKİ ADIM</span>
+                <strong id="nextActionTitle">İş bekleniyor</strong>
+                <small id="nextActionText">UYAP veya UYAP Kurum ekranından bir arşiv işi başlatın.</small>
+              </div>
+              <div class="command-actions">
+                <button id="nextActionButton" class="primary">Yeni arşiv işi</button>
+                <button id="quickOpenArchive" class="secondary">Yerel arşiv</button>
+                <button id="quickOpenPackage" class="secondary" hidden>Final paket</button>
+              </div>
+            </div>
+            <div class="workspace-snapshot">
+              <article class="snapshot-card"><span>Yerel eşleşme</span><strong id="snapLocal">-</strong><small id="snapLocalDetail">Henüz kontrol edilmedi</small></article>
+              <article class="snapshot-card"><span>Kuyruk</span><strong id="snapQueue">0</strong><small id="snapQueueDetail">Bekleyen kayıt yok</small></article>
+              <article class="snapshot-card"><span>Final paket</span><strong id="snapPackage">Bekliyor</strong><small id="snapPackageDetail">Bütünlük kontrolü bekleniyor</small></article>
+            </div>
+            <article class="flow-card">
+              <div class="flow-card-head"><div><p class="eyebrow">İŞ AKIŞI</p><h2>Arşivleme süreci</h2></div><span id="flowCaption" class="flow-caption">İş bekleniyor</span></div>
+              <div id="workflowFlow" class="workflow-flow"></div>
+            </article>
+            <div id="attentionCard" class="attention-card" hidden></div>
+            <div class="metric-grid four">
+              <article class="metric-card"><span>Yerele indirildi</span><strong id="ovVerified">0</strong><small id="ovTotal">0 toplam</small></article>
+              <article class="metric-card"><span>Otomatik tekrar</span><strong id="ovDeferred">0</strong><small>geçici sorun</small></article>
+              <article class="metric-card"><span>Müdahale gerekli</span><strong id="ovProblems">0</strong><small>manuel inceleme</small></article>
+              <article class="metric-card"><span>Bütünlük</span><strong id="ovIntegrity">-</strong><small id="ovParts">ZIP bekleniyor</small></article>
+            </div>
+          </div>
+          <aside class="ai-dock" aria-label="UYAP AI hazırlık paneli">
+            <div class="ai-dock-head"><div><span class="ai-spark">✦</span><strong>UYAP AI</strong></div><span class="ai-beta">HAZIRLIK</span></div>
+            <h3 id="aiDockTitle">Dosya seçilmedi</h3>
+            <p id="aiDockText">Bir dosya seçildiğinde AI bağlamı burada hazırlanacak.</p>
+            <div class="privacy-chip"><span>●</span><div><strong>Gizlilik modu</strong><small>Buluta belge gönderimi kapalı</small></div></div>
+            <div class="ai-suggestions">
+              <button data-ai-prompt="Bu dosyayı özetle">Dosyayı özetle</button>
+              <button data-ai-prompt="Önemli tarihleri çıkar">Önemli tarihleri çıkar</button>
+              <button data-ai-prompt="Son gelişmeleri göster">Son gelişmeler</button>
+              <button data-ai-prompt="Evrakları türlerine göre sınıflandır">Evrakları sınıflandır</button>
+            </div>
+            <button id="openAiWorkspace" class="ai-open">AI Çalışma Alanını Aç →</button>
+          </aside>
+        </div>
+        <div class="two-col">
+          <article class="panel">
+            <div class="panel-head"><div><p class="eyebrow">SON İŞLER</p><h2>İş geçmişi</h2></div><button data-goto="jobs" class="link-button">Tümünü gör</button></div>
+            <div id="recentJobs" class="compact-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><p class="eyebrow">SİSTEM</p><h2>Hazır olma durumu</h2></div><button data-goto="health" class="link-button">Ayrıntılar</button></div>
+            <div id="overviewHealth" class="health-list"></div>
+          </article>
+        </div>
+        <article class="panel recent-local-panel">
+          <div class="panel-head"><div><p class="eyebrow">YEREL ARŞİV</p><h2>Kurum / Daire ve dosya indeksi</h2></div><button data-goto="archive" class="link-button">Tüm yerel arşiv</button></div>
+          <div id="recentArchiveDocs" class="compact-list"></div>
+        </article>
+      </section>
+
+      <section id="view-jobs" class="view" data-view-panel="jobs">
+        <article class="panel">
+          <div class="panel-head wrap"><div><p class="eyebrow">DOSYALAR</p><h2>Dosya çalışma alanları</h2><p class="muted">Aynı UYAP dosyasına ait çalışmalar tek dosya altında gruplanır; geçmiş kayıtlar korunur.</p></div><button id="newJobFromWorkspace" class="primary">+ Yeni arşiv işi</button></div>
+          <div id="jobsSummaryStrip" class="jobs-summary-strip"></div>
+          <div class="toolbar-row"><input id="jobSearch" class="search" type="search" placeholder="Mahkeme, kurum veya dosya no ara"><select id="jobStatusFilter"><option value="">Tüm durumlar</option><option value="running">Çalışıyor</option><option value="paused">Duraklatıldı</option><option value="incomplete">Eksik</option><option value="completed">Tamamlandı</option><option value="ready">Hazır</option></select><select id="jobGrouping"><option value="case">Aynı dosyaları grupla</option><option value="session">Tüm çalışma kayıtları</option></select></div>
+          <div class="table-wrap"><table><thead><tr><th>Dosya</th><th>Kaynak</th><th>Durum</th><th>Evrak</th><th>Son çalışma</th><th></th></tr></thead><tbody id="jobsRows"></tbody></table></div>
+          <div id="jobsEmpty" class="empty-state" hidden>Henüz arşiv işi yok.</div>
+        </article>
+      </section>
+
+      <section id="view-archive" class="view" data-view-panel="archive">
+        <article class="panel">
+          <div class="panel-head wrap"><div><p class="eyebrow">YEREL ARŞİV</p><h2 id="archiveTitle">Yerel arşiv</h2><p class="muted">Fiziksel dosyalar, yarım indirmeler ve kontrol bekleyen kayıtlar tek yerde. Doğrulanmış yerel kopya varsa aynı evrak yeniden indirilmez.</p></div><button id="openArchiveFolder" class="secondary">Arşiv klasörünü aç</button></div>
+          <div class="metric-grid four archive-metrics">
+            <article class="metric-card"><span>Bu işte indirildi</span><strong id="arPresent">0</strong><small>fiziksel ve doğrulanmış</small></article>
+            <article class="metric-card"><span>Önceden yerelde</span><strong id="arReview">0</strong><small>yeniden indirilmedi</small></article>
+            <article class="metric-card"><span>Tekrar / kontrol</span><strong id="arPartial">0</strong><small>henüz tamamlanmadı</small></article>
+            <article class="metric-card"><span>Fiziksel eksik</span><strong id="arMissing">0</strong><small>yeniden indirilebilir</small></article>
+          </div>
+          <div class="archive-guard-note"><strong>Tekrar indirme koruması aktif</strong><span>Her evrak indirilmeden hemen önce yerel arşiv yeniden kontrol edilir.</span></div>
+          <div id="archiveCaseIndexPanel" class="case-index-panel">
+            <div class="panel-head compact"><div><p class="eyebrow">DOSYA İNDEKSİ</p><h3>Kurum / Daire bazında yerel dosyalar</h3></div><span id="archiveCaseIndexCount" class="muted">0 dosya</span></div>
+            <div class="table-wrap"><table><thead><tr><th>Kurum / Daire</th><th>Dosya No</th><th>Evrak</th><th>Fiziksel uygun</th><th>Eksik / sorun</th><th>Boyut</th><th>Son güncelleme</th></tr></thead><tbody id="archiveCaseIndexRows"></tbody></table></div>
+            <div id="archiveCaseIndexWarning" class="archive-index-warning" hidden></div>
+          </div>
+          <div class="toolbar-row archive-toolbar"><select id="archiveScope"><option value="session" selected>Seçili iş</option><option value="local">Tüm fiziksel yerel arşiv</option></select><input id="archiveSearch" class="search" type="search" placeholder="Evrak adı, dosya no veya hedef yol ara"><select id="archiveStatus"><option value="verified" selected>Bu işte indirilenler</option><option value="skipped">Önceden yerelde</option><option value="local_present">Tüm yerel dosyalar</option><option value="">Tüm kayıtlar</option><option value="queued">İndirilecek</option><option value="awaiting_browser">UYAP'tan bekleniyor</option><option value="downloading">İndiriliyor</option><option value="completed">Doğrulanıyor</option><option value="retry_wait">Tekrar denenecek</option><option value="review_required">Kontrol gerekli</option><option value="failed">Başarısız</option><option value="archived">Fiziksel arşivde</option><option value="review">Yerel kontrol gerekli</option><option value="partial">Yarım kaldı</option><option value="missing">Fiziksel dosya eksik</option></select><select id="archiveType"><option value="">Tüm türler</option></select></div>
+          <div class="table-wrap"><table><thead><tr><th>Evrak</th><th>Dosya</th><th>Tür</th><th>Durum</th><th>Yerel dosya</th><th>Tarih</th></tr></thead><tbody id="archiveRows"></tbody></table></div>
+          <div class="pagination"><span id="archivePageInfo">0 kayıt</span><div><button id="archivePrev">← Önceki</button><button id="archiveNext">Sonraki →</button></div></div>
+          <div id="archiveEmpty" class="empty-state" hidden>Bu filtrelerle eşleşen arşiv kaydı yok.</div>
+        </article>
+      </section>
+
+      <section id="view-problems" class="view" data-view-panel="problems">
+        <article class="panel">
+          <div class="panel-head wrap"><div><p class="eyebrow">SORUN MERKEZİ</p><h2>Kontrol ve yeniden deneme</h2><p class="muted">Önce insan dilinde neden, teknik hata kodu ise ayrıntıda.</p></div><button id="repairQueueButton" class="secondary">Takılan kuyruğu onar</button></div>
+          <div class="segmented" id="problemTabs"><button data-problem-tab="review" class="active">Müdahale gerekli <span id="reviewBadge">0</span></button><button data-problem-tab="deferred">Otomatik tekrar <span id="deferredBadge">0</span></button><button data-problem-tab="warnings">Kontrol önerilir <span id="warningBadge">0</span></button></div>
+          <div class="toolbar-row"><input id="problemSearch" class="search" type="search" placeholder="Evrak, hata veya hedef yol ara"><select id="problemCategory"><option value="">Tüm kategoriler</option></select><button id="selectAllProblems">Görünenleri seç</button></div>
+          <div id="problemList" class="problem-list"></div>
+          <div id="problemEmpty" class="empty-state" hidden>Bu bölümde kayıt yok. ✓</div>
+          <div class="sticky-actions"><span id="selectedProblemCount">0 seçili</span><button id="retrySelectedProblems" class="primary" disabled>Seçilenleri yeniden dene</button></div>
+        </article>
+      </section>
+
+      <section id="view-reports" class="view" data-view-panel="reports">
+        <div class="report-result" id="reportResult"></div>
+        <div class="metric-grid four">
+          <article class="metric-card"><span>Kaynak</span><strong id="rpSource">0</strong><small>envanter</small></article>
+          <article class="metric-card"><span>Doğrulanan</span><strong id="rpVerified">0</strong><small>yerel doğrulama</small></article>
+          <article class="metric-card"><span>Manifest</span><strong id="rpManifest">0</strong><small>final kayıt</small></article>
+          <article class="metric-card"><span>ZIP</span><strong id="rpZip">0/0</strong><small>doğrulanmış parça</small></article>
+        </div>
+        <article class="panel">
+          <div class="panel-head wrap"><div><p class="eyebrow">PAKET &amp; RAPOR</p><h2>Final paket ve denetim çıktıları</h2></div><div class="button-row"><button id="openFinalPackageButton" class="primary" hidden>Final paketi aç</button><button id="openReportButton" class="secondary">Denetim raporunu aç</button><button id="repackageButton" class="secondary" hidden>Final paketi oluştur</button></div></div>
+          <div id="reportMeta" class="detail-grid"></div>
+        </article>
+      </section>
+
+      <section id="view-timeline" class="view" data-view-panel="timeline">
+        <div class="case-page-head">
+          <div><p class="eyebrow">DOSYA ZAMAN ÇİZELGESİ</p><h2 id="timelineTitle">Zaman Çizelgesi</h2><p class="muted">Arşivdeki evrak tarihleri ve doğrulama kayıtlarından oluşturulan yerel kronoloji. AI bağlantısından bağımsız çalışır.</p></div>
+          <div class="button-row"><button id="timelineOpenArchive" class="secondary">Evrakları aç</button><button id="timelineOpenAi" class="primary">AI ile incele</button></div>
+        </div>
+        <div class="metric-grid four">
+          <article class="metric-card"><span>Evrak</span><strong id="tlTotal">0</strong><small>zaman çizelgesinde</small></article>
+          <article class="metric-card"><span>İlk kayıt</span><strong id="tlFirst">-</strong><small>belge tarihi</small></article>
+          <article class="metric-card"><span>Son kayıt</span><strong id="tlLast">-</strong><small>belge tarihi</small></article>
+          <article class="metric-card"><span>Dosya türü</span><strong id="tlTypes">0</strong><small>benzersiz format</small></article>
+        </div>
+        <article class="panel timeline-panel">
+          <div class="toolbar-row"><input id="timelineSearch" class="search" type="search" placeholder="Zaman çizelgesinde evrak ara"><select id="timelineType"><option value="">Tüm türler</option></select></div>
+          <div id="timelineList" class="timeline-list"></div>
+          <div id="timelineEmpty" class="empty-state" hidden>Bu dosya için zaman çizelgesine alınabilecek evrak bulunamadı.</div>
+        </article>
+      </section>
+
+      <section id="view-ai" class="view" data-view-panel="ai">
+        <div class="ai-workspace-grid">
+          <div class="ai-main-column">
+            <article class="ai-hero-panel">
+              <div class="ai-hero-copy"><p class="eyebrow">UYAP AI • DOSYA BAĞLAMI</p><h2 id="aiCaseTitle">Dosya seçilmedi</h2><p id="aiCaseSubtitle">AI bağlamı için bir arşiv işi seçin.</p></div>
+              <div class="ai-readiness" id="aiReadiness"></div>
+            </article>
+            <div class="ai-context-grid">
+              <article class="ai-context-card"><span>Evrak bağlamı</span><strong id="aiDocCount">0</strong><small>yerel ve doğrulanmış kayıt</small></article>
+              <article class="ai-context-card"><span>Tarih aralığı</span><strong id="aiDateRange">-</strong><small>arşiv metadatası</small></article>
+              <article class="ai-context-card"><span>Kaynak</span><strong id="aiSource">-</strong><small>UYAP bağlamı</small></article>
+            </div>
+            <article class="panel ai-capabilities">
+              <div class="panel-head"><div><p class="eyebrow">HAZIR AI İŞ AKIŞLARI</p><h2>Dosya üzerinde ne yapılabilecek?</h2></div><span class="future-badge">AI servisi bağlanınca</span></div>
+              <div class="capability-grid">
+                <button data-ai-prompt="Bu dosyayı özetle"><strong>Dosya Özeti</strong><span>Dosyanın genel durumunu ve öne çıkan gelişmeleri çıkar.</span></button>
+                <button data-ai-prompt="Önemli tarihleri ve süreleri çıkar"><strong>Önemli Tarihler</strong><span>Duruşma, tebligat, ara karar ve kritik tarihleri grupla.</span></button>
+                <button data-ai-prompt="Son eklenen önemli evrakları karşılaştır"><strong>Yeni Ne Var?</strong><span>Son arşivlemeden sonra eklenen önemli evrakları göster.</span></button>
+                <button data-ai-prompt="Dosyadaki tarafları ve rolleri çıkar"><strong>Taraflar</strong><span>Taraf, vekil ve ilgili kişi/kurum bağlamını hazırla.</span></button>
+                <button data-ai-prompt="Evrakları hukuki belge türlerine göre sınıflandır"><strong>Akıllı Sınıflandırma</strong><span>Dilekçe, ara karar, rapor, tebligat ve diğer türleri ayır.</span></button>
+                <button data-ai-prompt="Dosyanın kronolojik özetini oluştur"><strong>Kronoloji</strong><span>Evrakları olay sırasına göre anlamlandır.</span></button>
+              </div>
+            </article>
+          </div>
+          <aside class="ai-chat-panel">
+            <div class="ai-chat-head"><div><span class="ai-spark">✦</span><strong>Dosyada Sor</strong></div><span id="aiServiceStatus" class="ai-service-status">Bağlantı bekleniyor</span></div>
+            <div id="aiPromptPreview" class="ai-prompt-preview">Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.</div>
+            <textarea id="aiPrompt" rows="6" placeholder="Örn. Son duruşmadan sonra hangi önemli evraklar eklendi?"></textarea>
+            <button id="aiSend" class="primary full" disabled>AI servisi bağlanınca kullanılabilir</button>
+            <div class="ai-privacy-box"><strong>Gizlilik</strong><p>Bu RC sürümünde AI servisi bağlı değildir ve hiçbir evrak buluta gönderilmez. Yalnızca yerel dosya bağlamının hazırlık durumu gösterilir.</p></div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="view-formatlab" class="view" data-view-panel="formatlab">
+        <article class="panel">
+          <div class="panel-head wrap"><div><p class="eyebrow">UYAP FORMAT LABORATUVARI</p><h2>Dosya yapısı ve indirme yolu denetimi</h2><p class="muted">Açık UYAP dosyasındaki kaynak sinyallerini ve yerelde indirilen gerçek bayt yapılarını birlikte analiz eder. Ham evrak içeriği, token veya URL sorgusu rapora eklenmez.</p></div><div class="button-row"><button id="runFormatLab" class="primary">Analizi çalıştır</button><button id="downloadFormatLab" class="secondary" disabled>Raporu dışa aktar</button></div></div>
+          <div id="formatLabStatus" class="format-lab-status">Henüz analiz çalıştırılmadı.</div>
+        </article>
+        <div class="metric-grid four">
+          <article class="metric-card"><span>Kaynak evrak</span><strong id="flSourceTotal">0</strong><small>açık UYAP ağacı</small></article>
+          <article class="metric-card"><span>Yerel incelendi</span><strong id="flLocalTotal">0</strong><small>gerçek dosya baytı</small></article>
+          <article class="metric-card"><span>Bilinmeyen</span><strong id="flUnknown">0</strong><small>yeni yapı adayı</small></article>
+          <article class="metric-card"><span>Yapısal sorun</span><strong id="flInvalid">0</strong><small>validator uyumsuzluğu</small></article>
+        </div>
+        <div class="two-col format-lab-grid">
+          <article class="panel"><p class="eyebrow">GERÇEK İÇERİK TÜRLERİ</p><h2>Yerel format envanteri</h2><div id="formatLabFormats" class="format-table"></div></article>
+          <article class="panel"><p class="eyebrow">UYAP KAYNAK SİNYALLERİ</p><h2>Evrak türleri</h2><div id="formatLabSource" class="format-table"></div></article>
+        </div>
+        <article class="panel">
+          <div class="panel-head"><div><p class="eyebrow">RİSK KAPISI</p><h2>Yeni yapı / yanlış sınıflandırma denetimi</h2></div></div>
+          <div id="formatLabRisks" class="check-list"></div>
+        </article>
+        <article class="panel">
+          <p class="eyebrow">İNDİRME REQUEST RESOLVER</p><h2>Metadata ve gerçek dosya ayrımı</h2>
+          <div id="formatLabResolver" class="detail-grid"></div>
+        </article>
+      </section>
+
+      <section id="view-health" class="view" data-view-panel="health">
+        <div class="health-card-grid">
+          <article class="health-card"><span class="health-icon">E</span><div><small>Uzantı</small><strong id="healthExtension">v2.9.0</strong><p id="healthExtensionNote">Yüklü</p></div></article>
+          <article class="health-card"><span class="health-icon">A</span><div><small>Yerel ajan</small><strong id="healthAgent">Kontrol ediliyor</strong><p id="healthAgentNote">-</p></div></article>
+          <article class="health-card"><span class="health-icon">U</span><div><small>UYAP bağlantısı</small><strong id="healthSource">-</strong><p id="healthSourceNote">-</p></div></article>
+          <article class="health-card"><span class="health-icon">D</span><div><small>Arşiv konumu</small><strong id="healthStorage">-</strong><p id="healthStorageNote">Yerel</p></div></article>
+        </div>
+        <article class="panel">
+          <div class="panel-head"><div><p class="eyebrow">OTOMATİK KONTROLLER</p><h2>Sistem durumu</h2></div><button id="runHealthCheck" class="primary">Kontrolleri yenile</button></div>
+          <div id="healthChecks" class="check-list"></div>
+          <div class="button-row top-gap"><button id="testNotification">Bildirim testi gönder</button><button id="openStorageFromHealth">Arşiv klasörünü aç</button></div>
+        </article>
+      </section>
+
+      <section id="view-support" class="view" data-view-panel="support">
+        <div class="two-col support-grid">
+          <article class="panel">
+            <p class="eyebrow">DESTEK PAKETİ</p><h2>Teknik kayıt oluştur</h2><p class="muted">Kuyruk, performans, recovery ve hata geçmişini privacy-light JSON olarak dışa aktarır. Ham evrak içeriği ve tokenlar pakete alınmaz.</p>
+            <button id="downloadDiagnostic" class="primary full">Destek paketi oluştur</button>
+          </article>
+          <article class="panel">
+            <p class="eyebrow">UYAP EKRAN TANISI</p><h2>Kaynak ekranını incele</h2><p class="muted">UYAP/UYAP Kurum ekran yapısını, adaptör sinyallerini ve envanter ipuçlarını içerik taşımadan toplar.</p>
+            <button id="downloadSourceDiagnostic" class="secondary full">UYAP ekran tanısı oluştur</button>
+          </article>
+        </div>
+        <article class="panel">
+          <div class="panel-head"><div><p class="eyebrow">GELİŞTİRİCİ AYRINTILARI</p><h2>Son çalışma özeti</h2></div><button id="copyTechDetails">Panoya kopyala</button></div>
+          <pre id="techDetails">Henüz veri yok.</pre>
+        </article>
+      </section>
+
+
+      <section id="view-account" class="view" data-view-panel="account">
+        <div class="account-layout">
+          <article class="panel account-summary-panel">
+            <div class="panel-head"><div><p class="eyebrow">HESAP & LİSANS</p><h2>UYAP Archive AI hesabı</h2></div><span id="accountConnectionBadge" class="status-chip">Yerel mod</span></div>
+            <div id="accountSignedOut">
+              <p id="accountServiceMessage" class="muted">Hesap servisi henüz yapılandırılmadı. Yerel arşivleme özellikleri çalışmaya devam eder.</p>
+              <div class="auth-tabs"><button class="active" data-auth-tab="signin">Giriş yap</button><button data-auth-tab="signup">Hesap oluştur</button></div>
+              <form id="signinForm" class="auth-form">
+                <label>E-posta<input id="signinEmail" type="email" autocomplete="email" required></label>
+                <label>Şifre<input id="signinPassword" type="password" autocomplete="current-password" required minlength="6"></label>
+                <button class="primary" type="submit">Giriş yap</button>
+                <button id="forgotPasswordButton" class="link-button auth-link" type="button">Şifremi unuttum</button>
+              </form>
+              <form id="signupForm" class="auth-form" hidden>
+                <label>Ad soyad<input id="signupName" type="text" autocomplete="name"></label>
+                <label>E-posta<input id="signupEmail" type="email" autocomplete="email" required></label>
+                <label>Şifre<input id="signupPassword" type="password" autocomplete="new-password" required minlength="8"></label>
+                <button class="primary" type="submit">Hesap oluştur</button>
+              </form>
+            </div>
+            <div id="accountSignedIn" hidden>
+              <div class="account-profile-card"><div class="account-big-avatar" id="accountBigAvatar">U</div><div><h3 id="accountProfileName">Kullanıcı</h3><p id="accountProfileEmail" class="muted">-</p><div class="account-plan-line"><span id="accountPlanBadge">Plan</span><small id="accountSubscriptionStatus">-</small></div></div></div>
+              <div class="detail-grid account-grid"><div><span>Plan</span><strong id="accountPlanName">-</strong></div><div><span>Aktif cihaz</span><strong id="accountDeviceCount">-</strong></div><div><span>Arşivleme</span><strong id="accountArchiveAccess">Aktif</strong></div><div><span>UYAP AI</span><strong id="accountAiAccess">Kapalı</strong></div></div>
+              <div class="button-row top-gap"><button id="refreshAccountButton">Hesabı yenile</button><button id="signOutButton" class="danger-soft">Çıkış yap</button></div>
+            </div>
+          </article>
+          <aside class="panel account-device-panel">
+            <p class="eyebrow">BU CİHAZ</p><h2>Cihaz kimliği</h2>
+            <div class="device-card"><span class="device-icon">▣</span><div><strong id="deviceName">Bu bilgisayar</strong><small id="deviceId">Kimlik hazırlanıyor…</small><small id="deviceVersions">Uzantı 2.9.0 RC15.9.37 QUEUE-RECOVERY</small></div></div>
+            <p class="muted">Lisans cihaz bazında doğrulanacak. Yerel arşiv dosyaları hesabınızdan çıkış yapsanız bile bilgisayarınızda kalır.</p>
+            <div class="privacy-chip"><span>●</span><div><strong>Yerel arşiv bağımsızdır</strong><small>Hesap servisi çevrimdışı olsa bile arşiv dosyalarınız silinmez.</small></div></div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="view-settings" class="view" data-view-panel="settings">
+        <article class="panel settings-panel">
+          <p class="eyebrow">BİLDİRİMLER</p><h2>Bildirim tercihleri</h2>
+          <label class="toggle-row"><span><strong>Oturum sona erdiğinde</strong><small>UYAP/UYAP Kurum yeniden giriş gerektiğinde bildir.</small></span><input id="settingLoginNotification" type="checkbox"></label>
+          <label class="toggle-row"><span><strong>Arşiv tamamlandığında</strong><small>Final bütünlük kapısı geçtiğinde bildir.</small></span><input id="settingCompletionNotification" type="checkbox"></label>
+          <label class="toggle-row"><span><strong>Müdahale gerektiğinde</strong><small>Otomatik toparlamanın çözemediği kayıtlar için bildir.</small></span><input id="settingProblemNotification" type="checkbox"></label>
+        </article>
+        <article class="panel settings-panel">
+          <p class="eyebrow">GÖRÜNÜM VE YARDIM</p><h2>Çalışma alanı</h2>
+          <label class="toggle-row"><span><strong>Teknik ayrıntıları göster</strong><small>Destek ekranındaki gelişmiş çalışma verilerini görünür tut.</small></span><input id="settingTechnical" type="checkbox"></label>
+          <div class="button-row top-gap"><button id="rerunOnboarding">İlk kurulum sihirbazını yeniden aç</button><button id="resetUiSettings">Arayüz ayarlarını sıfırla</button></div>
+        </article>
+        <article class="panel about-panel"><p class="eyebrow">HAKKINDA</p><h2>UYAP Archive AI</h2><div class="detail-grid"><div><span>Uzantı sürümü</span><strong id="aboutVersion">2.9.0 RC15.9.37 QUEUE-RECOVERY</strong></div><div><span>Native Agent minimum</span><strong>2.7.64</strong></div><div><span>Kaynaklar</span><strong>UYAP + UYAP Kurum</strong></div><div><span>Arşivleme</span><strong>Yerel / SHA-256 doğrulamalı</strong></div></div></article>
+      </section>
+    </main>
+  </div>
+
+  <div id="onboarding" class="modal-backdrop" hidden>
+    <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+      <div class="onboarding-progress"><span id="onboardingDots">● ○ ○ ○</span><button id="skipOnboarding" class="ghost">Daha sonra</button></div>
+      <p class="eyebrow">İLK KURULUM</p><h2 id="onboardingTitle">UYAP Archive hazır mı?</h2><div id="onboardingBody"></div>
+      <div class="onboarding-actions"><button id="onboardingBack" disabled>← Geri</button><button id="onboardingNext" class="primary">Devam →</button></div>
+    </div>
+  </div>
+
+  <script src="../account/account-config.js"></script>
+  <script src="../account/account-client.js"></script>
+  <script src="workspace.js"></script>
+  <script src="format-lab.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+RC15.9.37 QUEUE-RECOVERY
+Temel: RC15.9.35; Workspace live sync korunmuştur. Native Agent 2.7.63 gereklidir.
+
+Düzeltmeler:
+- Son taramadan gelen evraklara büyük dosya grup numarası atanır.
+- Eski grup numarasız kayıtlar başlangıçta ve devamda onarılır; doğrulanmış kayıtlar değiştirilmez.
+- Kaynak sayısıyla uyuşmayan eski finalIntegrity görünümü temizlenir ve eksik sayısı yeniden hesaplanır.
+- Tükenmiş HTML devresi hem başlangıç hem gerçek kuyruk girişinde kontrol edilir.
+- Yenileme sonrası test bütçesindeki bir fazla deneme düzeltilmiştir.
+- Eski PDF karantinalarının eksik son-ek bilgisi yerelden yeniden okunur. Sadece kesin Invalid request kanıtı yeniden denemeye alınır.
+- Tanı dosyası sürüm adını ve son başlangıçta kullanılan ajan sürümünü açıkça verir.
+
+Kurulum: İşlemi duraklatın. Bu paketi ayrı klasöre çıkarın ve SETUP_UYAP_ARCHIVE_AI.bat çalıştırın.
+Mevcut uzantıyı kaldırmayın/verilerini temizlemeyin. Chrome'da güncellenen uzantıyı yeniden yükleyin.
+Sürüm RC15.9.37, ajan 2.7.63 görünmelidir. UYAP'ta aynı dava/Evrak ekranını yenileyip devam edin.
+UYAP hata yanıtı sürerse sistem güvenli durur; bu sunucu yanıtını uzantı garanti ederek düzeltemez.
+Arşivi, _archive.db dosyasını ve karantina dosyalarını silmeyin.
+
+Test: Tüm mevcut Python regresyon betikleri geçti. Yeni Node davranış testi 11934 kayıt üzerinde
+10 eksik grup numarasını, 694 bekleyen kaydı, tekrar çalıştırmanın güvenliğini ve 11240 doğrulanmış
+kaydın korunmasını test eder. Windows/Chrome/UYAP canlı uçtan uca test bu ortamda yapılmamıştır.

@@ -1,0 +1,33 @@
+RC15.9.15 RESIDUAL-RECOVERY / Native Agent 2.7.51
+
+Tanilama kaynagi:
+- 385 toplam evrak
+- 379 verified
+- 3 review_required
+- 2 failed
+- Final native revalidation: 382 fiziksel olarak dogrulanmis, 3 gercek eksik
+
+Kok nedenler:
+1) Exact extension-download-id kaniti olmasina ragmen canonical olmayan yerel dosya adinin kaynak kimligi kontrolunde reddedilmesi.
+2) Ayni attempt staging yolunda farkli eski byte bulununca exact-bound yeni byte'larin terminal NATIVE_OPERATION_FAILED durumuna dusmesi.
+3) Native finalizasyonun iki fiziksel dosyayi yeniden dogrulamasina ragmen eski browser reviewRequired sayisinin final gate'e tasinmasi ve uzanti durumunun native gercekle uzlastirilmamasi.
+4) History recovery'de browser boyutu ile disk adayi farkli olabilen kayitlarin ad kontrolunden once terminal local hataya dusmesi.
+
+Duzeltmeler:
+- Exact browser identity filename override (download ID + attempt + session zorunlu).
+- Exact-bound staging collision sibling preservation.
+- Post-finalization repairedIds status reconciliation.
+- Effective reviewRequiredCount = native revalidation sonrasi gercek missing seti.
+- Stale reported review count diagnostics icin reportedReviewRequiredCount olarak korunur.
+- Boyut uyusmazliginda DOWNLOAD_SIZE_MISMATCH + fresh_redownload davranisi korunur.
+
+Regresyon:
+- 37/37 standalone regression test PASS.
+- host_self_test.py ve portable_protocol_self_test.py kurulu host/origin parametresi isteyen entegrasyon yardimci testleridir ve standalone sayima dahil edilmemistir.
+- Python py_compile PASS.
+- background/download-manager.js node --check PASS.
+- background/native-agent.js node --check PASS.
+
+Surum:
+- Extension: 2.9.0 RC15.9.15 RESIDUAL-RECOVERY
+- Native Agent: 2.7.51

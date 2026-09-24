@@ -1,0 +1,28 @@
+RC15.9.17 CASE-HEADINGS-FINAL-RECON / Native Agent 2.7.53
+
+SONUC
+- 39/39 standalone regression testi PASS.
+- JavaScript syntax kontrolleri PASS.
+- Python compile kontrolu PASS.
+- host_self_test.py ve portable_protocol_self_test.py kurulu Windows Native Host parametresi isteyen yardimci testlerdir; standalone sayisina dahil degildir.
+
+SON INDIRILEN DAVA DOSYALARI
+1. Popup ve Arsiv Merkezi artik tek tek evrak adlarini degil, dava/icra dosyasi basliklarini gosterir.
+2. Ayni dava dosyasina ait birden fazla evrak tek satirda gruplanir.
+3. Baslik ornegi: 2024/14998 (Icra Dosyasi).
+4. Alt bilgi: mahkeme/daire + yereldeki evrak sayisi + son fiziksel indirme zamani.
+5. Popup ilk 5, Arsiv Merkezi ilk 12 son islem yapilan dava dosyasini gosterir.
+6. Siralama fiziksel fileModifiedAt zamanina gore yapilir; session/IndexedDB gecmisi zorunlu degildir.
+
+FINAL RECON KOK DUZELTMELERI
+1. Final paketleme eski/genel dosya uzantisina korlemesine guvenmez. Gercek byte icerigi detect_extension ile yeniden belirlenir ve uygun yapisal validator calistirilir.
+2. .bin/.uyap/application-download benzeri tasiyici adlarla kalmis eski XML/JPEG/ZIP/Office vb. dosyalar, gercek icerikleri gecerliyse final pakette yanlislikla ARCHIVE_INTEGRITY_FAILED olmaz.
+3. HTML istisna tutulmustur: login/hata HTML'si riskine karsi onceki byte-bagli HTML_DOCUMENT kaniti veya normal fail-closed HTML siniflandirmasi gerekir.
+4. Yerel arsiv reconciliation eski VERIFIED satiri yeni session'a tasirken validation_kind ve validation_mode kanitini da tasir; HTML finalization proof kaybolmaz.
+5. Iki farkli belge kimligi ayni fiziksel yerel path'e baglanmissa ve yalniz biri supplied targetPath kimligiyle eslesiyorsa, dogru sahip korunur; digeri invalid/missing recovery adayi yapilir. Boylece recoverable bir durum duplicatePath blokajina donusmez.
+6. Hedef kimligi belirsizse veya birden fazla aday esitse eski fail-closed duplicate-path davranisi korunur.
+
+KORUNAN ONCEKI DUZELTMELER
+- RC15.9.14 HTML finalization proof ve .uyap carrier destegi.
+- RC15.9.15 exact browser-ID residual recovery, staging collision korumasi, XML/ZIP gercek tur algilama.
+- RC15.9.16 pre-adoption byte-size guard, missing-source journal replay ve fiziksel fileModifiedAt tabanli recent archive.

@@ -1,0 +1,14 @@
+UYAP Archive AI v2.9.0 RC15.8.3 LOGOUT-TOOLBAR-ALERT-HOTFIX
+
+PASS: RC15.8.3 logout toolbar alert regression
+PASS: RC15.8.2 total progress UI regression
+PASS: RC15.8.1 download count UI regression
+PASS: RC15.8 auto pipeline regression
+PASS: RC15.6 max-safe throughput regression
+PASS: RC15.3 unmatched recovery regression
+PASS: finalization regression
+PASS: format matrix regression
+PASS: JavaScript syntax check
+PASS: Python compileall
+
+Native Agent: 2.7.39 (unchanged)

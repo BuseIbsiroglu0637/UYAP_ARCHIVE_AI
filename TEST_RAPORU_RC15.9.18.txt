@@ -1,0 +1,19 @@
+RC15.9.18 OPAQUE-IMAGE-PROOF / Native Agent 2.7.54
+
+Tanilama hedefi:
+- 228 kaynak / 226 fiziksel verified / 2 unresolved senaryosu.
+- Bir kayit Windows WIC ile dogrulanmis JPEG olmasina ragmen finalizasyonda eski proof kaybi nedeniyle dusuyordu.
+- Bir kayit 5,713,619 bayt exact browser/disk boyutuna sahip, UYAP exact korelasyonlu ancak format sniffer tarafindan unknown/.bin kalmis proprietary binary idi.
+
+Duzeltmeler:
+1. Byte-bound IMAGE_DOCUMENT proof finalizationda korunur; size+SHA degisirse kesinlikle kullanilmaz.
+2. Strict UYAP_OPAQUE_BINARY fallback: exact UYAP provenance + complete + exact sizes + binary probe.
+3. Unknown text/HTML-benzeri payload opaque fallback ile reddedilir.
+4. Eski UNSUPPORTED_FORMAT karantina kayitlari exact provenance + sizes + invalid SHA-256 ile local revalidation yoluyla kurtarilir.
+5. Journal replay opaqueValidationMode tasir.
+6. Extension local revalidation opaque proof metadata'sini saklar.
+
+Regresyon:
+- rc15_9_18_opaque_image_proof_regression_test.py PASS
+- Tum standalone regresyonlar: 40/40 PASS
+- host_self_test.py ve portable_protocol_self_test.py kurulu Windows host/protokol parametresi gerektiren yardimci testlerdir ve standalone toplam disindadir.

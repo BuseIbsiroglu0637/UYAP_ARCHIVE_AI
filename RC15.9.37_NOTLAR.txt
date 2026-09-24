@@ -1,0 +1,11 @@
+RC15.9.37: HTML yeniden deneme durum düzeltmesi.
+Doğrulaması süren COMPLETED kayıtlar artık erken müdahale durumuna dönüştürülmez.
+Bekleyen otomatik denemenin eski hata geçmişi yeni denemeyi iptal etmez.
+Kesin Invalid request son-ek kanıtlı, sıfır denemeli müdahale kayıtları bir kez yeniden kuyruğa alınır.
+Gerçekten başarısız olan tekrarlar müdahale listesinde kalır; hatalı yanıtlar arşive alınmaz.
+
+Bu güncelleme için yerel ajanı yeniden kurmayın: tanı kaydınızdaki Agent 2.7.64 korunmalıdır.
+Arşivleme işlemini duraklatıp güncellenmiş uzantı dosyalarını mevcut uzantı klasörüne kopyalayın,
+Chrome uzantılar sayfasından yeniden yükleyin. Uzantıyı kaldırmayın, verilerini temizlemeyin.
+Sürüm RC15.9.37 görünmelidir. Ardından aynı işten devam edin.
+Windows/UYAP canlı testi burada yapılamadı; servis yine Invalid request döndürürse ilgili kayıt tamamlanmış sayılmaz.
