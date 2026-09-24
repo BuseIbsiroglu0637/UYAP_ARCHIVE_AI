@@ -12,7 +12,7 @@ def req(value, message):
         raise AssertionError(message)
 
 
-req("RC15.9.37 QUEUE-RECOVERY" in manifest.get("version_name", ""), "release identity")
+req("2.9.0 RC15.9." in manifest.get("version_name", ""), "release identity")
 req("selectedArchiveKey:null" in workspace, "archive-only workspace selection state missing")
 req("function archiveCaseEntries()" in workspace, "native caseIndex adapter missing")
 req("function selectedArchiveCase()" in workspace, "archive selection resolver missing")

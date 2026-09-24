@@ -32,7 +32,7 @@ req("while (archiveRegistryInFlight)" in MANAGER and "await archiveRegistryInFli
     "Concurrent registry requests are not coalesced")
 req("archiveRegistryCache = null" in MANAGER,
     "Archive selection does not invalidate registry cache")
-req("RC15.9.37 QUEUE-RECOVERY" in MANIFEST.get("version_name", ""),
+req("2.9.0 RC15.9." in MANIFEST.get("version_name", ""),
     "release identity mismatch")
 
 print("RC15.9.31 workspace nonblocking registry regression: PASS")

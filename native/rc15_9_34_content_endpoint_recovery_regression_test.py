@@ -13,7 +13,7 @@ def req(condition, message):
         raise AssertionError(message)
 
 
-req("RC15.9.37 QUEUE-RECOVERY" in MANIFEST.get("version_name", ""), "release identity")
+req("2.9.0 RC15.9." in MANIFEST.get("version_name", ""), "release identity")
 req('const HTML_CIRCUIT_MAX_SOFT_PROBES = 3;' in DM, "bounded probe limit missing")
 req('Object.freeze([15_000, 30_000, 60_000])' in DM, "safe cooldown schedule missing")
 req('UYAP_INVALID_REQUEST_TAIL_HEX = "496e76616c69642072657175657374"' in DM,

@@ -30,7 +30,7 @@ require("NATIVE_OPERATION_RECOVERY" in manager, "same-file operation recovery mi
 require("MAX_NATIVE_OPERATION_RETRIES = 3" in manager, "bounded retry missing")
 require("preservedNativeRetryDownloads" in manager, "browser download preservation missing")
 require("ROOT_DOWNLOAD_ORPHANS_RECONCILED" in manager, "cleanup diagnostic missing")
-require("RC15.9.37 QUEUE-RECOVERY" in manifest, "release identity mismatch")
+require("2.9.0 RC15.9." in manifest, "release identity mismatch")
 
 db_error = agent.operation_error_payload(sqlite3.OperationalError("database is locked"))
 require(db_error["errorCode"] == "NATIVE_DB_BUSY" and db_error["operationFailure"], db_error)

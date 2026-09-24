@@ -1,0 +1,39 @@
+name: Offline source and regression smoke
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  offline-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python syntax
+        run: python -m compileall -q native
+      - name: JavaScript syntax
+        shell: bash
+        run: find . -type f \( -name '*.js' -o -name '*.mjs' \) -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check
+      - name: Release identity
+        run: python native/current_release_identity_test.py
+      - name: Offline targeted regression tests
+        run: |
+          python native/rc15_9_11_state_race_security_regression_test.py
+          python native/rc15_9_32_kurum_frame_context_auth_regression_test.py
+          python native/rc15_9_35_workspace_live_sync_regression_test.py

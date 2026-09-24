@@ -12,7 +12,7 @@ def req(cond, msg):
     if not cond:
         raise AssertionError(msg)
 
-req('RC15.9.37 QUEUE-RECOVERY' in manifest.get('version_name',''), 'release identity')
+req('2.9.0 RC15.9.' in manifest.get('version_name',''), 'release identity')
 req('AGENT_VERSION = "2.7.64"' in agent, 'native agent must be 2.7.64')
 
 # Persistent alarm must survive a hot-path exception.

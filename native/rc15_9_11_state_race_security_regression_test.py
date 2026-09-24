@@ -48,5 +48,5 @@ require("row.innerHTML" not in render_block, "resumable job data still reaches i
 require("title.textContent=resumableJobLabel(job)" in render_block, "job title is not rendered as text")
 require("button.dataset.resumeSession=String(job.sessionId" in render_block, "session id is not assigned through dataset")
 
-require("RC15.9.37 QUEUE-RECOVERY" in MANIFEST, "release identity mismatch")
+require("2.9.0 RC15.9." in MANIFEST, "release identity mismatch")
 print("RC15.9.11 STATE RACE + UI SECURITY REGRESSION: PASS")
