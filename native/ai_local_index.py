@@ -730,6 +730,101 @@ def _tokens(query):
     return [part.casefold() for part in re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşü]{2,}", str(query or ""))][:16]
 
 
+def _summary_date_key(value):
+    raw = str(value or "").strip()
+    match = re.match(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", raw)
+    if match:
+        return tuple(int(part) for part in match.groups())
+    match = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})", raw)
+    if match:
+        day, month, year = (int(part) for part in match.groups())
+        return (year, month, day)
+    return (0, 0, 0)
+
+
+def _summary_chunk_signal(text):
+    value = _clean(text)
+    if not value:
+        return -1
+    letters = sum(1 for ch in value if ch.isalpha())
+    digits = sum(1 for ch in value if ch.isdigit())
+    words = len(re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü]{3,}", value))
+    numeric_penalty = max(0, digits - letters) * 3
+    return letters * 3 + words * 12 + min(len(value), 2400) - numeric_penalty
+
+
+def _select_summary_rows(rows, limit):
+    """Pick one meaningful chunk per document, spread across the case timeline."""
+    limit = max(1, min(int(limit or 4), MAX_RESULTS))
+    best_by_source = {}
+    for row in rows:
+        source_ref, text, title, document_type, document_date, chunk_no = row
+        signal = _summary_chunk_signal(text)
+        current = best_by_source.get(source_ref)
+        candidate = (signal, -int(chunk_no or 0), row)
+        if current is None or candidate[:2] > current[:2]:
+            best_by_source[source_ref] = candidate
+
+    documents = [item[2] for item in best_by_source.values()]
+    documents.sort(key=lambda row: (_summary_date_key(row[4]), str(row[0])))
+
+    if len(documents) <= limit:
+        chosen = documents
+    elif limit == 1:
+        chosen = [documents[-1]]
+    else:
+        positions = []
+        last = len(documents) - 1
+        for index in range(limit):
+            position = round(index * last / (limit - 1))
+            if position not in positions:
+                positions.append(position)
+        chosen = [documents[position] for position in positions]
+
+    chosen.sort(key=lambda row: (_summary_date_key(row[4]), str(row[0])), reverse=True)
+    return chosen
+
+
+def summary_context(downloads_root, session_id, limit=4):
+    root = Path(downloads_root).resolve(strict=True)
+    session_id = str(session_id or "").strip()
+    limit = max(1, min(int(limit or 4), MAX_RESULTS))
+    db, _ = _index_db(root)
+    try:
+        rows = db.execute(
+            """SELECT c.source_ref, c.text, d.title, d.document_type, d.document_date, c.chunk_no
+               FROM ai_chunks c
+               JOIN ai_documents d ON d.source_ref=c.source_ref
+               WHERE d.session_id=?
+               ORDER BY d.document_date, c.source_ref, c.chunk_no""",
+            (session_id,),
+        ).fetchall()
+        chosen = _select_summary_rows(rows, limit)
+        results = []
+        for source_ref, text, title, document_type, document_date, chunk_no in chosen:
+            results.append({
+                "sourceRef": source_ref,
+                "title": title,
+                "documentType": document_type,
+                "documentDate": document_date,
+                "snippet": _clean(text)[:1800],
+                "score": float(_summary_chunk_signal(text)),
+                "chunkNo": int(chunk_no or 0),
+            })
+        return {
+            "ok": True,
+            "kind": "UYAP_AI_SUMMARY_CONTEXT",
+            "schemaVersion": 1,
+            "query": "__summary__",
+            "results": results,
+            "distinctSources": len(results),
+            "rawDocumentsUploaded": False,
+            "networkUsed": False,
+        }
+    finally:
+        db.close()
+
+
 def search_index(downloads_root, session_id, query, limit=8):
     root = Path(downloads_root).resolve(strict=True)
     session_id = str(session_id or "").strip()
