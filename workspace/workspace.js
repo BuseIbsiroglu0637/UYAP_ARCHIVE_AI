@@ -1,5 +1,5 @@
 const MESSAGE=Object.freeze({
-  GET_ACTIVE_SESSION:"get_active_session",GET_SESSIONS:"get_sessions",GET_REPORT_DATA:"get_report_data",GET_AI_CONTEXT:"get_ai_context",GET_AI_SERVICE_STATUS:"get_ai_service_status",BUILD_AI_INDEX:"build_ai_index",GET_AI_INDEX_STATUS:"get_ai_index_status",SEARCH_AI_INDEX:"search_ai_index",
+  GET_ACTIVE_SESSION:"get_active_session",GET_SESSIONS:"get_sessions",GET_REPORT_DATA:"get_report_data",GET_AI_CONTEXT:"get_ai_context",GET_AI_SERVICE_STATUS:"get_ai_service_status",BUILD_AI_INDEX:"build_ai_index",GET_AI_INDEX_STATUS:"get_ai_index_status",SEARCH_AI_INDEX:"search_ai_index",AI_ASK:"ai_ask",
   GET_DIAGNOSTIC_DATA:"get_diagnostic_data",GET_PROBLEM_ITEMS:"get_problem_items",RETRY_SELECTED_PROBLEMS:"retry_selected_problems",
   RESET_RUNTIME:"reset_runtime",REPACKAGE_ARCHIVE:"repackage_archive",NEW_JOB:"new_job",SOURCE_DIAGNOSTIC:"source_diagnostic",
   TEST_NOTIFICATION:"test_notification",OPEN_ARCHIVE_FOLDER:"open_archive_folder",GET_ARCHIVE_REGISTRY:"get_archive_registry",CONFIRM_HTML_EXCLUSION:"confirm_html_exclusion",OPEN_FINAL_PACKAGE_FOLDER:"open_final_package_folder"
@@ -274,7 +274,7 @@ async function renderAiWorkspace(){
   $("aiCaseTitle").textContent=s?jobName(s):"Dosya seçilmedi";
   $("aiCaseSubtitle").textContent=s?`${sourceLabel(s)} • ${statusInfo(s).label} • VERIFIED yerel arşiv bağlamı`:"AI bağlamı için bir arşiv işi seçin.";
   $("aiSource").textContent=s?sourceLabel(s):"-";
-  const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex"),retrieveButton=$("aiRetrieve"),resultsBox=$("aiSearchResults");
+  const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex"),retrieveButton=$("aiRetrieve"),resultsBox=$("aiSearchResults"),answerBox=$("aiAnswerBox");
   if(!s||!state.selectedId){
     state.aiContext=null;state.aiService=null;state.aiIndex=null;
     ready.innerHTML='<span class="ai-ready-pill warn">• Dosya bekleniyor</span><span class="ai-ready-pill warn">• VERIFIED evrak bekleniyor</span><span class="ai-ready-pill warn">• Yerel indeks bekleniyor</span><span class="ai-ready-pill warn">• AI sağlayıcısı bekleniyor</span>';
@@ -284,6 +284,7 @@ async function renderAiWorkspace(){
     if(buildButton)buildButton.disabled=true;
     if(retrieveButton)retrieveButton.disabled=true;
     if(resultsBox)resultsBox.textContent="";
+    if(answerBox){answerBox.hidden=true;answerBox.textContent="";}
     if(send){send.disabled=true;send.textContent="Önce bir dosya seçin";}
     return;
   }
@@ -300,7 +301,7 @@ async function renderAiWorkspace(){
     $("aiDateRange").textContent=dates.length?`${shortDate(dates[0])} – ${shortDate(dates[dates.length-1])}`:"-";
     const providerReady=service?.enabled===true&&service?.configured===true,indexReady=indexStatus?.ready===true;
     ready.innerHTML=`<span class="ai-ready-pill good">✓ Dosya seçili</span><span class="ai-ready-pill ${docs.length?"good":"warn"}">${docs.length?"✓ VERIFIED bağlam hazır":"• VERIFIED evrak bekleniyor"}</span><span class="ai-ready-pill ${indexReady?"good":"warn"}">${indexReady?"✓ Yerel indeks hazır":"• Yerel indeks bekleniyor"}</span><span class="ai-ready-pill ${providerReady?"good":"warn"}">${providerReady?"✓ AI sağlayıcısı bağlı":"• AI sağlayıcısı bekleniyor"}</span>`;
-    if(serviceLabel)serviceLabel.textContent=providerReady?"Bağlı":"Provider bekleniyor";
+    if(serviceLabel)serviceLabel.textContent=providerReady?((service?.provider==="openai"?"OpenAI":"AI")+" • "+(service?.model||"Bağlı")):"Provider bekleniyor";
     if(indexLabel)indexLabel.textContent=indexReady?`${n(indexStatus.documents).toLocaleString("tr-TR")} evrak • ${n(indexStatus.chunks).toLocaleString("tr-TR")} yerel metin parçası hazır.`:"VERIFIED evraklardan yerel metin indeksi henüz oluşturulmadı.";
     if(buildButton)buildButton.textContent=indexReady?"Yerel AI indeksini güncelle":"Yerel AI indeksini hazırla";
     if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel kaynaklarda ara":"Önce yerel indeksi hazırla";}
@@ -503,6 +504,28 @@ $("aiRetrieve").addEventListener("click",async()=>{
     showToast(String(error).replace(/^Error:\s*/,""),true);
   }finally{
     button.disabled=false;button.textContent="Yerel kaynaklarda ara";
+  }
+});
+$("aiSend").addEventListener("click",async()=>{
+  if(!state.selectedId)return showToast("Önce bir arşiv işi seçin.",true);
+  const query=String($("aiPrompt")?.value||"").trim();
+  if(!query)return showToast("Önce AI’ya sorulacak metni yazın.",true);
+  const button=$("aiSend"),box=$("aiAnswerBox");
+  button.disabled=true;button.textContent="Kaynaklı yanıt hazırlanıyor…";
+  if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-loading">Yerel kaynaklar seçiliyor ve AI yanıtı hazırlanıyor…</div>';}
+  try{
+    const result=await sendRuntime(MESSAGE.AI_ASK,{sessionId:state.selectedId,query,limit:8});
+    if(box){
+      const refs=Array.isArray(result?.sourceRefs)?result.sourceRefs:[];
+      const meta=[result?.provider||"AI",result?.model||"",refs.length?(refs.length+" kaynak"):"kaynak eşleşmedi"].filter(Boolean).join(" • ");
+      box.innerHTML='<div class="ai-answer-head"><strong>Kaynaklı yanıt</strong><span>'+esc(meta)+'</span></div><div class="ai-answer-text">'+esc(result?.answer||"Yanıt alınamadı.")+'</div>';
+    }
+  }catch(error){
+    if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-error">'+esc(String(error).replace(/^Error:\\s*/,""))+'</div>';}
+    showToast(String(error).replace(/^Error:\\s*/,""),true);
+  }finally{
+    const ready=state.aiService?.enabled===true&&state.aiService?.configured===true&&state.aiIndex?.ready===true;
+    button.disabled=!ready;button.textContent=ready?"Soruyu gönder":"AI sağlayıcısı bağlanınca kullanılabilir";
   }
 });
 $("globalSearch").addEventListener("keydown",event=>{if(event.key!=="Enter")return;const q=$("globalSearch").value.trim();$("jobSearch").value=q;showView("jobs");renderJobs();});
