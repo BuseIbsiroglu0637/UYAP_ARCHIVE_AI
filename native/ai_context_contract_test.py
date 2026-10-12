@@ -10,7 +10,13 @@ from ai_local_index import (
     _xlsx_text,
     _select_summary_rows,
 )
-from ai_provider import _validate_citations, _is_local_http_url, _task_instructions, _is_summary_query
+from ai_provider import (
+    _validate_citations,
+    _validate_grounding,
+    _is_local_http_url,
+    _task_instructions,
+    _is_summary_query,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -175,6 +181,50 @@ def test_summary_context_diversifies_sources_and_avoids_numeric_noise():
     assert "1655422 18778" not in selected_d1[1]
 
 
+def test_grounding_rejects_uncited_claims_single_source_summary_and_invented_roles():
+    allowed = {"D000001", "D000002"}
+    source_text = (
+        "[D000001]\nBelge, banka tarafından gönderilen kredi sözleşmesi bilgisini içerir.\n"
+        "[D000002]\nMahkeme 10 Ekim 2026 tarihli duruşma gününü bildirmiştir."
+    )
+
+    ok, error, detail = _validate_grounding(
+        "Genel durum: Banka belgeleri sunmuştur.\nDuruşma tarihi 10 Ekim 2026'dır [D000002].",
+        allowed,
+        source_text,
+        summary_request=True,
+    )
+    assert ok is False and error == "AI_RESPONSE_UNCITED_CLAIMS"
+    assert detail["uncitedClaims"]
+
+    ok, error, detail = _validate_grounding(
+        "Banka belgeleri sunmuştur [D000001].",
+        allowed,
+        source_text,
+        summary_request=True,
+    )
+    assert ok is False and error == "AI_RESPONSE_INSUFFICIENT_SOURCE_DIVERSITY"
+    assert detail["minimumDistinctSources"] == 2
+
+    ok, error, detail = _validate_grounding(
+        "Davacı banka belge sunmuştur [D000001].\nDuruşma tarihi 10 Ekim 2026'dır [D000002].",
+        allowed,
+        source_text,
+        summary_request=True,
+    )
+    assert ok is False and error == "AI_RESPONSE_UNSUPPORTED_ROLE"
+    assert "davacı" in detail["unsupportedRoles"]
+
+    ok, error, detail = _validate_grounding(
+        "Banka belgeleri sunmuştur [D000001].\nMahkeme 10 Ekim 2026 tarihli duruşma gününü bildirmiştir [D000002].",
+        allowed,
+        source_text,
+        summary_request=True,
+    )
+    assert ok is True and error is None
+    assert set(detail["citedSourceRefs"]) == allowed
+
+
 def test_provider_gateway_is_secret_safe_citation_gated_and_local_capable():
     source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert 'OPENAI_API_KEY' in source
@@ -242,6 +292,7 @@ if __name__ == "__main__":
     test_summary_prompt_is_structured_and_source_grounded()
     test_summary_prompt_forbids_invented_roles_and_detects_summary_request()
     test_summary_context_diversifies_sources_and_avoids_numeric_noise()
+    test_grounding_rejects_uncited_claims_single_source_summary_and_invented_roles()
     test_provider_gateway_is_secret_safe_citation_gated_and_local_capable()
     test_workspace_message_contract_exposes_ai_context_and_status()
     print("AI context contract: PASS")
