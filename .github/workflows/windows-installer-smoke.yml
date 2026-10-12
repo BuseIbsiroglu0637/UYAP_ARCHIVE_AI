@@ -1,0 +1,53 @@
+name: Windows installer lifecycle smoke
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Release identity
+        run: python native/current_release_identity_test.py
+      - name: Clean-install host contract
+        run: python native/rc15_4_clean_install_regression_test.py
+      - name: Agent lifecycle and rollback contract
+        run: python native/rc15_5_agent_lifecycle_regression_test.py
+      - name: Portable installer contract
+        run: python native/rc15_7_portable_installer_regression_test.py
+      - name: Release channel packaging contract
+        run: python native/phase1_release_channel_contract_test.py
+      - name: PowerShell installer syntax
+        shell: powershell
+        run: |
+          $files = @(
+            'native/build_offline_setup.ps1',
+            'native/portable_installer.ps1'
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell syntax failed: $file"
+            }
+          }

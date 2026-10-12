@@ -20,7 +20,7 @@
 ## İş sırası
 
 1. [x] RC15.9.38 test ve sürüm belgelerini güncel bazla eşleştir.
-2. [ ] Native Agent 2.7.64 için clean install / upgrade / rollback matrisi oluştur.
+2. [ ] Native Agent 2.7.64 clean install / upgrade / rollback kabulünü tamamla. Windows CI lifecycle smoke hazır; gerçek imzalı makine kabulü bekliyor.
 3. [x] Extension-Agent-DB sürüm uyumluluk sözleşmesini makine okunabilir hale getir.
 4. [x] Connector / Core / Native / Workspace / Control Plane modül sınırlarını tanımla ve CI ile koru.
 5. [x] Config ve environment yönetimi için `dev/stage/prod` politika sözleşmesini oluştur.
