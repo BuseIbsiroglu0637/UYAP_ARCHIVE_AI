@@ -50,6 +50,7 @@ export const MESSAGE = Object.freeze({
   BUILD_AI_INDEX: "build_ai_index",
   GET_AI_INDEX_STATUS: "get_ai_index_status",
   SEARCH_AI_INDEX: "search_ai_index",
+  AI_ASK: "ai_ask",
   GET_ARCHIVE_REGISTRY: "get_archive_registry",
   SELECT_EXISTING_ARCHIVE: "select_existing_archive",
   GET_SELECTED_ARCHIVE: "get_selected_archive",
