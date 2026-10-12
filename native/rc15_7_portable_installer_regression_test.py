@@ -34,6 +34,7 @@ for token in [
     'Restore-RegistryState',
     'rollback',
     'ai_local_index.py',
+    'ai_provider.py',
 ]:
     require(token.lower() in installer.lower(), f'portable installer token eksik: {token}')
 
