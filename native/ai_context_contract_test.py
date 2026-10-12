@@ -95,6 +95,9 @@ def test_pdf_chunk_quality_gate_filters_mixed_documents():
 def test_provider_gateway_is_secret_safe_and_citation_gated():
     source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert 'OPENAI_API_KEY' in source
+    assert "HKEY_CURRENT_USER" in source
+    assert 'r"Environment"' in source
+    assert '"windows_user_environment"' in source
     assert 'https://api.openai.com/v1/responses' in source
     assert '"store": False' in source
     assert '"apiKeyExposedToExtension": False' in source
