@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS={loginNotification:true,completionNotification:true,probl
 const PAGE_SIZE=100;
 
 const $=id=>document.getElementById(id);
-const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",timelineDocs:[],account:null,device:null};
+const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",aiContext:null,aiService:null,timelineDocs:[],account:null,device:null};
 let toastTimer=null;
 let archiveRegistryRefreshTask=null;
 let workspaceLiveRefreshTask=null;
@@ -270,11 +270,44 @@ function renderTimelineRows(){
 }
 function setAiPrompt(prompt,{navigate=true}={}){state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if(navigate)showView("ai");}
 async function renderAiWorkspace(){
-  const s=state.summary;$("aiCaseTitle").textContent=s?jobName(s):"Dosya seçilmedi";$("aiCaseSubtitle").textContent=s?`${sourceLabel(s)} • ${statusInfo(s).label} • Yerel arşiv bağlamı hazırlanıyor`:"AI bağlamı için bir arşiv işi seçin.";$("aiSource").textContent=s?sourceLabel(s):"-";
-  const ready=$("aiReadiness");ready.innerHTML=`<span class="ai-ready-pill ${s?"good":"warn"}">${s?"✓ Dosya seçili":"• Dosya bekleniyor"}</span><span class="ai-ready-pill ${verifiedFor(s)>0?"good":"warn"}">${verifiedFor(s)>0?"✓ Yerel evrak hazır":"• Evrak bağlamı bekleniyor"}</span><span class="ai-ready-pill warn">AI servisi bağlı değil</span>`;
-  if(!s){$("aiDocCount").textContent="0";$("aiDateRange").textContent="-";return;}
-  try{const report=await ensureReport();const docs=Array.isArray(report?.documents)?report.documents:[],dates=docs.map(normalizedDocDate).filter(Boolean).sort((a,b)=>a-b);$("aiDocCount").textContent=docs.length.toLocaleString("tr-TR");$("aiDateRange").textContent=dates.length?`${shortDate(dates[0])} – ${shortDate(dates[dates.length-1])}`:"-";}catch{$("aiDocCount").textContent=verifiedFor(s).toLocaleString("tr-TR");$("aiDateRange").textContent="-";}
-  if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt||"";if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;
+  const s=state.summary;
+  $("aiCaseTitle").textContent=s?jobName(s):"Dosya seçilmedi";
+  $("aiCaseSubtitle").textContent=s?`${sourceLabel(s)} • ${statusInfo(s).label} • VERIFIED yerel arşiv bağlamı hazırlanıyor`:"AI bağlamı için bir arşiv işi seçin.";
+  $("aiSource").textContent=s?sourceLabel(s):"-";
+  const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus");
+  if(!s||!state.selectedId){
+    state.aiContext=null;state.aiService=null;
+    ready.innerHTML='<span class="ai-ready-pill warn">• Dosya bekleniyor</span><span class="ai-ready-pill warn">• VERIFIED evrak bekleniyor</span><span class="ai-ready-pill warn">AI sağlayıcısı bekleniyor</span>';
+    $("aiDocCount").textContent="0";$("aiDateRange").textContent="-";
+    if(serviceLabel)serviceLabel.textContent="Bağlantı bekleniyor";
+    if(send){send.disabled=true;send.textContent="Önce bir dosya seçin";}
+    return;
+  }
+  try{
+    const [context,service]=await Promise.all([
+      sendRuntime(MESSAGE.GET_AI_CONTEXT,{sessionId:state.selectedId}),
+      sendRuntime(MESSAGE.GET_AI_SERVICE_STATUS)
+    ]);
+    state.aiContext=context;state.aiService=service;
+    const docs=Array.isArray(context?.documents)?context.documents:[],dates=docs.map(d=>normalizedDocDate({documentDate:d.documentDate})).filter(Boolean).sort((a,b)=>a-b);
+    $("aiDocCount").textContent=docs.length.toLocaleString("tr-TR");
+    $("aiDateRange").textContent=dates.length?`${shortDate(dates[0])} – ${shortDate(dates[dates.length-1])}`:"-";
+    const providerReady=service?.enabled===true&&service?.configured===true;
+    ready.innerHTML=`<span class="ai-ready-pill good">✓ Dosya seçili</span><span class="ai-ready-pill ${docs.length?"good":"warn"}">${docs.length?"✓ VERIFIED bağlam hazır":"• VERIFIED evrak bekleniyor"}</span><span class="ai-ready-pill ${providerReady?"good":"warn"}">${providerReady?"✓ AI sağlayıcısı bağlı":"• AI sağlayıcısı bekleniyor"}</span>`;
+    if(serviceLabel)serviceLabel.textContent=providerReady?"Bağlı":"Provider bekleniyor";
+    if(send){
+      send.disabled=!providerReady||docs.length===0;
+      send.textContent=providerReady?(docs.length?"Soruyu gönder":"VERIFIED evrak bekleniyor"):"AI sağlayıcısı bağlanınca kullanılabilir";
+    }
+  }catch(error){
+    state.aiContext=null;
+    ready.innerHTML='<span class="ai-ready-pill good">✓ Dosya seçili</span><span class="ai-ready-pill warn">• AI bağlamı hazırlanamadı</span><span class="ai-ready-pill warn">• AI sağlayıcısı bekleniyor</span>';
+    $("aiDocCount").textContent=verifiedFor(s).toLocaleString("tr-TR");$("aiDateRange").textContent="-";
+    if(serviceLabel)serviceLabel.textContent="Bağlantı bekleniyor";
+    if(send){send.disabled=true;send.textContent="AI bağlamı hazır değil";}
+  }
+  if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt||"";
+  if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:"Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.";
 }
 
 async function ensureReport(){if(state.report||!state.selectedId)return state.report;if(!state.selectedId)return null;state.report=await sendRuntime(MESSAGE.GET_REPORT_DATA,{sessionId:state.selectedId});return state.report;}
