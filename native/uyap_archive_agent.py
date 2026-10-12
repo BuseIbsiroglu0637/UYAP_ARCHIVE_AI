@@ -30,7 +30,7 @@ from ai_provider import provider_status as ai_provider_status, answer_from_local
 from collections import Counter
 from pathlib import Path, PurePosixPath
 
-AGENT_VERSION = "2.7.67"
+AGENT_VERSION = "2.7.68"
 PROTOCOL_VERSION = 2
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
