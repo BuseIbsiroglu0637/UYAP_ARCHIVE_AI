@@ -189,8 +189,39 @@ Kaynaklarda bulunmayan olguları uydurma; gerekiyorsa 'Doğrulanmış yerel kayn
 Her maddi/olgusal iddianın sonunda ilgili kaynak referansını köşeli parantezle yaz: [D000001].
 Sadece verilen Dxxxxxx referanslarını kullan.
 Hukuki tavsiye verdiğini iddia etme; dosya içeriğini özetle ve açıkça kaynaklandır.
-Kısa, net Türkçe kullan.
+Kısa, doğal ve profesyonel Türkçe kullan. Bozuk, tekrar eden veya anlamsız kaynak parçalarını yorumlamaya çalışma.
+Aynı olguyu farklı cümlelerle tekrarlama. Kaynakta olmayan hukuki sonuç, niyet veya kesinlik üretme.
 """
+
+
+def _task_instructions(query):
+    normalized = re.sub(r"\s+", " ", str(query or "").strip().casefold())
+    summary_request = (
+        "özet" in normalized
+        or "ozet" in normalized
+        or normalized in {"bu dosya", "dosya özeti", "dosya ozeti"}
+    )
+    if not summary_request:
+        return """Kullanıcının sorusunu doğrudan yanıtla.
+Önce kesin kaynaklı bulguları ver; kaynakta olmayan veya belirsiz kalan kısmı ayrıca belirt.
+Her olgusal cümleyi uygun [Dxxxxxx] referansıyla bitir."""
+
+    return """Görev: Dosyanın yönetici düzeyinde, kaynaklı ve tekrarsız özetini hazırla.
+
+Yanıtı şu başlıklarla ver; kaynaklarda veri yoksa ilgili başlığı atla:
+1. Genel durum
+2. Öne çıkan gelişmeler
+3. Önemli tarihler / süreler
+4. Taraflar, kurumlar ve roller
+5. Belirsiz veya eksik kalan noktalar
+
+Kurallar:
+- Her madde tek bir somut olgu veya gelişme içersin.
+- Her maddi iddianın sonunda en az bir geçerli [Dxxxxxx] kaynağı olsun.
+- Evrak başlığını tekrar ederek yer doldurma; içeriğin anlamını özetle.
+- Bir kaynak yalnız teknik kayıt, sayı dizisi veya anlamsız veri içeriyorsa onu sonuç üretmek için kullanma.
+- 'Dosya kesin olarak şu aşamadadır' gibi sonuçları yalnız kaynak bunu açıkça destekliyorsa yaz.
+- En fazla 8 kısa madde kullan; uzun giriş ve kapanış yazma."""
 
 
 def provider_status():
@@ -359,7 +390,7 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "model": status["model"],
         "store": False,
         "max_output_tokens": profile["maxOutputTokens"],
-        "instructions": _PROVIDER_INSTRUCTIONS,
+        "instructions": _PROVIDER_INSTRUCTIONS + "\n\n" + _task_instructions(query),
         "input": (
             "Kullanıcı sorusu:\n"
             + query
