@@ -23,7 +23,7 @@ DEFAULT_CHUNK_CHARS = 3200
 DEFAULT_OVERLAP_CHARS = 400
 MAX_CHUNKS_PER_DOCUMENT = 500
 MAX_RESULTS = 20
-PDF_EXTRACTOR_METHOD = "pdf-content-stream-v3-quality-gated"
+PDF_EXTRACTOR_METHOD = "pdf-content-stream-v4-chunk-quality-gated"
 PDF_MIN_QUALITY_SCORE = 0.72
 
 ZIP_XML_TYPES = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
@@ -392,6 +392,29 @@ def chunk_text(text, chunk_chars=DEFAULT_CHUNK_CHARS, overlap=DEFAULT_OVERLAP_CH
     return chunks
 
 
+def _quality_gate_pdf_chunks(chunks):
+    accepted = []
+    rejected = 0
+    reasons = {}
+    scores = []
+    for chunk in chunks:
+        assessment = assess_text_quality(chunk)
+        scores.append(float(assessment.get("score") or 0.0))
+        if assessment.get("accepted") is True:
+            accepted.append(chunk)
+            continue
+        rejected += 1
+        reason = str(assessment.get("reason") or "low_quality")
+        reasons[reason] = reasons.get(reason, 0) + 1
+    return {
+        "chunks": accepted,
+        "rejectedChunks": rejected,
+        "rejectedByReason": reasons,
+        "minScore": round(min(scores), 4) if scores else None,
+        "maxScore": round(max(scores), 4) if scores else None,
+    }
+
+
 def _sha256_file(path):
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -487,6 +510,8 @@ def build_index(downloads_root, session_id, bindings):
     indexed = reused = unsupported = failed = 0
     quality_rejected = 0
     quality_reasons = {}
+    quality_rejected_chunks = 0
+    quality_chunk_reasons = {}
     methods = {}
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
@@ -507,14 +532,23 @@ def build_index(downloads_root, session_id, bindings):
                 method = str(extracted.get("method") or "unknown")
                 methods[method] = methods.get(method, 0) + 1
                 chunks = chunk_text(extracted.get("text") or "")
+                if item["path"].suffix.lower() == ".pdf" and chunks:
+                    gated = _quality_gate_pdf_chunks(chunks)
+                    chunks = gated["chunks"]
+                    quality_rejected_chunks += int(gated["rejectedChunks"] or 0)
+                    for reason, count in (gated["rejectedByReason"] or {}).items():
+                        quality_chunk_reasons[reason] = quality_chunk_reasons.get(reason, 0) + int(count or 0)
+                    if chunks and gated["rejectedChunks"]:
+                        extracted["quality"] = "accepted_partial"
+                        extracted["qualityReason"] = "chunk_quality_gate"
                 if not chunks:
                     db.execute("DELETE FROM ai_chunks WHERE source_ref=?", (ref,))
                     if fts5:
                         db.execute("DELETE FROM ai_chunks_fts WHERE source_ref=?", (ref,))
                     db.execute("DELETE FROM ai_documents WHERE source_ref=? AND session_id=?", (ref, session_id))
-                    if extracted.get("errorCode") == "AI_PDF_TEXT_LOW_QUALITY":
+                    if extracted.get("errorCode") == "AI_PDF_TEXT_LOW_QUALITY" or item["path"].suffix.lower() == ".pdf":
                         quality_rejected += 1
-                        reason = str(extracted.get("qualityReason") or "low_quality")
+                        reason = str(extracted.get("qualityReason") or "all_pdf_chunks_rejected")
                         quality_reasons[reason] = quality_reasons.get(reason, 0) + 1
                     else:
                         unsupported += 1
@@ -546,6 +580,7 @@ def build_index(downloads_root, session_id, bindings):
             "sessionId": session_id, "verifiedSourceRows": len(rows), "indexedDocuments": indexed,
             "reusedDocuments": reused, "unsupportedDocuments": unsupported, "failedDocuments": failed,
             "qualityRejectedDocuments": quality_rejected, "qualityRejectedByReason": quality_reasons,
+            "qualityRejectedChunks": quality_rejected_chunks, "qualityRejectedChunksByReason": quality_chunk_reasons,
             "availableDocuments": int(available), "availableChunks": int(chunks), "fts5": bool(fts5),
             "extractionMethods": methods, "pdfQualityGate": {"method": PDF_EXTRACTOR_METHOD, "minScore": PDF_MIN_QUALITY_SCORE},
             "rawDocumentsUploaded": False, "networkUsed": False,
