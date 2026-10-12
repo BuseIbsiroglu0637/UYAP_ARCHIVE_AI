@@ -23,7 +23,8 @@ service = (ROOT / "background" / "service-worker.js").read_text(encoding="utf-8"
 agent_source = (HERE / "uyap_archive_agent.py").read_text(encoding="utf-8")
 
 req("2.9.0 RC15.9." in manifest.get("version_name", ""), "release identity")
-req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
+contract = json.loads((ROOT / "config" / "release-contract.json").read_text(encoding="utf-8"))
+req(agent.AGENT_VERSION == contract["nativeAgent"]["version"], agent.AGENT_VERSION)
 req("setInterval(()=>void refreshWorkspaceLiveState(),WORKSPACE_LIVE_REFRESH_MS)" in workspace,
     "Workspace live refresh timer missing")
 req("GET_ACTIVE_SESSION" in workspace[workspace.index("async function refreshWorkspaceLiveState"):],
