@@ -274,7 +274,7 @@ async function renderAiWorkspace(){
   $("aiCaseTitle").textContent=s?jobName(s):"Dosya seçilmedi";
   $("aiCaseSubtitle").textContent=s?`${sourceLabel(s)} • ${statusInfo(s).label} • VERIFIED yerel arşiv bağlamı`:"AI bağlamı için bir arşiv işi seçin.";
   $("aiSource").textContent=s?sourceLabel(s):"-";
-  const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex");
+  const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex"),retrieveButton=$("aiRetrieve"),resultsBox=$("aiSearchResults");
   if(!s||!state.selectedId){
     state.aiContext=null;state.aiService=null;state.aiIndex=null;
     ready.innerHTML='<span class="ai-ready-pill warn">• Dosya bekleniyor</span><span class="ai-ready-pill warn">• VERIFIED evrak bekleniyor</span><span class="ai-ready-pill warn">• Yerel indeks bekleniyor</span><span class="ai-ready-pill warn">• AI sağlayıcısı bekleniyor</span>';
@@ -282,6 +282,8 @@ async function renderAiWorkspace(){
     if(serviceLabel)serviceLabel.textContent="Bağlantı bekleniyor";
     if(indexLabel)indexLabel.textContent="Önce bir dosya seçin.";
     if(buildButton)buildButton.disabled=true;
+    if(retrieveButton)retrieveButton.disabled=true;
+    if(resultsBox)resultsBox.textContent="";
     if(send){send.disabled=true;send.textContent="Önce bir dosya seçin";}
     return;
   }
@@ -301,6 +303,7 @@ async function renderAiWorkspace(){
     if(serviceLabel)serviceLabel.textContent=providerReady?"Bağlı":"Provider bekleniyor";
     if(indexLabel)indexLabel.textContent=indexReady?`${n(indexStatus.documents).toLocaleString("tr-TR")} evrak • ${n(indexStatus.chunks).toLocaleString("tr-TR")} yerel metin parçası hazır.`:"VERIFIED evraklardan yerel metin indeksi henüz oluşturulmadı.";
     if(buildButton)buildButton.textContent=indexReady?"Yerel AI indeksini güncelle":"Yerel AI indeksini hazırla";
+    if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel kaynaklarda ara":"Önce yerel indeksi hazırla";}
     if(send){
       send.disabled=!providerReady||!indexReady;
       send.textContent=providerReady?(indexReady?"Soruyu gönder":"Önce yerel indeksi hazırla"):"AI sağlayıcısı bağlanınca kullanılabilir";
@@ -311,6 +314,7 @@ async function renderAiWorkspace(){
     $("aiDocCount").textContent=verifiedFor(s).toLocaleString("tr-TR");$("aiDateRange").textContent="-";
     if(serviceLabel)serviceLabel.textContent="Bağlantı bekleniyor";
     if(indexLabel)indexLabel.textContent=String(error).replace(/^Error:\s*/,"")||"Yerel indeks kontrol edilemedi.";
+    if(retrieveButton)retrieveButton.disabled=true;
     if(send){send.disabled=true;send.textContent="AI bağlamı hazır değil";}
   }
   if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt||"";
@@ -477,6 +481,29 @@ $("aiBuildIndex").addEventListener("click",async()=>{
     if(label)label.textContent=String(error).replace(/^Error:\s*/,"");
     showToast(String(error).replace(/^Error:\s*/,""),true);
   }finally{button.disabled=false;}
+});
+$("aiRetrieve").addEventListener("click",async()=>{
+  if(!state.selectedId)return showToast("Önce bir arşiv işi seçin.",true);
+  const query=String($("aiPrompt")?.value||"").trim();
+  if(!query)return showToast("Önce aramak istediğiniz soruyu veya anahtar kelimeyi yazın.",true);
+  const button=$("aiRetrieve"),box=$("aiSearchResults");
+  button.disabled=true;button.textContent="Yerelde aranıyor…";
+  if(box)box.innerHTML='<div class="ai-search-empty">VERIFIED yerel metin parçaları taranıyor…</div>';
+  try{
+    const result=await sendRuntime(MESSAGE.SEARCH_AI_INDEX,{sessionId:state.selectedId,query,limit:8});
+    const rows=Array.isArray(result?.results)?result.results:[];
+    if(!box)return;
+    if(!rows.length){
+      box.innerHTML='<div class="ai-search-empty">Bu sorgu için yerel indekste eşleşen kaynak bulunamadı.</div>';
+      return;
+    }
+    box.innerHTML=rows.map(row=>`<article class="ai-search-result"><div><strong>${esc(row.sourceRef||"-")}</strong><span>${esc(row.documentType||"DOSYA")}${row.documentDate?` • ${esc(shortDate(row.documentDate))}`:""}</span></div><h4>${esc(row.title||"Adsız evrak")}</h4><p>${esc(row.snippet||"")}</p></article>`).join("");
+  }catch(error){
+    if(box)box.innerHTML=`<div class="ai-search-empty bad-text">${esc(String(error).replace(/^Error:\s*/,""))}</div>`;
+    showToast(String(error).replace(/^Error:\s*/,""),true);
+  }finally{
+    button.disabled=false;button.textContent="Yerel kaynaklarda ara";
+  }
 });
 $("globalSearch").addEventListener("keydown",event=>{if(event.key!=="Enter")return;const q=$("globalSearch").value.trim();$("jobSearch").value=q;showView("jobs");renderJobs();});
 $("sessionPicker").addEventListener("change",async()=>{const value=$("sessionPicker").value||"";if(value.startsWith("archive::")){state.selectedId=null;state.selectedArchiveKey=decodeURIComponent(value.slice(9));}else{state.selectedId=value||null;state.selectedArchiveKey=null;}await loadSelectedSummary();showView(state.view);});
