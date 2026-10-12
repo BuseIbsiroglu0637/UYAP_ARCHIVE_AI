@@ -25,10 +25,11 @@ import html
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
+from ai_local_index import build_index as ai_build_index, index_status as ai_index_status, search_index as ai_search_index
 from collections import Counter
 from pathlib import Path, PurePosixPath
 
-AGENT_VERSION = "2.7.64"
+AGENT_VERSION = "2.7.65"
 PROTOCOL_VERSION = 2
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
@@ -5064,7 +5065,13 @@ def dispatch(message):
     action = message.get("action")
     if action == "ping":
         return {"ok": True, "version": AGENT_VERSION, "protocolVersion":PROTOCOL_VERSION, "echo":message.get('probe'),
-                "capabilities": ["sqlite", "sha256", "magic_bytes", "atomic_move", "quarantine", "attempt_journal", "attempt_owner_replay_v1", "validation_perf_v1", "persistent_session_v1", "final_integrity_v1", "source_adapter_v1", "chunked_archive_v1", "download_completion_guard_v1", "pdf_structure_v2", "uyap_pdf_control_suffix_1a04_v1", "bulk_reliability_v1", "legitimate_html_document_v1", "legitimate_html_document_v2", "image_document_v1", "uyap_streaming_udf_v1", "quarantine_revalidation_v1", "uyap_pdf_belgenet_suffix_v1", "uyap_pdf_avision_suffix_v1", "pdf_producer_comment_suffix_v1", "unified_document_sniffer_v1", "uyap_raw_xml_udf_v1", "format_lab_v1", "office_container_detection_v1", "bigtiff_detection_v1", "archive_registry_v1", "user_html_exclusion_v1", "visible_final_package_v1", "archive_root_rediscovery_v1", "sqlite_wal_dual_lane_v1", "sqlite_scandir_hotpath_v1", "jpeg_uyap_compatible_v1", "jpeg_windows_decoder_fallback_v1", "jpeg_windows_wic_decoder_v1", "document_type_truth_v1", "uyap_exact_content_truth_v1", "jpeg_uyap_trailing_preserve_v1", "html_circuit_deadline_v1", "source_path_self_heal_v1", "content_hash_reconciliation_v1", "verified_root_orphan_cleanup_v1", "opaque_binary_archive_v1", "finalization_validation_proof_v2", "duplicate_path_fresh_owner_v1", "portable_archive_resume_v1", "legacy_loose_archive_import_v2"]}
+                "capabilities": ["sqlite", "sha256", "magic_bytes", "atomic_move", "quarantine", "attempt_journal", "attempt_owner_replay_v1", "validation_perf_v1", "persistent_session_v1", "final_integrity_v1", "source_adapter_v1", "chunked_archive_v1", "download_completion_guard_v1", "pdf_structure_v2", "uyap_pdf_control_suffix_1a04_v1", "bulk_reliability_v1", "legitimate_html_document_v1", "legitimate_html_document_v2", "image_document_v1", "uyap_streaming_udf_v1", "quarantine_revalidation_v1", "uyap_pdf_belgenet_suffix_v1", "uyap_pdf_avision_suffix_v1", "pdf_producer_comment_suffix_v1", "unified_document_sniffer_v1", "uyap_raw_xml_udf_v1", "format_lab_v1", "office_container_detection_v1", "bigtiff_detection_v1", "archive_registry_v1", "user_html_exclusion_v1", "visible_final_package_v1", "archive_root_rediscovery_v1", "sqlite_wal_dual_lane_v1", "sqlite_scandir_hotpath_v1", "jpeg_uyap_compatible_v1", "jpeg_windows_decoder_fallback_v1", "jpeg_windows_wic_decoder_v1", "document_type_truth_v1", "uyap_exact_content_truth_v1", "jpeg_uyap_trailing_preserve_v1", "html_circuit_deadline_v1", "source_path_self_heal_v1", "content_hash_reconciliation_v1", "verified_root_orphan_cleanup_v1", "opaque_binary_archive_v1", "finalization_validation_proof_v2", "duplicate_path_fresh_owner_v1", "portable_archive_resume_v1", "legacy_loose_archive_import_v2", "ai_local_index_v1"]}
+    if action == "ai_build_index":
+        return ai_build_index(message["downloadsRoot"], message["sessionId"], message.get("bindings") or [])
+    if action == "ai_index_status":
+        return ai_index_status(message["downloadsRoot"], message["sessionId"])
+    if action == "ai_search":
+        return ai_search_index(message["downloadsRoot"], message["sessionId"], message.get("query") or "", message.get("limit") or 8)
     if action == "select_existing_archive":
         return select_existing_archive(message)
     if action == "get_selected_archive":
