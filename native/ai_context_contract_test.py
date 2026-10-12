@@ -1,7 +1,15 @@
 from pathlib import Path
 import json
-from ai_local_index import assess_text_quality, PDF_EXTRACTOR_METHOD, _quality_gate_pdf_chunks
-from ai_provider import _validate_citations, _is_local_http_url
+import tempfile
+import zipfile
+from ai_local_index import (
+    assess_text_quality,
+    PDF_EXTRACTOR_METHOD,
+    XLSX_EXTRACTOR_METHOD,
+    _quality_gate_pdf_chunks,
+    _xlsx_text,
+)
+from ai_provider import _validate_citations, _is_local_http_url, _task_instructions
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -95,6 +103,51 @@ def test_pdf_chunk_quality_gate_filters_mixed_documents():
     assert gated["rejectedByReason"], gated
 
 
+def test_xlsx_semantic_extractor_drops_numeric_only_rows():
+    shared_strings = """<?xml version="1.0" encoding="UTF-8"?>
+    <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <si><t>Müzekkere Cevabı</t></si>
+      <si><t>Görüntülü görüşme işleminiz başarıyla tamamlandı.</t></si>
+    </sst>"""
+    worksheet = """<?xml version="1.0" encoding="UTF-8"?>
+    <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <sheetData>
+        <row r="1">
+          <c r="A1"><v>1655422</v></c><c r="B1"><v>18778</v></c>
+          <c r="C1"><v>18784</v></c><c r="D1"><v>4022</v></c>
+        </row>
+        <row r="2">
+          <c r="A2" t="s"><v>0</v></c>
+          <c r="B2" t="s"><v>1</v></c>
+          <c r="C2"><v>20260710</v></c>
+        </row>
+      </sheetData>
+    </worksheet>"""
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "sample.xlsx"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("xl/sharedStrings.xml", shared_strings)
+            archive.writestr("xl/worksheets/sheet1.xml", worksheet)
+        text = _xlsx_text(path)
+    assert XLSX_EXTRACTOR_METHOD == "xlsx-semantic-v2-noise-gated"
+    assert "Müzekkere Cevabı" in text
+    assert "Görüntülü görüşme işleminiz başarıyla tamamlandı." in text
+    assert "20260710" in text
+    assert "1655422" not in text
+    assert "18778" not in text
+
+
+def test_summary_prompt_is_structured_and_source_grounded():
+    prompt = _task_instructions("Bu dosyayı özetle")
+    assert "Genel durum" in prompt
+    assert "Öne çıkan gelişmeler" in prompt
+    assert "Önemli tarihler / süreler" in prompt
+    assert "Belirsiz veya eksik kalan noktalar" in prompt
+    assert "[Dxxxxxx]" in prompt
+    assert "teknik kayıt, sayı dizisi veya anlamsız veri" in prompt
+    assert "En fazla 8 kısa madde" in prompt
+
+
 def test_provider_gateway_is_secret_safe_citation_gated_and_local_capable():
     source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert 'OPENAI_API_KEY' in source
@@ -158,6 +211,8 @@ if __name__ == "__main__":
     test_ai_context_builder_is_verified_only_and_privacy_light()
     test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake()
     test_pdf_chunk_quality_gate_filters_mixed_documents()
+    test_xlsx_semantic_extractor_drops_numeric_only_rows()
+    test_summary_prompt_is_structured_and_source_grounded()
     test_provider_gateway_is_secret_safe_citation_gated_and_local_capable()
     test_workspace_message_contract_exposes_ai_context_and_status()
     print("AI context contract: PASS")
