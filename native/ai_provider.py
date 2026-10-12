@@ -23,6 +23,23 @@ MAX_SOURCES = 8
 MAX_OUTPUT_TOKENS = 1800
 SOURCE_REF_RE = re.compile(r"\[(D\d{6})\]")
 
+def _read_user_setting(name, default=""):
+    value = str(os.environ.get(name) or "").strip()
+    if value:
+        return value, "process_environment"
+    if os.name == "nt":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+                value, _ = winreg.QueryValueEx(key, name)
+            value = str(value or "").strip()
+            if value:
+                return value, "windows_user_environment"
+        except (OSError, ImportError, ValueError):
+            pass
+    return str(default or "").strip(), None
+
+
 _PROVIDER_INSTRUCTIONS = """Sen UYAP Archive AI içinde çalışan kaynak-kısıtlı bir hukuki dosya analiz yardımcısısın.
 Yalnız sana verilen VERIFIED yerel kaynak parçalarını kullan.
 Kaynaklarda bulunmayan olguları uydurma; gerekiyorsa 'Doğrulanmış yerel kaynaklarda bulunamadı' de.
@@ -34,8 +51,9 @@ Kısa, net Türkçe kullan.
 
 
 def provider_status():
-    key = str(os.environ.get("OPENAI_API_KEY") or "").strip()
-    model = str(os.environ.get("UYAP_AI_MODEL") or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    key, key_source = _read_user_setting("OPENAI_API_KEY")
+    model, model_source = _read_user_setting("UYAP_AI_MODEL", DEFAULT_MODEL)
+    model = model or DEFAULT_MODEL
     return {
         "ok": True,
         "schemaVersion": 1,
@@ -46,7 +64,8 @@ def provider_status():
         "model": model,
         "mode": "local-native-gateway",
         "reason": None if key else "OPENAI_API_KEY_NOT_CONFIGURED",
-        "keySource": "environment" if key else None,
+        "keySource": key_source if key else None,
+        "modelSource": model_source or "default",
         "apiKeyExposedToExtension": False,
         "rawDocumentUploadByDefault": False,
         "retrievedSnippetsOnly": True,
@@ -142,11 +161,12 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         ),
     }
 
+    api_key, _ = _read_user_setting("OPENAI_API_KEY")
     request = urllib.request.Request(
         OPENAI_RESPONSES_URL,
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
         headers={
-            "Authorization": "Bearer " + str(os.environ.get("OPENAI_API_KEY") or "").strip(),
+            "Authorization": "Bearer " + api_key,
             "Content-Type": "application/json",
             "User-Agent": "UYAP-Archive-AI-Native/2.7",
         },
