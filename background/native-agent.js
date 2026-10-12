@@ -37,7 +37,7 @@ const LEGACY_LOOSE_ARCHIVE_IMPORT_CAPABILITY = "legacy_loose_archive_import_v2";
 const ATTEMPT_OWNER_REPLAY_CAPABILITY = "attempt_owner_replay_v1";
 const AI_LOCAL_INDEX_CAPABILITY = "ai_local_index_v1";
 const AI_PROVIDER_GATEWAY_CAPABILITY = "ai_provider_gateway_v1";
-const MIN_AGENT_VERSION = "2.7.67";
+const MIN_AGENT_VERSION = "2.7.68";
 const IDLE_DISCONNECT_MS = 3 * 60_000;
 
 // RC15.9.28: Native Messaging has three independent lanes.
