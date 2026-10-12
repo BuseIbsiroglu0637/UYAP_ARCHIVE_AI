@@ -475,7 +475,7 @@ $("aiBuildIndex").addEventListener("click",async()=>{
   try{
     const result=await sendRuntime(MESSAGE.BUILD_AI_INDEX,{sessionId:state.selectedId});
     state.aiIndex=result;
-    showToast(`AI indeksi hazır: ${n(result.indexedDocuments)} yeni, ${n(result.reusedDocuments)} mevcut, ${n(result.unsupportedDocuments)} metin çıkarılamayan.`);
+    showToast(`AI indeksi hazır: ${n(result.indexedDocuments)} yeni, ${n(result.reusedDocuments)} mevcut, ${n(result.unsupportedDocuments)} metin çıkarılamayan${n(result.qualityRejectedDocuments)?`, ${n(result.qualityRejectedDocuments)} PDF kalite kapısında dışlandı`:""}.`);
     await renderAiWorkspace();
   }catch(error){
     if(label)label.textContent=String(error).replace(/^Error:\s*/,"");
