@@ -25,7 +25,7 @@ def test_ai_policy_defaults_fail_closed():
 
 def test_ai_context_builder_is_verified_only_and_privacy_light():
     source = (ROOT / "background" / "ai-context.js").read_text(encoding="utf-8")
-    assert 'status === "verified"' in source
+    assert '=== "verified"' in source
     assert 'status === "verified"' in source
     assert 'status === "skipped"' not in source
     assert 'sourceRef(index)' in source
