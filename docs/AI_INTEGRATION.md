@@ -43,15 +43,24 @@ Context v1 şunları içerir:
 
 ## Provider katmanı
 
-İlk sürümde provider kapalıdır. API anahtarı uzantı bundle'ına gömülmez.
+İlk provider gateway Native Agent içinde çalışır. Chrome uzantısı API anahtarını hiçbir zaman almaz.
 
-Bir sonraki aşama provider gateway olacaktır. Gateway bağlandıktan sonra:
+Geliştirme yapılandırması:
+
+- sağlayıcı: OpenAI Responses API,
+- anahtar kaynağı: `OPENAI_API_KEY` kullanıcı ortam değişkeni,
+- model: `UYAP_AI_MODEL` (varsayılan `gpt-5.6-terra`),
+- provider request: `store=false`,
+- ham dosya upload: kapalı,
+- yalnız yerel retrieval'ın seçtiği kalite-kapılı snippet'ler gönderilir.
+
+Gateway akışı:
 
 1. kullanıcı sorusu alınır,
-2. VERIFIED yerel arşivden uygun kaynaklar bulunur,
-3. yalnız gerekli bağlam sağlayıcıya gönderilir,
-4. cevap `sourceRef` citation'larıyla döner,
-5. citation olmayan hukuki iddialar UI'da güvenilir cevap olarak gösterilmez.
+2. VERIFIED yerel indeksten en ilgili kaynak parçaları bulunur,
+3. sadece `D000xxx` sourceRef + başlık/tür/tarih + snippet provider'a gönderilir,
+4. yanıtın yalnız sağlanan `D000xxx` referanslarını kullandığı doğrulanır,
+5. citation yoksa veya bilinmeyen citation varsa yanıt UI'a verilmez.
 
 ## Hedef iş akışları
 
@@ -69,6 +78,6 @@ Bir sonraki aşama provider gateway olacaktır. Gateway bağlandıktan sonra:
 2. Chunking
 3. Yerel indeks
 4. Retrieval
-5. Provider gateway
-6. Citation doğrulama
-7. Workspace chat akışı
+5. Provider gateway ✅
+6. Citation doğrulama ✅
+7. Workspace chat akışı ✅ (ilk tek-soru akışı)
