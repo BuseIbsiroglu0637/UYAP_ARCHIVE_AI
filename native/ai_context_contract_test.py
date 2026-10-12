@@ -48,6 +48,8 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert "getAiServiceStatus" in worker
     assert "MESSAGE.GET_AI_CONTEXT" in workspace
     assert "MESSAGE.GET_AI_SERVICE_STATUS" in workspace
+    assert "MESSAGE.SEARCH_AI_INDEX" in workspace
+    assert 'aiRetrieve' in workspace
     assert "BUILD_AI_INDEX" in constants
     assert "GET_AI_INDEX_STATUS" in constants
     assert "SEARCH_AI_INDEX" in constants
