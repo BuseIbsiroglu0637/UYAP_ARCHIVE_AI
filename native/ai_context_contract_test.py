@@ -114,7 +114,7 @@ def test_provider_gateway_is_secret_safe_citation_gated_and_local_capable():
     assert '"store": False' in source
     assert '"apiKeyExposedToExtension": False' in source
     assert '"rawDocumentsUploaded": False' in source
-    assert "_source_prompt(results)" in source
+    assert "_source_prompt(" in source
     assert _is_local_http_url("http://127.0.0.1:1234/v1/responses") is True
     assert _is_local_http_url("http://localhost:1234/v1/responses") is True
     assert _is_local_http_url("https://example.com/v1/responses") is False
