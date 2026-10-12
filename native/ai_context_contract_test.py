@@ -14,6 +14,7 @@ def test_ai_policy_defaults_fail_closed():
     assert policy["archiveBoundary"]["allowRetryWait"] is False
     assert policy["archiveBoundary"]["allowReviewRequired"] is False
     assert policy["archiveBoundary"]["allowFailed"] is False
+    assert policy["archiveBoundary"]["allowSkippedWithSha256PhysicalProof"] is False
     assert policy["cloud"]["rawDocumentUploadByDefault"] is False
     assert policy["cloud"]["explicitUserConsentRequiredForRawDocumentUpload"] is True
     assert policy["answers"]["citationsRequired"] is True
@@ -25,8 +26,8 @@ def test_ai_policy_defaults_fail_closed():
 def test_ai_context_builder_is_verified_only_and_privacy_light():
     source = (ROOT / "background" / "ai-context.js").read_text(encoding="utf-8")
     assert 'status === "verified"' in source
-    assert 'status === "skipped"' in source
-    assert "hasSha256PhysicalProof" in source
+    assert 'status === "verified"' in source
+    assert 'status === "skipped"' not in source
     assert 'sourceRef(index)' in source
     assert 'padStart(6, "0")' in source
     assert "rawDocumentContentIncluded: false" in source
@@ -49,6 +50,15 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert "getAiServiceStatus" in worker
     assert "MESSAGE.GET_AI_CONTEXT" in workspace
     assert "MESSAGE.GET_AI_SERVICE_STATUS" in workspace
+    assert "BUILD_AI_INDEX" in constants
+    assert "GET_AI_INDEX_STATUS" in constants
+    assert "SEARCH_AI_INDEX" in constants
+    native = (ROOT / "native" / "uyap_archive_agent.py").read_text(encoding="utf-8")
+    local_index = (ROOT / "native" / "ai_local_index.py").read_text(encoding="utf-8")
+    assert "ai_local_index_v1" in native
+    assert 'action == "ai_build_index"' in native
+    assert "rawDocumentsUploaded" in local_index
+    assert "networkUsed" in local_index
 
 
 if __name__ == "__main__":
