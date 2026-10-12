@@ -54,7 +54,6 @@ export function buildAiNativeBindings(report, {limit = DEFAULT_LIMIT} = {}) {
     .slice(0, cappedLimit)
     .map((document, index) => ({
       sourceRef: sourceRef(index),
-      sessionId: String(report?.session?.sessionId || report?.sessionId || ""),
       documentId: String(document?.documentId || "")
     }))
     .filter((item) => item.documentId);
