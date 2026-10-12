@@ -36,14 +36,15 @@ const PORTABLE_ARCHIVE_RESUME_CAPABILITY = "portable_archive_resume_v1";
 const LEGACY_LOOSE_ARCHIVE_IMPORT_CAPABILITY = "legacy_loose_archive_import_v2";
 const ATTEMPT_OWNER_REPLAY_CAPABILITY = "attempt_owner_replay_v1";
 const AI_LOCAL_INDEX_CAPABILITY = "ai_local_index_v1";
-const MIN_AGENT_VERSION = "2.7.65";
+const AI_PROVIDER_GATEWAY_CAPABILITY = "ai_provider_gateway_v1";
+const MIN_AGENT_VERSION = "2.7.66";
 const IDLE_DISCONNECT_MS = 3 * 60_000;
 
 // RC15.9.28: Native Messaging has three independent lanes.
 // Chromium creates a separate native-host process per connectNative() port, so
 // dashboard registry scans can never sit in front of batch reconciliation or a
 // validate_download request. UYAP browser downloads remain strictly sequential.
-const BULK_ACTIONS = new Set(["sync_inventory", "finalize_archive", "format_audit", "ai_build_index", "ai_search", "ai_index_status"]);
+const BULK_ACTIONS = new Set(["sync_inventory", "finalize_archive", "format_audit", "ai_build_index", "ai_search", "ai_index_status", "ai_answer"]);
 const REGISTRY_ACTIONS = new Set(["list_archive_registry", "select_existing_archive"]);
 
 function createLane(name) {
@@ -232,6 +233,7 @@ function timeoutForNativeAction(action) {
   if (action === "open_archive_folder" || action === "open_final_package_folder") return 8_000;
   if (action === "list_archive_registry") return 2 * 60_000;
   if (action === "select_existing_archive") return 190_000;
+  if (action === "ai_answer") return 3 * 60_000;
   if (action === "discard_review_html") return 15_000;
   return 30 * 60_000;
 }
@@ -308,7 +310,8 @@ export async function pingNativeAgent() {
     !result.capabilities?.includes(PORTABLE_ARCHIVE_RESUME_CAPABILITY) ||
     !result.capabilities?.includes(LEGACY_LOOSE_ARCHIVE_IMPORT_CAPABILITY) ||
     !result.capabilities?.includes(ATTEMPT_OWNER_REPLAY_CAPABILITY) ||
-    !result.capabilities?.includes(AI_LOCAL_INDEX_CAPABILITY)
+    !result.capabilities?.includes(AI_LOCAL_INDEX_CAPABILITY) ||
+    !result.capabilities?.includes(AI_PROVIDER_GATEWAY_CAPABILITY)
   )) {
     return {ok:false,error:'Ajan sürümü uyumsuz. İmzalı yerel ajan kurulum paketini yükleyin.'};
   }
