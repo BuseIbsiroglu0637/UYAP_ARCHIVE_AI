@@ -8,8 +8,9 @@ from ai_local_index import (
     XLSX_EXTRACTOR_METHOD,
     _quality_gate_pdf_chunks,
     _xlsx_text,
+    _select_summary_rows,
 )
-from ai_provider import _validate_citations, _is_local_http_url, _task_instructions
+from ai_provider import _validate_citations, _is_local_http_url, _task_instructions, _is_summary_query
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -148,6 +149,32 @@ def test_summary_prompt_is_structured_and_source_grounded():
     assert "En fazla 8 kısa madde" in prompt
 
 
+def test_summary_prompt_forbids_invented_roles_and_detects_summary_request():
+    prompt = _task_instructions("Bu dosyayı özetle")
+    assert _is_summary_query("Bu dosyayı özetle") is True
+    assert _is_summary_query("duruşma tarihi nedir") is False
+    assert "müzekkere' bir taraf veya rol değildir" in prompt
+    assert "soruşturma mühendisi" in prompt
+    assert "aşama hakkında hüküm kurma" in prompt
+
+
+def test_summary_context_diversifies_sources_and_avoids_numeric_noise():
+    rows = [
+        ("D000001", "1655422 18778 18784 4022 18779 1655422 18780", "Eski", "XLSX", "2025-01-01", 0),
+        ("D000001", "Şikayet dilekçesi incelendi ve kolluktan açık kimlik ile adres bilgilerinin tespiti istendi.", "Eski", "XLSX", "2025-01-01", 1),
+        ("D000002", "Ara karar ile taraflara belge sunmaları için iki haftalık süre verildi.", "Orta", "UDF", "2025-06-15", 0),
+        ("D000003", "Bilirkişi raporu dosyaya sunuldu ve raporun taraflara tebliğine karar verildi.", "Yeni", "UDF", "2026-01-10", 0),
+        ("D000004", "Duruşma günü 20 Ekim 2026 olarak belirlendi.", "En yeni", "UDF", "2026-10-20", 0),
+    ]
+    chosen = _select_summary_rows(rows, 3)
+    refs = [row[0] for row in chosen]
+    assert len(set(refs)) == 3
+    assert "D000001" in refs
+    selected_d1 = next(row for row in chosen if row[0] == "D000001")
+    assert "Şikayet dilekçesi" in selected_d1[1]
+    assert "1655422 18778" not in selected_d1[1]
+
+
 def test_provider_gateway_is_secret_safe_citation_gated_and_local_capable():
     source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert 'OPENAI_API_KEY' in source
@@ -213,6 +240,8 @@ if __name__ == "__main__":
     test_pdf_chunk_quality_gate_filters_mixed_documents()
     test_xlsx_semantic_extractor_drops_numeric_only_rows()
     test_summary_prompt_is_structured_and_source_grounded()
+    test_summary_prompt_forbids_invented_roles_and_detects_summary_request()
+    test_summary_context_diversifies_sources_and_avoids_numeric_noise()
     test_provider_gateway_is_secret_safe_citation_gated_and_local_capable()
     test_workspace_message_contract_exposes_ai_context_and_status()
     print("AI context contract: PASS")
