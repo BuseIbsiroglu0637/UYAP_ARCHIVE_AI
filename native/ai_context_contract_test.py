@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+from ai_local_index import assess_text_quality, PDF_EXTRACTOR_METHOD
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,6 +38,26 @@ def test_ai_context_builder_is_verified_only_and_privacy_light():
     assert "localPath:" not in source
 
 
+def test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake():
+    good = (
+        "Kastamonu 1. İş Mahkemesi tarafından düzenlenen bilirkişi raporu incelendi. "
+        "Taraflara tebliğ tarihinden itibaren iki haftalık süre verildi. "
+        "Duruşma günü 15 Haziran 2026 olarak belirlendi."
+    )
+    bad = (
+        "Talimat Gönderme Yazısı 法院審理資料測試亂碼測試亂碼測試 "
+        "訴訟程序資料內容異常字符 韓文테스트문자열 漢字資料亂碼 "
+        "T.C. SATIYE DEMİRBAS 法律文書編碼錯誤資料"
+    )
+    good_result = assess_text_quality(good)
+    bad_result = assess_text_quality(bad)
+    assert good_result["accepted"] is True, good_result
+    assert good_result["score"] >= 0.72, good_result
+    assert bad_result["accepted"] is False, bad_result
+    assert bad_result["reason"] in {"suspicious_cid_glyphs", "low_quality_score"}, bad_result
+    assert PDF_EXTRACTOR_METHOD == "pdf-content-stream-v2-quality-gated"
+
+
 def test_workspace_message_contract_exposes_ai_context_and_status():
     constants = (ROOT / "shared" / "constants.js").read_text(encoding="utf-8")
     worker = (ROOT / "background" / "service-worker.js").read_text(encoding="utf-8")
@@ -64,5 +85,6 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
 if __name__ == "__main__":
     test_ai_policy_defaults_fail_closed()
     test_ai_context_builder_is_verified_only_and_privacy_light()
+    test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake()
     test_workspace_message_contract_exposes_ai_context_and_status()
     print("AI context contract: PASS")
