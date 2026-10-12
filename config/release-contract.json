@@ -12,8 +12,8 @@
     "channel": "rc"
   },
   "nativeAgent": {
-    "version": "2.7.66",
-    "minimumVersion": "2.7.66",
+    "version": "2.7.67",
+    "minimumVersion": "2.7.67",
     "protocolVersion": 2,
     "hostName": "tr.gov.uyap.archive_agent"
   },
