@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 from ai_local_index import assess_text_quality, PDF_EXTRACTOR_METHOD
+from ai_provider import _validate_citations
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -65,6 +66,22 @@ def test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake():
     assert fragmented_result["reason"] in {"fragmented_glyph_spacing", "low_quality_score"}, fragmented_result
     assert PDF_EXTRACTOR_METHOD == "pdf-content-stream-v3-quality-gated"
 
+ 
+def test_provider_gateway_is_secret_safe_and_citation_gated():
+    source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
+    assert 'OPENAI_API_KEY' in source
+    assert 'https://api.openai.com/v1/responses' in source
+    assert '"store": False' in source
+    assert '"apiKeyExposedToExtension": False' in source
+    assert '"rawDocumentsUploaded": False' in source
+    assert "_source_prompt(results)" in source
+    ok, error, invalid = _validate_citations("Sonuç [D000001].", {"D000001"})
+    assert ok is True and error is None and invalid == []
+    ok, error, invalid = _validate_citations("Kaynak yok.", {"D000001"})
+    assert ok is False and error == "AI_RESPONSE_MISSING_CITATIONS"
+    ok, error, invalid = _validate_citations("Yanlış [D999999].", {"D000001"})
+    assert ok is False and error == "AI_RESPONSE_UNKNOWN_CITATION" and invalid == ["D999999"]
+
 
 def test_workspace_message_contract_exposes_ai_context_and_status():
     constants = (ROOT / "shared" / "constants.js").read_text(encoding="utf-8")
@@ -74,14 +91,16 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert 'GET_AI_SERVICE_STATUS: "get_ai_service_status"' in constants
     assert "case MESSAGE.GET_AI_CONTEXT:" in worker
     assert "buildAiContext" in worker
-    assert "getAiServiceStatus" in worker
+    assert 'action:"ai_provider_status"' in worker
     assert "MESSAGE.GET_AI_CONTEXT" in workspace
     assert "MESSAGE.GET_AI_SERVICE_STATUS" in workspace
     assert "MESSAGE.SEARCH_AI_INDEX" in workspace
+    assert "MESSAGE.AI_ASK" in workspace
     assert 'aiRetrieve' in workspace
     assert "BUILD_AI_INDEX" in constants
     assert "GET_AI_INDEX_STATUS" in constants
     assert "SEARCH_AI_INDEX" in constants
+    assert "AI_ASK" in constants
     native = (ROOT / "native" / "uyap_archive_agent.py").read_text(encoding="utf-8")
     local_index = (ROOT / "native" / "ai_local_index.py").read_text(encoding="utf-8")
     assert "ai_local_index_v1" in native
@@ -94,5 +113,6 @@ if __name__ == "__main__":
     test_ai_policy_defaults_fail_closed()
     test_ai_context_builder_is_verified_only_and_privacy_light()
     test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake()
+    test_provider_gateway_is_secret_safe_and_citation_gated()
     test_workspace_message_contract_exposes_ai_context_and_status()
     print("AI context contract: PASS")
