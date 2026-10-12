@@ -23,6 +23,8 @@ DEFAULT_CHUNK_CHARS = 3200
 DEFAULT_OVERLAP_CHARS = 400
 MAX_CHUNKS_PER_DOCUMENT = 500
 MAX_RESULTS = 20
+PDF_EXTRACTOR_METHOD = "pdf-content-stream-v2-quality-gated"
+PDF_MIN_QUALITY_SCORE = 0.72
 
 ZIP_XML_TYPES = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
 IMAGE_TYPES = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"}
@@ -76,6 +78,88 @@ def _read_limited(path):
     if size > MAX_TEXT_FILE_BYTES:
         raise ValueError("AI_TEXT_FILE_TOO_LARGE")
     return path.read_bytes()
+
+
+def assess_text_quality(text):
+    """Return a conservative language-agnostic gate for extracted legal text.
+
+    The local PDF stream fallback cannot resolve every embedded font/CMap.  In
+    those cases arbitrary CID bytes can look like CJK/private-use characters.
+    Reject suspicious text rather than sending corrupt evidence to retrieval or
+    a future model provider.
+    """
+    value = _clean(text)
+    if not value:
+        return {"accepted": False, "score": 0.0, "reason": "empty", "metrics": {"length": 0}}
+
+    chars = [ch for ch in value if not ch.isspace()]
+    total = max(1, len(chars))
+    printable = sum(1 for ch in chars if ch.isprintable())
+    replacements = value.count("\ufffd")
+    private_use = sum(1 for ch in chars if 0xE000 <= ord(ch) <= 0xF8FF)
+    cjk_hangul = sum(
+        1 for ch in chars
+        if 0x3400 <= ord(ch) <= 0x9FFF
+        or 0xAC00 <= ord(ch) <= 0xD7AF
+        or 0xF900 <= ord(ch) <= 0xFAFF
+    )
+    latin_letters = sum(
+        1 for ch in chars
+        if ("A" <= ch <= "Z") or ("a" <= ch <= "z")
+        or ch in "ÇĞİÖŞÜçğıöşüÂâÎîÛû"
+    )
+    letters = sum(1 for ch in chars if ch.isalpha())
+    digits = sum(1 for ch in chars if ch.isdigit())
+    word_tokens = re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû]{2,}", value)
+    visible_ratio = printable / total
+    replacement_ratio = replacements / total
+    private_ratio = private_use / total
+    cjk_ratio = cjk_hangul / total
+    latin_ratio = latin_letters / max(1, letters)
+    signal_ratio = (letters + digits) / total
+    token_density = min(1.0, len(word_tokens) / max(1.0, len(value) / 18.0))
+
+    score = 1.0
+    score -= min(0.55, replacement_ratio * 12.0)
+    score -= min(0.45, private_ratio * 10.0)
+    score -= min(0.50, cjk_ratio * 2.5)
+    if letters >= 24 and latin_ratio < 0.55:
+        score -= min(0.35, (0.55 - latin_ratio) * 0.8)
+    if visible_ratio < 0.98:
+        score -= min(0.30, (0.98 - visible_ratio) * 3.0)
+    if signal_ratio < 0.45:
+        score -= min(0.25, (0.45 - signal_ratio) * 0.8)
+    if len(value) >= 120 and token_density < 0.18:
+        score -= min(0.25, (0.18 - token_density) * 1.2)
+    score = max(0.0, min(1.0, score))
+
+    reason = None
+    if replacement_ratio > 0.015:
+        reason = "replacement_characters"
+    elif private_ratio > 0.01:
+        reason = "private_use_glyphs"
+    elif cjk_ratio > 0.08 and latin_ratio < 0.75:
+        reason = "suspicious_cid_glyphs"
+    elif visible_ratio < 0.92:
+        reason = "non_printable_text"
+    elif score < PDF_MIN_QUALITY_SCORE:
+        reason = "low_quality_score"
+
+    return {
+        "accepted": reason is None,
+        "score": round(score, 4),
+        "reason": reason,
+        "metrics": {
+            "length": len(value),
+            "visibleRatio": round(visible_ratio, 4),
+            "replacementRatio": round(replacement_ratio, 4),
+            "privateUseRatio": round(private_ratio, 4),
+            "cjkHangulRatio": round(cjk_ratio, 4),
+            "latinLetterRatio": round(latin_ratio, 4),
+            "signalRatio": round(signal_ratio, 4),
+            "tokenDensity": round(token_density, 4),
+        },
+    }
 
 
 def _html_text(raw):
@@ -218,7 +302,26 @@ def extract_text(path):
         raise ValueError("AI_SOURCE_NOT_REGULAR_FILE")
     extension = path.suffix.lower()
     if extension == ".pdf":
-        return {"text": _pdf_text(path), "method": "pdf-content-stream-v1", "quality": "best_effort"}
+        text = _pdf_text(path)
+        assessment = assess_text_quality(text)
+        if not assessment["accepted"]:
+            return {
+                "text": "",
+                "method": PDF_EXTRACTOR_METHOD,
+                "quality": "rejected",
+                "errorCode": "AI_PDF_TEXT_LOW_QUALITY",
+                "qualityScore": assessment["score"],
+                "qualityReason": assessment["reason"],
+                "qualityMetrics": assessment["metrics"],
+            }
+        return {
+            "text": text,
+            "method": PDF_EXTRACTOR_METHOD,
+            "quality": "accepted",
+            "qualityScore": assessment["score"],
+            "qualityReason": None,
+            "qualityMetrics": assessment["metrics"],
+        }
     if extension in IMAGE_TYPES:
         return {"text": "", "method": "image-no-ocr", "quality": "unsupported", "errorCode": "AI_OCR_NOT_CONFIGURED"}
     if extension == ".udf":
@@ -362,13 +465,21 @@ def build_index(downloads_root, session_id, bindings):
     rows = _archive_rows(root, session_id, bindings)
     db, fts5 = _index_db(root)
     indexed = reused = unsupported = failed = 0
+    quality_rejected = 0
+    quality_reasons = {}
     methods = {}
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
         for item in rows:
             ref = item["sourceRef"]
-            current = db.execute("SELECT file_sha256 FROM ai_documents WHERE source_ref=? AND session_id=?", (ref, session_id)).fetchone()
-            if current and str(current[0]) == item["sha256"]:
+            current = db.execute(
+                "SELECT file_sha256, extraction_method, extraction_quality FROM ai_documents WHERE source_ref=? AND session_id=?",
+                (ref, session_id)
+            ).fetchone()
+            current_method = str(current[1] or "") if current else ""
+            if current and str(current[0]) == item["sha256"] and (
+                item["path"].suffix.lower() != ".pdf" or current_method == PDF_EXTRACTOR_METHOD
+            ):
                 reused += 1
                 continue
             try:
@@ -377,7 +488,16 @@ def build_index(downloads_root, session_id, bindings):
                 methods[method] = methods.get(method, 0) + 1
                 chunks = chunk_text(extracted.get("text") or "")
                 if not chunks:
-                    unsupported += 1
+                    db.execute("DELETE FROM ai_chunks WHERE source_ref=?", (ref,))
+                    if fts5:
+                        db.execute("DELETE FROM ai_chunks_fts WHERE source_ref=?", (ref,))
+                    db.execute("DELETE FROM ai_documents WHERE source_ref=? AND session_id=?", (ref, session_id))
+                    if extracted.get("errorCode") == "AI_PDF_TEXT_LOW_QUALITY":
+                        quality_rejected += 1
+                        reason = str(extracted.get("qualityReason") or "low_quality")
+                        quality_reasons[reason] = quality_reasons.get(reason, 0) + 1
+                    else:
+                        unsupported += 1
                     continue
                 db.execute("DELETE FROM ai_chunks WHERE source_ref=?", (ref,))
                 if fts5:
@@ -405,8 +525,10 @@ def build_index(downloads_root, session_id, bindings):
             "ok": True, "kind": "UYAP_AI_LOCAL_INDEX", "schemaVersion": AI_INDEX_SCHEMA_VERSION,
             "sessionId": session_id, "verifiedSourceRows": len(rows), "indexedDocuments": indexed,
             "reusedDocuments": reused, "unsupportedDocuments": unsupported, "failedDocuments": failed,
+            "qualityRejectedDocuments": quality_rejected, "qualityRejectedByReason": quality_reasons,
             "availableDocuments": int(available), "availableChunks": int(chunks), "fts5": bool(fts5),
-            "extractionMethods": methods, "rawDocumentsUploaded": False, "networkUsed": False,
+            "extractionMethods": methods, "pdfQualityGate": {"method": PDF_EXTRACTOR_METHOD, "minScore": PDF_MIN_QUALITY_SCORE},
+            "rawDocumentsUploaded": False, "networkUsed": False,
         }
     finally:
         db.close()
