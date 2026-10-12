@@ -30,6 +30,7 @@ import { suppressArchiveDownloadUi, restoreArchiveDownloadUi, handleArchiveDownl
 import { FINAL_RECOVERY_MAX_PASSES, planFinalRecovery } from '../shared/final-recovery.js';
 import { showLoginRequiredNotification, clearLoginRequiredNotification, showArchiveCompletionNotification, showArchiveProblemNotification } from './session-notifications.js';
 import { classifyAuthRoute, isUyapHostUrl } from '../shared/auth-routes.js';
+import { DIAGNOSTIC_SCHEMA_VERSION, normalizeDiagnosticEvent, sanitizeDiagnosticMetadata, sanitizeDiagnosticText as sanitizePrivacyText } from "../shared/diagnostic-policy.js";
 
 const ACTIVE_SESSION_KEY = "activeSessionId";
 const PENDING_DOWNLOAD_KEY = "pendingDownload";
@@ -918,51 +919,60 @@ const DIAGNOSTIC_EVENT_EXPORT_LIMIT = 1000;
 const DIAGNOSTIC_PROBLEM_LIMIT = 500;
 
 function compactDiagnosticDetail(detail = {}) {
-  const allowed = {};
-  for (const [key, value] of Object.entries(detail || {})) {
-    if (value === undefined || value === null) continue;
-    if (typeof value === "string") allowed[key] = value.slice(0, 500);
-    else if (typeof value === "number" || typeof value === "boolean") allowed[key] = value;
-    else if (Array.isArray(value)) allowed[key] = value.slice(0, 12).map((item) => String(item).slice(0, 120));
-  }
-  return allowed;
+  return sanitizeDiagnosticMetadata(detail);
 }
 
 async function recordDiagnosticEvent(sessionId, type, detail = {}) {
   if (!sessionId || !type) return;
   try {
     const atMs = Date.now();
+    const sourceDetail = {...(detail || {})};
+    const rawDocumentIdentity = sourceDetail.documentId || sourceDetail.sourceDocumentId || null;
+    delete sourceDetail.documentId;
+    delete sourceDetail.sourceDocumentId;
+
+    if (rawDocumentIdentity) {
+      sourceDetail.documentRef = await diagnosticReference(sessionId, rawDocumentIdentity);
+    }
+
+    const level = sourceDetail.level
+      || (sourceDetail.errorCode || sourceDetail.error ? "error" : /(?:FAILED|REJECTED|TIMEOUT|AMBIGUOUS|EXHAUSTED|BLOCKED)/.test(String(type)) ? "warn" : "info");
+    delete sourceDetail.level;
+
+    const normalized = normalizeDiagnosticEvent({
+      timestamp: new Date(atMs).toISOString(),
+      level,
+      component: "archive-engine",
+      event: type,
+      release: chrome.runtime.getManifest().version_name || chrome.runtime.getManifest().version || null,
+      sessionRef: "<session>",
+      errorCode: sourceDetail.errorCode || null,
+      durationMs: sourceDetail.durationMs ?? null,
+      retryCount: sourceDetail.retryCount ?? sourceDetail.attempts ?? null,
+      metadata: sourceDetail
+    });
+
     await diagnosticStore.put({
       sessionId,
       atMs,
-      at: new Date(atMs).toISOString(),
-      type: String(type).slice(0, 80),
-      ...compactDiagnosticDetail(detail)
+      at: normalized.timestamp,
+      type: normalized.event,
+      schemaVersion: normalized.schemaVersion,
+      level: normalized.level,
+      component: normalized.component,
+      release: normalized.release,
+      errorCode: normalized.errorCode,
+      durationMs: normalized.durationMs,
+      retryCount: normalized.retryCount,
+      ...normalized.metadata
     });
   } catch {
-    // Test kaydı yardımcı bir katmandır; ana kuyruğu asla durdurmamalıdır.
+    // Tanılama yardımcı bir katmandır; ana kuyruğu asla durdurmamalıdır.
   }
 }
 
 function sanitizeDiagnosticText(value, maxLength = 400) {
-  return String(value ?? "")
-    .replace(/https?:\/\/[^\s]+/gi, "[URL]")
-    .replace(/[A-Za-z]:[\\/][^\r\n]+/g, "[PATH]")
-    .replace(/\b\d{8,30}\b/g, "[ID]")
-    .slice(0, maxLength);
-}
-
-async function diagnosticReference(sessionId, value) {
-  const input = `${sessionId}|${String(value ?? "")}`;
-  try {
-    const bytes = new TextEncoder().encode(input);
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    return Array.from(new Uint8Array(digest)).slice(0, 10).map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  } catch {
-    let hash = 2166136261;
-    for (const char of input) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 16777619); }
-    return `fallback-${(hash >>> 0).toString(16).padStart(8, "0")}`;
-  }
+  return sanitizePrivacyText(value, maxLength);
 }
 
 function runtimeFootprintSample() {
@@ -7954,14 +7964,17 @@ export async function getDiagnosticData(sessionId = null) {
   const pendingDocument = pending?.key ? await documentStore.get(pending.key).catch(() => null) : null;
 
   return {
-    schemaVersion: 1,
-    kind: "UYAP_TEST_DIAGNOSTIC",
+    schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+    kind: "UYAP_PRIVACY_LIGHT_DIAGNOSTIC",
     generatedAt: new Date().toISOString(),
     privacy: {
+      localOnlyByDefault: true,
+      cloudUploadByDefault: false,
       rawDocumentTitlesIncluded: false,
+      rawDocumentIdentifiersIncluded: false,
       rawCaseOrCourtIncluded: false,
       rawUrlsOrTokensIncluded: false,
-      note: "Belge kimlikleri tanılama dosyasında oturuma özgü kısaltılmış SHA-256 referansına dönüştürülür."
+      note: "Tanılama olayları privacy-light şemada tutulur; belge kimlikleri yalnız oturuma özgü kısaltılmış referans olarak dışa aktarılır."
     },
     extension: {
       name: manifest.name,

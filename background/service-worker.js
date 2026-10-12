@@ -4,6 +4,7 @@ import { CLICK_DOWNLOAD_TIMEOUT_MS, MESSAGE } from "../shared/constants.js";
 import {captureSaveRequest} from './save-capture.js';
 import {pingNativeAgent, askNativeAgent} from './native-agent.js';
 import {restoreArchiveDownloadUi} from './download-ui.js';
+import {logOperationalError} from './operational-logger.js';
 import {focusSessionFromNotification, openLoginRouteFromNotification, openKurumLoginRoute} from './session-notifications.js';
 import {
   createSession,
@@ -77,7 +78,7 @@ async function testProductNotification() {
 function scheduleRecovery() {
   if (!recoveryTask) {
     recoveryTask = recoverSession()
-      .catch((error) => console.error("UYAP kuyruk kurtarma hatası", error))
+      .catch((error) => logOperationalError("RECOVERY_SCHEDULE_FAILED", error))
       .finally(() => { recoveryTask = null; });
   }
   return recoveryTask;
@@ -89,7 +90,7 @@ async function handleOperationalAlarmSafely(alarm) {
   try {
     await handleAlarm(alarm);
   } catch (error) {
-    console.error("UYAP operasyon alarmı işlenemedi", alarm?.name || "unknown", error);
+    logOperationalError("OPERATIONAL_ALARM_FAILED", error, {metadata:{alarmKind:String(alarm?.name || "unknown").split(":")[0]}});
     // RC15.9.19: a one-shot chrome.alarms event disappears after firing. If
     // its handler throws, immediately run the durable recovery bootstrap so
     // RUNNING/RECOVERING jobs cannot remain frozen with no future alarm.
@@ -106,7 +107,7 @@ function handleUyapNavigation(details) {
   void handleSessionAuthNavigation(details.tabId, details.url)
     .then((authHandled) => authHandled ? true : attemptResumeLoginSession(details.tabId))
     .then((resumed) => resumed ? true : recoverRunningSessionAfterNavigation(details.tabId))
-    .catch((error) => console.error("UYAP sayfa kurtarma hatası", error));
+    .catch((error) => logOperationalError("NAVIGATION_RECOVERY_FAILED", error));
 }
 
 const uyapNavigationFilter = {
@@ -137,23 +138,23 @@ chrome.webRequest?.onBeforeRequest?.addListener((details) => {
   void observeUyapNetworkRequest(details).catch(()=>{});
 }, uyapWebRequestFilter);
 chrome.webRequest?.onBeforeRedirect?.addListener((details) => {
-  void handleUyapNetworkRedirect(details).catch((error) => console.error("UYAP ağ yönlendirme kurtarma hatası", error));
+  void handleUyapNetworkRedirect(details).catch((error) => logOperationalError("NETWORK_REDIRECT_RECOVERY_FAILED", error));
 }, uyapWebRequestFilter);
 chrome.webRequest?.onCompleted?.addListener((details) => {
-  void handleUyapNetworkCompleted(details).catch((error) => console.error("UYAP ağ durum kurtarma hatası", error));
+  void handleUyapNetworkCompleted(details).catch((error) => logOperationalError("NETWORK_COMPLETION_RECOVERY_FAILED", error));
 }, uyapWebRequestFilter);
 chrome.tabs.onRemoved?.addListener((tabId) => {
   void handleSessionTabUnavailable(tabId)
-    .catch((error) => console.error("UYAP sekme kapanma kurtarma hatası", error));
+    .catch((error) => logOperationalError("TAB_RECOVERY_FAILED", error));
 });
 
 chrome.notifications?.onClicked?.addListener((notificationId) => {
   void focusSessionFromNotification(notificationId)
-    .catch((error) => console.error('UYAP oturum bildirimi odaklama hatası', error));
+    .catch((error) => logOperationalError("NOTIFICATION_FOCUS_FAILED", error));
 });
 chrome.notifications?.onButtonClicked?.addListener((notificationId, buttonIndex) => {
   void openLoginRouteFromNotification(notificationId, buttonIndex)
-    .catch((error) => console.error('UYAP Kurum giriş yönlendirme hatası', error));
+    .catch((error) => logOperationalError("LOGIN_ROUTE_NOTIFICATION_FAILED", error));
 });
 
 
@@ -314,7 +315,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   };
 
   run().then((data) => sendResponse({ ok: true, data })).catch((error) => {
-    console.error(error);
+    logOperationalError("RUNTIME_MESSAGE_FAILED", error, {metadata:{messageType:String(request?.type || "unknown").slice(0,80)}});
     sendResponse({ ok: false, error: String(error) });
   });
   return true;

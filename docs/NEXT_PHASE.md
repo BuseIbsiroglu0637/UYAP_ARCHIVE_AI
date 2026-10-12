@@ -24,7 +24,7 @@
 3. [x] Extension-Agent-DB sürüm uyumluluk sözleşmesini makine okunabilir hale getir.
 4. [x] Connector / Core / Native / Workspace / Control Plane modül sınırlarını tanımla ve CI ile koru.
 5. [x] Config ve environment yönetimi için `dev/stage/prod` politika sözleşmesini oluştur.
-6. [ ] Structured logging ve privacy-light diagnostic paketini standartlaştır.
+6. [x] Structured logging ve privacy-light diagnostic paketini standartlaştır. Diagnostic schema v2 + redaction policy + CI.
 7. [ ] DB migration ve rollback iskeletini sabitle.
 8. [ ] Alpha / beta / stable release kanallarını dağıtım akışına bağla.
 9. [ ] Core Certification için canlı UYAP ve UYAP Kurum kabul paketini tamamla.
