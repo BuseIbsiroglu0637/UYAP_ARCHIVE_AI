@@ -45,6 +45,8 @@ export const MESSAGE = Object.freeze({
   GET_RESUMABLE_SESSIONS: "get_resumable_sessions",
   RESUME_SAVED_SESSION: "resume_saved_session",
   GET_REPORT_DATA: "get_report_data",
+  GET_AI_CONTEXT: "get_ai_context",
+  GET_AI_SERVICE_STATUS: "get_ai_service_status",
   GET_ARCHIVE_REGISTRY: "get_archive_registry",
   SELECT_EXISTING_ARCHIVE: "select_existing_archive",
   GET_SELECTED_ARCHIVE: "get_selected_archive",
