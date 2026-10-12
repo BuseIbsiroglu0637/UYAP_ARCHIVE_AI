@@ -7,21 +7,27 @@
 - Kaynak paket dosya sayısı: 180
 - Kaynak ZIP SHA-256: `b8e45caea3cbcd7834f5f5932a9ebb5754e381472dd8ed91ea6fb7da34ef5437`
 
+## 12 Ekim 2026 durumu
+
+- 12.000+ evrak hacmi indirilebilir durumda; Phase 1 geliştirmesi başlayabilir.
+- Core Certification kapanışı ayrı acceptance kanıtıyla sürdürülecek: silent loss / wrong binding, final integrity, recovery ve P0/P1 kapısı.
+- Archive Engine download/correlation/validation davranışı ürünleştirme çalışması uğruna değiştirilmez.
+
 ## Bu branch'in amacı
 
-`feature/phase-1-product-foundation` bundan sonraki ürünleştirme çalışmalarının ilk geliştirme dalıdır. Archive Engine çekirdeğinin davranışı gereksiz yere değiştirilmeden ürün kabuğu, sürüm sözleşmeleri ve dağıtım temeli hazırlanacaktır.
+`feature/phase-1-product-foundation` ürünleştirme çalışmalarının ilk geliştirme dalıdır. Archive Engine çekirdeği korunurken ürün kabuğu, sürüm/config sözleşmeleri ve modül sınırları sabitlenir.
 
 ## İş sırası
 
-1. RC15.9.38 test ve sürüm belgelerini güncel bazla eşleştir.
-2. Native Agent 2.7.64 için clean install / upgrade / rollback matrisi oluştur.
-3. Extension-Agent-DB sürüm uyumluluk sözleşmesini sabitle.
-4. Connector / Core / Native / Workspace / Control Plane sınırlarını kod seviyesinde görünür hale getir.
-5. Config ve environment yönetimini dev/stage/prod olarak ayır.
-6. Structured logging ve privacy-light diagnostic paketini standartlaştır.
-7. DB migration ve rollback iskeletini sabitle.
-8. Alpha / beta / stable release kanallarını tanımla.
-9. Core Certification için canlı UYAP ve UYAP Kurum kabul paketini tamamla.
+1. [x] RC15.9.38 test ve sürüm belgelerini güncel bazla eşleştir.
+2. [ ] Native Agent 2.7.64 için clean install / upgrade / rollback matrisi oluştur.
+3. [x] Extension-Agent-DB sürüm uyumluluk sözleşmesini makine okunabilir hale getir.
+4. [x] Connector / Core / Native / Workspace / Control Plane modül sınırlarını tanımla ve CI ile koru.
+5. [x] Config ve environment yönetimi için `dev/stage/prod` politika sözleşmesini oluştur.
+6. [ ] Structured logging ve privacy-light diagnostic paketini standartlaştır.
+7. [ ] DB migration ve rollback iskeletini sabitle.
+8. [ ] Alpha / beta / stable release kanallarını dağıtım akışına bağla.
+9. [ ] Core Certification için canlı UYAP ve UYAP Kurum kabul paketini tamamla.
 
 ## Çıkış kapısı
 

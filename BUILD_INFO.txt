@@ -1,4 +1,4 @@
-UYAP Archive AI v2.9.0 RC15.9.37 QUEUE-RECOVERY
+UYAP Archive AI v2.9.0 RC15.9.38 ARCHIVE-SYNC-RACE-FIX
 Native Agent: 2.7.64
 
 Temel: RC15.9.22 PHYSICAL-PROOF.
@@ -62,3 +62,9 @@ Gercek `_archive.db` metadata-only simulasyonu:
 - DB VERIFIED kayitlari stale metadata olarak raporlandi; arsivlenmis sayilmadi.
 
 Regresyon hedefi: 56/56 standalone PASS.
+
+RC15.9.38 PHASE-1 PRODUCT CONTRACT:
+- Beklenen sürüm/protokol/DB sözleşmesi `config/release-contract.json` altında makine-okunabilir olarak sabitlendi.
+- `dev/stage/prod` güvenli varsayımları `config/environments.json` altında tanımlandı.
+- Runtime bileşenlerinin sürüm değerleri paketleme güvenliği için kendi doğal dosyalarında kalır; CI bu değerlerin release contract ile drift etmesini engeller.
+- Modül sınırları `docs/MODULE_BOUNDARIES.md` ve `native/phase1_product_contract_test.py` ile korunur.

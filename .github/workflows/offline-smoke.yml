@@ -32,6 +32,8 @@ jobs:
         run: find . -type f \( -name '*.js' -o -name '*.mjs' \) -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check
       - name: Release identity
         run: python native/current_release_identity_test.py
+      - name: Phase 1 product contract and module boundaries
+        run: python native/phase1_product_contract_test.py
       - name: Offline targeted regression tests
         run: |
           python native/rc15_9_11_state_race_security_regression_test.py

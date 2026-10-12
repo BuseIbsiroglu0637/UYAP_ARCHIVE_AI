@@ -4,7 +4,7 @@ const MESSAGE=Object.freeze({
   RESET_RUNTIME:"reset_runtime",REPACKAGE_ARCHIVE:"repackage_archive",NEW_JOB:"new_job",SOURCE_DIAGNOSTIC:"source_diagnostic",
   TEST_NOTIFICATION:"test_notification",OPEN_ARCHIVE_FOLDER:"open_archive_folder",GET_ARCHIVE_REGISTRY:"get_archive_registry",CONFIRM_HTML_EXCLUSION:"confirm_html_exclusion",OPEN_FINAL_PACKAGE_FOLDER:"open_final_package_folder"
 });
-const MANIFEST=chrome.runtime?.getManifest?.()||{};const VERSION=MANIFEST.version_name||MANIFEST.version||"2.9.0 RC15.9.37 QUEUE-RECOVERY";
+const MANIFEST=chrome.runtime?.getManifest?.()||{};const VERSION=MANIFEST.version_name||MANIFEST.version||"2.9.0 RC15.9.38 ARCHIVE-SYNC-RACE-FIX";
 const SETTINGS_KEY="uyapUiSettingsV1";
 const ONBOARDING_KEY="uyapUiOnboardingCompletedV1";
 const DEFAULT_SETTINGS={loginNotification:true,completionNotification:true,problemNotification:true,showTechnical:true};

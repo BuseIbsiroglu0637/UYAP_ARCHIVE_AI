@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""One authoritative identity check for the imported RC source baseline.
+"""Authoritative identity check for the current product contract.
 
-Historical regression tests check the release family, not an obsolete RC label.
-When preparing a new release, update the expected identity here intentionally.
+Runtime components keep their native version declarations for packaging safety.
+The machine-readable release contract is the expected source and this test stops
+those declarations from drifting apart.
 """
 import ast
 import json
@@ -10,6 +11,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT / "native"
+CONTRACT = json.loads((ROOT / "config" / "release-contract.json").read_text(encoding="utf-8"))
+RELEASE = CONTRACT["release"]
+AGENT = CONTRACT["nativeAgent"]
+STORAGE = CONTRACT["storage"]
 
 
 def constant(path, name):
@@ -24,13 +29,24 @@ def constant(path, name):
 
 manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
 bridge = (ROOT / "background" / "native-agent.js").read_text(encoding="utf-8")
-assert manifest["manifest_version"] == 3, "Chrome MV3 expected"
-assert manifest["version"] == "2.9.0", "extension version mismatch"
-assert manifest["version_name"] == "2.9.0 RC15.9.38 ARCHIVE-SYNC-RACE-FIX", "RC identity mismatch"
-assert int(manifest["minimum_chrome_version"]) >= 120, "minimum Chrome changed"
-assert constant(NATIVE / "uyap_archive_agent.py", "AGENT_VERSION") == "2.7.64", "native agent mismatch"
-assert constant(NATIVE / "uyap_archive_agent.py", "PROTOCOL_VERSION") == 2, "protocol changed"
-assert constant(NATIVE / "install_host.py", "VERSION") == "2.7.64", "installer mismatch"
-assert constant(NATIVE / "install_host.py", "MIN_REUSABLE_VERSION") == "2.7.64", "minimum agent mismatch"
-assert 'const MIN_AGENT_VERSION = "2.7.64";' in bridge, "extension-agent contract mismatch"
-print("RC15.9.38 version identity and Native Agent 2.7.64: PASS")
+constants = (ROOT / "shared" / "constants.js").read_text(encoding="utf-8")
+popup = (ROOT / "popup" / "popup.js").read_text(encoding="utf-8")
+workspace = (ROOT / "workspace" / "workspace.js").read_text(encoding="utf-8")
+
+assert manifest["manifest_version"] == RELEASE["manifestVersion"], "Chrome MV3 contract mismatch"
+assert manifest["version"] == RELEASE["extensionVersion"], "extension version mismatch"
+assert manifest["version_name"] == RELEASE["versionName"], "release identity mismatch"
+assert int(manifest["minimum_chrome_version"]) == RELEASE["minimumChromeVersion"], "minimum Chrome mismatch"
+assert constant(NATIVE / "uyap_archive_agent.py", "AGENT_VERSION") == AGENT["version"], "native agent mismatch"
+assert constant(NATIVE / "uyap_archive_agent.py", "PROTOCOL_VERSION") == AGENT["protocolVersion"], "protocol mismatch"
+assert constant(NATIVE / "install_host.py", "VERSION") == AGENT["version"], "installer version mismatch"
+assert constant(NATIVE / "install_host.py", "MIN_REUSABLE_VERSION") == AGENT["minimumVersion"], "minimum reusable agent mismatch"
+assert f'const MIN_AGENT_VERSION = "{AGENT["minimumVersion"]}";' in bridge, "extension-agent minimum mismatch"
+assert f'export const CONTENT_PROTOCOL_VERSION = "{CONTRACT["contentProtocolVersion"]}";' in constants, "content protocol mismatch"
+assert f'export const RELIABILITY_SCHEMA_VERSION = {STORAGE["reliabilitySchemaVersion"]};' in constants, "reliability schema mismatch"
+assert f'export const DB_NAME = "{STORAGE["indexedDbName"]}";' in constants, "DB name mismatch"
+assert f'export const DB_VERSION = {STORAGE["indexedDbVersion"]};' in constants, "DB version mismatch"
+assert RELEASE["versionName"] in popup, "popup fallback/version string drift"
+assert RELEASE["versionName"] in workspace, "workspace fallback/version string drift"
+
+print(f'{RELEASE["versionName"]} / Native Agent {AGENT["version"]}: PASS')
