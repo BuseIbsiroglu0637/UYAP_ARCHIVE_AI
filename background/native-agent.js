@@ -35,14 +35,15 @@ const DUPLICATE_PATH_FRESH_OWNER_CAPABILITY = "duplicate_path_fresh_owner_v1";
 const PORTABLE_ARCHIVE_RESUME_CAPABILITY = "portable_archive_resume_v1";
 const LEGACY_LOOSE_ARCHIVE_IMPORT_CAPABILITY = "legacy_loose_archive_import_v2";
 const ATTEMPT_OWNER_REPLAY_CAPABILITY = "attempt_owner_replay_v1";
-const MIN_AGENT_VERSION = "2.7.64";
+const AI_LOCAL_INDEX_CAPABILITY = "ai_local_index_v1";
+const MIN_AGENT_VERSION = "2.7.65";
 const IDLE_DISCONNECT_MS = 3 * 60_000;
 
 // RC15.9.28: Native Messaging has three independent lanes.
 // Chromium creates a separate native-host process per connectNative() port, so
 // dashboard registry scans can never sit in front of batch reconciliation or a
 // validate_download request. UYAP browser downloads remain strictly sequential.
-const BULK_ACTIONS = new Set(["sync_inventory", "finalize_archive", "format_audit"]);
+const BULK_ACTIONS = new Set(["sync_inventory", "finalize_archive", "format_audit", "ai_build_index", "ai_search", "ai_index_status"]);
 const REGISTRY_ACTIONS = new Set(["list_archive_registry", "select_existing_archive"]);
 
 function createLane(name) {
@@ -306,7 +307,8 @@ export async function pingNativeAgent() {
     !result.capabilities?.includes(VERIFIED_ROOT_ORPHAN_CLEANUP_CAPABILITY) ||
     !result.capabilities?.includes(PORTABLE_ARCHIVE_RESUME_CAPABILITY) ||
     !result.capabilities?.includes(LEGACY_LOOSE_ARCHIVE_IMPORT_CAPABILITY) ||
-    !result.capabilities?.includes(ATTEMPT_OWNER_REPLAY_CAPABILITY)
+    !result.capabilities?.includes(ATTEMPT_OWNER_REPLAY_CAPABILITY) ||
+    !result.capabilities?.includes(AI_LOCAL_INDEX_CAPABILITY)
   )) {
     return {ok:false,error:'Ajan sürümü uyumsuz. İmzalı yerel ajan kurulum paketini yükleyin.'};
   }
