@@ -59,15 +59,22 @@ def test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake():
         "MUHATAP: ÖZEN ÇÖZTÜRK No: 75956 41 TCKN: 4812 4369658 "
         "Ana Borcu MERKEZ MAH. SK. NO: 8 KAPI NO: 2 TÜRKİYE KONUSU"
     )
+    mixed_script = (
+        "T.C. Dosya No 2026/110 Tahsilat Yapı Bankası Masraf Avans "
+        "法院資料亂碼 測試字元 bozulmuş karma alfabe metni"
+    )
     bad_result = assess_text_quality(bad)
     fragmented_result = assess_text_quality(fragmented)
+    mixed_result = assess_text_quality(mixed_script)
     assert good_result["accepted"] is True, good_result
     assert good_result["score"] >= 0.72, good_result
     assert bad_result["accepted"] is False, bad_result
     assert bad_result["reason"] in {"suspicious_cid_glyphs", "low_quality_score"}, bad_result
     assert fragmented_result["accepted"] is False, fragmented_result
     assert fragmented_result["reason"] in {"fragmented_glyph_spacing", "low_quality_score"}, fragmented_result
-    assert PDF_EXTRACTOR_METHOD == "pdf-content-stream-v4-chunk-quality-gated"
+    assert mixed_result["accepted"] is False, mixed_result
+    assert mixed_result["reason"] in {"mixed_script_mojibake", "suspicious_cid_glyphs", "low_quality_score"}, mixed_result
+    assert PDF_EXTRACTOR_METHOD == "pdf-content-stream-v5-mixed-script-gated"
 
  
 
