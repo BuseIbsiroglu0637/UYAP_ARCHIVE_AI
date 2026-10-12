@@ -24,6 +24,7 @@ DEFAULT_OVERLAP_CHARS = 400
 MAX_CHUNKS_PER_DOCUMENT = 500
 MAX_RESULTS = 20
 PDF_EXTRACTOR_METHOD = "pdf-content-stream-v5-mixed-script-gated"
+XLSX_EXTRACTOR_METHOD = "xlsx-semantic-v2-noise-gated"
 PDF_MIN_QUALITY_SCORE = 0.72
 
 ZIP_XML_TYPES = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
@@ -212,6 +213,113 @@ def _rtf_text(raw):
     return _clean(text.replace("{", " ").replace("}", " ").replace("\\", " "))
 
 
+def _xml_local_name(element):
+    return str(element.tag or "").rsplit("}", 1)[-1]
+
+
+def _xlsx_text_nodes(element):
+    return [
+        str(node.text or "")
+        for node in element.iter()
+        if _xml_local_name(node) == "t" and node.text
+    ]
+
+
+def _xlsx_numeric_value(value):
+    return bool(re.fullmatch(r"[-+]?\d+(?:[.,]\d+)?", str(value or "").strip()))
+
+
+def _xlsx_text(path):
+    """Extract semantic spreadsheet rows without indexing raw OOXML numeric noise.
+
+    Excel worksheets store shared-string references and cached numeric values in
+    separate XML structures. Treating every XML text node as prose duplicates
+    shared strings and turns dense numeric sheets into retrieval garbage. Resolve
+    shared strings first, then retain rows that contain actual language signal.
+    Numeric cells are kept only when they are contextualized by text in the same
+    row, with a conservative per-row cap.
+    """
+    shared_strings = []
+    rows = []
+    total = 0
+    with zipfile.ZipFile(path) as archive:
+        infos = {info.filename.replace("\\", "/"): info for info in archive.infolist() if not info.is_dir()}
+        shared_info = infos.get("xl/sharedStrings.xml")
+        if shared_info and shared_info.file_size <= MAX_ZIP_MEMBER_BYTES:
+            total += max(0, int(shared_info.file_size))
+            if total > MAX_ZIP_TOTAL_BYTES:
+                raise ValueError("AI_ZIP_UNCOMPRESSED_LIMIT")
+            try:
+                root = ET.fromstring(archive.read(shared_info))
+                for item in root.iter():
+                    if _xml_local_name(item) != "si":
+                        continue
+                    shared_strings.append(_clean(" ".join(_xlsx_text_nodes(item))))
+            except ET.ParseError:
+                shared_strings = []
+
+        worksheet_names = sorted(
+            name for name in infos
+            if name.lower().startswith("xl/worksheets/") and name.lower().endswith(".xml")
+        )
+        for name in worksheet_names:
+            info = infos[name]
+            if info.file_size > MAX_ZIP_MEMBER_BYTES:
+                continue
+            total += max(0, int(info.file_size))
+            if total > MAX_ZIP_TOTAL_BYTES:
+                raise ValueError("AI_ZIP_UNCOMPRESSED_LIMIT")
+            try:
+                root = ET.fromstring(archive.read(info))
+            except ET.ParseError:
+                continue
+            for row in root.iter():
+                if _xml_local_name(row) != "row":
+                    continue
+                values = []
+                alpha_chars = 0
+                numeric_seen = 0
+                for cell in row:
+                    if _xml_local_name(cell) != "c":
+                        continue
+                    cell_type = str(cell.attrib.get("t") or "").strip()
+                    value = ""
+                    if cell_type == "inlineStr":
+                        value = _clean(" ".join(_xlsx_text_nodes(cell)))
+                    else:
+                        raw_value = next(
+                            (str(node.text or "") for node in cell if _xml_local_name(node) == "v" and node.text is not None),
+                            "",
+                        ).strip()
+                        if cell_type == "s" and raw_value.isdigit():
+                            index = int(raw_value)
+                            if 0 <= index < len(shared_strings):
+                                value = shared_strings[index]
+                        elif cell_type in {"str", "e"}:
+                            value = _clean(raw_value)
+                        else:
+                            value = _clean(raw_value)
+                    if not value:
+                        continue
+                    alpha_chars += sum(1 for ch in value if ch.isalpha())
+                    is_numeric = _xlsx_numeric_value(value)
+                    if is_numeric:
+                        numeric_seen += 1
+                        if len(value) > 32 or numeric_seen > 6:
+                            continue
+                    values.append(value)
+
+                # Numeric-only rows are usually IDs, cached formulas, counters,
+                # coordinates or internal exports. Without a textual label they
+                # are not safe retrieval evidence.
+                if alpha_chars < 3:
+                    continue
+                row_text = _clean(" | ".join(values))
+                if row_text:
+                    rows.append(row_text)
+    return _clean("\n".join(rows))
+
+
 def _safe_zip_xml_text(path, extension):
     prefixes = {
         ".docx": ("word/document.xml", "word/header", "word/footer", "word/footnotes.xml", "word/endnotes.xml"),
@@ -358,6 +466,9 @@ def extract_text(path):
             return {"text": text, "method": "udf-zip-xml-v1", "quality": "high" if text else "empty"}
         text = _xml_text(_read_limited(path))
         return {"text": text, "method": "udf-raw-xml-v1", "quality": "high" if text else "empty"}
+    if extension == ".xlsx":
+        text = _xlsx_text(path)
+        return {"text": text, "method": XLSX_EXTRACTOR_METHOD, "quality": "high" if text else "empty"}
     if extension in ZIP_XML_TYPES:
         text = _safe_zip_xml_text(path, extension)
         return {"text": text, "method": extension[1:] + "-zip-xml-v1", "quality": "high" if text else "empty"}
@@ -530,9 +641,12 @@ def build_index(downloads_root, session_id, bindings):
                 (ref, session_id)
             ).fetchone()
             current_method = str(current[1] or "") if current else ""
-            if current and str(current[0]) == item["sha256"] and (
-                item["path"].suffix.lower() != ".pdf" or current_method == PDF_EXTRACTOR_METHOD
-            ):
+            extension = item["path"].suffix.lower()
+            current_method_ok = (
+                (extension != ".pdf" or current_method == PDF_EXTRACTOR_METHOD)
+                and (extension != ".xlsx" or current_method == XLSX_EXTRACTOR_METHOD)
+            )
+            if current and str(current[0]) == item["sha256"] and current_method_ok:
                 reused += 1
                 continue
             try:
