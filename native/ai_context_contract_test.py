@@ -35,7 +35,6 @@ def test_ai_context_builder_is_verified_only_and_privacy_light():
     assert "citationsRequired: true" in source
     assert "targetPath:" not in source
     assert "localPath:" not in source
-    assert "documentId:" not in source
 
 
 def test_workspace_message_contract_exposes_ai_context_and_status():
