@@ -31,6 +31,11 @@ LMSTUDIO_MAX_OUTPUT_TOKENS = 600
 OPENAI_TIMEOUT_SECONDS = 120
 LMSTUDIO_TIMEOUT_SECONDS = 300
 SOURCE_REF_RE = re.compile(r"\[(D\d{6})\]")
+RISKY_ROLE_TERMS = (
+    "davacı", "davalı", "sanık", "şüpheli", "müşteki", "mağdur",
+    "bilirkişi", "avukat", "vekil", "hâkim", "hakim", "savcı",
+    "soruşturma mühendisi", "yüksek mahkeme",
+)
 
 
 def _read_user_setting(name, default=""):
@@ -222,7 +227,8 @@ Yanıtı şu başlıklarla ver; kaynaklarda veri yoksa ilgili başlığı atla:
 
 Kurallar:
 - Her madde tek bir somut olgu veya gelişme içersin.
-- Her maddi iddianın sonunda en az bir geçerli [Dxxxxxx] kaynağı olsun.
+- Her maddeyi, aynı satırın sonunda en az bir geçerli [Dxxxxxx] kaynağıyla bitir.
+- Kaynağı olmayan maddeyi hiç yazma.
 - Evrak başlığını tekrar ederek yer doldurma; içeriğin anlamını özetle.
 - Bir kaynak yalnız teknik kayıt, sayı dizisi veya anlamsız veri içeriyorsa onu sonuç üretmek için kullanma.
 - Taraf/rol bölümünde yalnız kaynakta açıkça adı veya unvanı geçen gerçek kişi ve kurumları yaz.
@@ -341,6 +347,57 @@ def _validate_citations(answer, allowed_refs):
     if allowed_refs and not cited:
         return False, "AI_RESPONSE_MISSING_CITATIONS", []
     return True, None, []
+
+
+def _claim_units(answer):
+    units = []
+    for raw_line in str(answer or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Pure numbered headings such as "1. Genel durum" do not need citations.
+        if re.fullmatch(r"\d+[.)]\s*[^:]{1,90}:?", line):
+            continue
+        numbered = re.match(r"^\d+[.)]\s*[^:]{1,90}:\s*(.+)$", line)
+        if numbered:
+            line = numbered.group(1).strip()
+        line = re.sub(r"^[-•*]\s*", "", line).strip()
+        words = re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû]{2,}", line)
+        if len(words) >= 4:
+            units.append(line)
+    return units
+
+
+def _validate_grounding(answer, allowed_refs, source_text, summary_request=False):
+    valid, error, invalid_refs = _validate_citations(answer, allowed_refs)
+    if not valid:
+        return False, error, {"invalidSourceRefs": invalid_refs}
+
+    missing_claims = [
+        unit[:220]
+        for unit in _claim_units(answer)
+        if not SOURCE_REF_RE.search(unit)
+    ]
+    if missing_claims:
+        return False, "AI_RESPONSE_UNCITED_CLAIMS", {"uncitedClaims": missing_claims[:8]}
+
+    cited_refs = list(dict.fromkeys(SOURCE_REF_RE.findall(answer or "")))
+    if summary_request and len(allowed_refs) >= 2 and len(set(cited_refs)) < 2:
+        return False, "AI_RESPONSE_INSUFFICIENT_SOURCE_DIVERSITY", {
+            "citedSourceRefs": cited_refs,
+            "minimumDistinctSources": 2,
+        }
+
+    folded_sources = str(source_text or "").casefold()
+    unsupported_roles = sorted({
+        term
+        for term in RISKY_ROLE_TERMS
+        if term in str(answer or "").casefold() and term not in folded_sources
+    })
+    if unsupported_roles:
+        return False, "AI_RESPONSE_UNSUPPORTED_ROLE", {"unsupportedRoles": unsupported_roles}
+
+    return True, None, {"citedSourceRefs": cited_refs}
 
 
 def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES):
@@ -468,13 +525,18 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
             "error": "AI sağlayıcısı metin yanıtı döndürmedi.",
         }
 
-    valid, citation_error, invalid_refs = _validate_citations(answer, allowed_refs)
+    valid, grounding_error, grounding_detail = _validate_grounding(
+        answer,
+        allowed_refs,
+        source_text,
+        summary_request=summary_request,
+    )
     if not valid:
         return {
             "ok": False,
-            "errorCode": citation_error,
+            "errorCode": grounding_error,
             "error": "AI yanıtı zorunlu kaynak doğrulamasını geçemedi.",
-            "invalidSourceRefs": invalid_refs,
+            **grounding_detail,
         }
 
     cited_refs = list(dict.fromkeys(SOURCE_REF_RE.findall(answer)))
