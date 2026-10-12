@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 from ai_local_index import assess_text_quality, PDF_EXTRACTOR_METHOD, _quality_gate_pdf_chunks
-from ai_provider import _validate_citations
+from ai_provider import _validate_citations, _is_local_http_url
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -11,8 +11,11 @@ def test_ai_policy_defaults_fail_closed():
     assert policy["enabledByDefault"] is False
     assert policy["provider"]["mode"] == "local-native-gateway"
     assert policy["provider"]["name"] == "openai"
+    assert "lmstudio" in policy["provider"]["supportedProviders"]
     assert policy["provider"]["enabledByDefault"] is False
+    assert policy["provider"]["providerSource"].startswith("UYAP_AI_PROVIDER")
     assert policy["provider"]["credentialSource"].startswith("OPENAI_API_KEY")
+    assert policy["provider"]["baseUrlSource"].startswith("UYAP_AI_BASE_URL")
     assert policy["provider"]["apiKeyInExtensionAllowed"] is False
     assert policy["archiveBoundary"]["verifiedOnly"] is True
     assert policy["archiveBoundary"]["allowQueued"] is False
@@ -76,7 +79,6 @@ def test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake():
     assert mixed_result["reason"] in {"mixed_script_mojibake", "suspicious_cid_glyphs", "low_quality_score"}, mixed_result
     assert PDF_EXTRACTOR_METHOD == "pdf-content-stream-v5-mixed-script-gated"
 
- 
 
 def test_pdf_chunk_quality_gate_filters_mixed_documents():
     clean = (
@@ -92,17 +94,26 @@ def test_pdf_chunk_quality_gate_filters_mixed_documents():
     assert gated["rejectedChunks"] == 1, gated
     assert gated["rejectedByReason"], gated
 
-def test_provider_gateway_is_secret_safe_and_citation_gated():
+
+def test_provider_gateway_is_secret_safe_citation_gated_and_local_capable():
     source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert 'OPENAI_API_KEY' in source
+    assert 'UYAP_AI_PROVIDER' in source
+    assert 'UYAP_AI_BASE_URL' in source
     assert "HKEY_CURRENT_USER" in source
     assert 'r"Environment"' in source
     assert '"windows_user_environment"' in source
     assert 'https://api.openai.com/v1/responses' in source
+    assert 'http://127.0.0.1:1234/v1/responses' in source
+    assert '"lmstudio"' in source
     assert '"store": False' in source
     assert '"apiKeyExposedToExtension": False' in source
     assert '"rawDocumentsUploaded": False' in source
     assert "_source_prompt(results)" in source
+    assert _is_local_http_url("http://127.0.0.1:1234/v1/responses") is True
+    assert _is_local_http_url("http://localhost:1234/v1/responses") is True
+    assert _is_local_http_url("https://example.com/v1/responses") is False
+    assert _is_local_http_url("http://192.168.1.10:1234/v1/responses") is False
     ok, error, invalid = _validate_citations("Sonuç [D000001].", {"D000001"})
     assert ok is True and error is None and invalid == []
     ok, error, invalid = _validate_citations("Kaynak yok.", {"D000001"})
@@ -142,6 +153,6 @@ if __name__ == "__main__":
     test_ai_context_builder_is_verified_only_and_privacy_light()
     test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake()
     test_pdf_chunk_quality_gate_filters_mixed_documents()
-    test_provider_gateway_is_secret_safe_and_citation_gated()
+    test_provider_gateway_is_secret_safe_citation_gated_and_local_capable()
     test_workspace_message_contract_exposes_ai_context_and_status()
     print("AI context contract: PASS")
