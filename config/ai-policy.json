@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "enabledByDefault": false,
+  "provider": {
+    "mode": "disabled",
+    "name": null,
+    "apiKeyInExtensionAllowed": false
+  },
+  "archiveBoundary": {
+    "verifiedOnly": true,
+    "allowVerifiedDownloads": true,
+    "allowSkippedWithSha256PhysicalProof": true,
+    "allowQueued": false,
+    "allowRetryWait": false,
+    "allowReviewRequired": false,
+    "allowFailed": false
+  },
+  "cloud": {
+    "rawDocumentUploadByDefault": false,
+    "explicitUserConsentRequiredForRawDocumentUpload": true,
+    "metadataOnlyContextAllowed": true
+  },
+  "answers": {
+    "citationsRequired": true,
+    "sourceRefFormat": "D000001",
+    "unsupportedClaimPolicy": "say-not-found-in-verified-archive"
+  },
+  "context": {
+    "schemaVersion": 1,
+    "maxDocuments": 20000,
+    "includeAbsolutePaths": false,
+    "includeUyapDocumentIds": false,
+    "includeTokensOrUrls": false
+  }
+}
