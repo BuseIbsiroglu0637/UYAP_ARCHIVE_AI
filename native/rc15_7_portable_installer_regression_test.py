@@ -31,6 +31,7 @@ for token in [
     'native-install.log',
     'Restore-RegistryState',
     'rollback',
+    'ai_local_index.py',
 ]:
     require(token.lower() in installer.lower(), f'portable installer token eksik: {token}')
 
