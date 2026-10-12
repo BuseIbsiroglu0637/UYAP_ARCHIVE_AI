@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-"""Privacy-minimized OpenAI provider gateway for UYAP Archive AI.
+"""Privacy-minimized AI provider gateway for UYAP Archive AI.
 
-The browser extension never receives the API key. The native host reads
-OPENAI_API_KEY from the operating-system environment and sends only locally
-retrieved, quality-gated snippets to the Responses API.
+The browser extension never receives provider credentials. The native host
+supports both OpenAI and a localhost-only LM Studio provider and sends only
+locally retrieved, quality-gated snippets to a Responses-compatible API.
 """
 
 import json
@@ -12,16 +12,21 @@ import os
 import re
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 
 from ai_local_index import search_index
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-DEFAULT_MODEL = "gpt-5.6-terra"
+LMSTUDIO_RESPONSES_URL = "http://127.0.0.1:1234/v1/responses"
+DEFAULT_OPENAI_MODEL = "gpt-5.6-terra"
+DEFAULT_LMSTUDIO_MODEL = "qwen2.5-3b-instruct"
+SUPPORTED_PROVIDERS = {"openai", "lmstudio"}
 MAX_QUERY_CHARS = 1200
 MAX_SOURCE_SNIPPET_CHARS = 2600
 MAX_SOURCES = 8
 MAX_OUTPUT_TOKENS = 1800
 SOURCE_REF_RE = re.compile(r"\[(D\d{6})\]")
+
 
 def _read_user_setting(name, default=""):
     value = str(os.environ.get(name) or "").strip()
@@ -40,6 +45,96 @@ def _read_user_setting(name, default=""):
     return str(default or "").strip(), None
 
 
+def _is_local_http_url(value):
+    try:
+        parsed = urlsplit(str(value or "").strip())
+    except Exception:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+        and bool(parsed.port)
+    )
+
+
+def _models_url(responses_url):
+    parsed = urlsplit(responses_url)
+    path = parsed.path or ""
+    if path.endswith("/responses"):
+        path = path[:-len("responses")] + "models"
+    else:
+        path = "/v1/models"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def _provider_config():
+    provider, provider_source = _read_user_setting("UYAP_AI_PROVIDER", "openai")
+    provider = (provider or "openai").strip().lower()
+
+    if provider == "lmstudio":
+        endpoint, endpoint_source = _read_user_setting("UYAP_AI_BASE_URL", LMSTUDIO_RESPONSES_URL)
+        model, model_source = _read_user_setting("UYAP_AI_MODEL", DEFAULT_LMSTUDIO_MODEL)
+        return {
+            "provider": provider,
+            "providerSource": provider_source or "default",
+            "endpoint": endpoint or LMSTUDIO_RESPONSES_URL,
+            "endpointSource": endpoint_source or "default",
+            "model": model or DEFAULT_LMSTUDIO_MODEL,
+            "modelSource": model_source or "default",
+            "requiresApiKey": False,
+            "localOnly": True,
+        }
+
+    if provider == "openai":
+        model, model_source = _read_user_setting("UYAP_AI_MODEL", DEFAULT_OPENAI_MODEL)
+        return {
+            "provider": provider,
+            "providerSource": provider_source or "default",
+            "endpoint": OPENAI_RESPONSES_URL,
+            "endpointSource": "built-in",
+            "model": model or DEFAULT_OPENAI_MODEL,
+            "modelSource": model_source or "default",
+            "requiresApiKey": True,
+            "localOnly": False,
+        }
+
+    return {
+        "provider": provider,
+        "providerSource": provider_source or "default",
+        "endpoint": "",
+        "endpointSource": None,
+        "model": "",
+        "modelSource": None,
+        "requiresApiKey": False,
+        "localOnly": False,
+        "unsupported": True,
+    }
+
+
+def _probe_lmstudio(endpoint, model):
+    if not _is_local_http_url(endpoint):
+        return False, "LMSTUDIO_LOCAL_ENDPOINT_REQUIRED"
+    try:
+        request = urllib.request.Request(
+            _models_url(endpoint),
+            headers={"User-Agent": "UYAP-Archive-AI-Native/2.7"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
+        return False, "LMSTUDIO_UNREACHABLE"
+
+    available = {
+        str(item.get("id") or "").strip()
+        for item in (payload.get("data") or [])
+        if isinstance(item, dict)
+    }
+    if model and model not in available:
+        return False, "LMSTUDIO_MODEL_NOT_AVAILABLE"
+    return True, None
+
+
 _PROVIDER_INSTRUCTIONS = """Sen UYAP Archive AI içinde çalışan kaynak-kısıtlı bir hukuki dosya analiz yardımcısısın.
 Yalnız sana verilen VERIFIED yerel kaynak parçalarını kullan.
 Kaynaklarda bulunmayan olguları uydurma; gerekiyorsa 'Doğrulanmış yerel kaynaklarda bulunamadı' de.
@@ -51,21 +146,64 @@ Kısa, net Türkçe kullan.
 
 
 def provider_status():
+    config = _provider_config()
+
+    if config.get("unsupported"):
+        return {
+            "ok": True,
+            "schemaVersion": 2,
+            "kind": "UYAP_AI_SERVICE_STATUS",
+            "configured": False,
+            "enabled": False,
+            "provider": config["provider"],
+            "model": "",
+            "mode": "local-native-gateway",
+            "reason": "AI_PROVIDER_UNSUPPORTED",
+            "providerSource": config.get("providerSource"),
+            "apiKeyExposedToExtension": False,
+            "rawDocumentUploadByDefault": False,
+            "retrievedSnippetsOnly": True,
+            "store": False,
+            "citationsRequired": True,
+        }
+
+    if config["provider"] == "lmstudio":
+        available, reason = _probe_lmstudio(config["endpoint"], config["model"])
+        return {
+            "ok": True,
+            "schemaVersion": 2,
+            "kind": "UYAP_AI_SERVICE_STATUS",
+            "configured": available,
+            "enabled": available,
+            "provider": "lmstudio",
+            "model": config["model"],
+            "mode": "local-native-gateway",
+            "reason": reason,
+            "providerSource": config.get("providerSource"),
+            "modelSource": config.get("modelSource"),
+            "endpointSource": config.get("endpointSource"),
+            "localEndpointOnly": True,
+            "apiKeyExposedToExtension": False,
+            "rawDocumentUploadByDefault": False,
+            "retrievedSnippetsOnly": True,
+            "store": False,
+            "citationsRequired": True,
+        }
+
     key, key_source = _read_user_setting("OPENAI_API_KEY")
-    model, model_source = _read_user_setting("UYAP_AI_MODEL", DEFAULT_MODEL)
-    model = model or DEFAULT_MODEL
     return {
         "ok": True,
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "kind": "UYAP_AI_SERVICE_STATUS",
         "configured": bool(key),
         "enabled": bool(key),
         "provider": "openai",
-        "model": model,
+        "model": config["model"],
         "mode": "local-native-gateway",
         "reason": None if key else "OPENAI_API_KEY_NOT_CONFIGURED",
+        "providerSource": config.get("providerSource"),
         "keySource": key_source if key else None,
-        "modelSource": model_source or "default",
+        "modelSource": config.get("modelSource"),
         "apiKeyExposedToExtension": False,
         "rawDocumentUploadByDefault": False,
         "retrievedSnippetsOnly": True,
@@ -118,10 +256,22 @@ def _validate_citations(answer, allowed_refs):
 def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES):
     status = provider_status()
     if not status["configured"]:
+        provider = status.get("provider")
+        reason = status.get("reason")
+        if provider == "lmstudio":
+            detail = {
+                "LMSTUDIO_UNREACHABLE": "LM Studio yerel sunucusuna bağlanılamadı. Model Server'ı başlatın.",
+                "LMSTUDIO_MODEL_NOT_AVAILABLE": "Seçili LM Studio modeli yerel sunucuda bulunamadı veya yüklenmedi.",
+                "LMSTUDIO_LOCAL_ENDPOINT_REQUIRED": "LM Studio sağlayıcısı yalnız localhost/127.0.0.1 adresine bağlanabilir.",
+            }.get(reason, "LM Studio yerel AI sağlayıcısı hazır değil.")
+        elif reason == "AI_PROVIDER_UNSUPPORTED":
+            detail = "UYAP_AI_PROVIDER değeri desteklenmiyor."
+        else:
+            detail = "OpenAI API anahtarı yerel Native Agent ortamında yapılandırılmamış."
         return {
             "ok": False,
             "errorCode": "AI_PROVIDER_NOT_CONFIGURED",
-            "error": "OpenAI API anahtarı yerel Native Agent ortamında yapılandırılmamış.",
+            "error": detail,
             "service": status,
         }
 
@@ -140,7 +290,7 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
             "sourceRefs": [],
             "sources": [],
             "model": status["model"],
-            "provider": "openai",
+            "provider": status["provider"],
             "providerCalled": False,
             "rawDocumentsUploaded": False,
             "store": False,
@@ -161,15 +311,25 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         ),
     }
 
-    api_key, _ = _read_user_setting("OPENAI_API_KEY")
+    config = _provider_config()
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "UYAP-Archive-AI-Native/2.7",
+    }
+    if status["provider"] == "openai":
+        api_key, _ = _read_user_setting("OPENAI_API_KEY")
+        headers["Authorization"] = "Bearer " + api_key
+    elif status["provider"] == "lmstudio" and not _is_local_http_url(config["endpoint"]):
+        return {
+            "ok": False,
+            "errorCode": "AI_PROVIDER_LOCAL_ENDPOINT_REQUIRED",
+            "error": "LM Studio sağlayıcısı yalnız localhost/127.0.0.1 adresine bağlanabilir.",
+        }
+
     request = urllib.request.Request(
-        OPENAI_RESPONSES_URL,
+        config["endpoint"],
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        headers={
-            "Authorization": "Bearer " + api_key,
-            "Content-Type": "application/json",
-            "User-Agent": "UYAP-Archive-AI-Native/2.7",
-        },
+        headers=headers,
         method="POST",
     )
 
@@ -183,17 +343,19 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
             detail = str((detail_payload.get("error") or {}).get("message") or "")
         except Exception:
             detail = ""
+        provider_label = "LM Studio" if status["provider"] == "lmstudio" else "OpenAI"
         return {
             "ok": False,
             "errorCode": "AI_PROVIDER_HTTP_ERROR",
             "httpStatus": int(getattr(error, "code", 0) or 0),
-            "error": detail or f"OpenAI API HTTP {getattr(error, 'code', 'hatası')}",
+            "error": detail or f"{provider_label} HTTP {getattr(error, 'code', 'hatası')}",
         }
     except (urllib.error.URLError, TimeoutError, OSError) as error:
+        provider_label = "LM Studio yerel sunucusu" if status["provider"] == "lmstudio" else "AI sağlayıcısı"
         return {
             "ok": False,
             "errorCode": "AI_PROVIDER_NETWORK_ERROR",
-            "error": f"AI sağlayıcısına bağlanılamadı: {error}",
+            "error": f"{provider_label} ile bağlantı kurulamadı: {error}",
         }
 
     answer = _extract_output_text(payload)
@@ -233,7 +395,7 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "sourceRefs": cited_refs,
         "sources": sources,
         "model": status["model"],
-        "provider": "openai",
+        "provider": status["provider"],
         "providerResponseId": payload.get("id"),
         "providerCalled": True,
         "rawDocumentsUploaded": False,
