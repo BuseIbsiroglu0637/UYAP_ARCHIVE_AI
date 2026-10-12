@@ -40,6 +40,8 @@ jobs:
         run: python native/phase1_db_migration_contract_test.py
       - name: Release channel and packaging contract
         run: python native/phase1_release_channel_contract_test.py
+      - name: AI context contract
+        run: python native/ai_context_contract_test.py
       - name: Offline targeted regression tests
         run: |
           python native/rc15_9_11_state_race_security_regression_test.py
