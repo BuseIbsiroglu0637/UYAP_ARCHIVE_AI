@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
 $HostName = 'tr.gov.uyap.archive_agent'
-$AgentVersion = '2.7.66'
+$AgentVersion = '2.7.67'
 $PackageVersion = '2.9.0 RC15.9.38 ARCHIVE-SYNC-RACE-FIX (full kit)'
 $CurrentExtensionId = 'fppnhbkemmbocmicplkfidcbggeininh'
 $LegacyExtensionId = 'mkcemhoekaohggeebgkifcmjbilincfl'
