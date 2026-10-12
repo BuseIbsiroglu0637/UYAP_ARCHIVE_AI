@@ -141,7 +141,7 @@ def assess_text_quality(text):
         score -= min(0.25, (0.45 - signal_ratio) * 0.8)
     if len(value) >= 120 and token_density < 0.18:
         score -= min(0.25, (0.18 - token_density) * 1.2)
-    if len(raw_tokens) >= 20 and single_token_ratio > 0.16:
+    if len(raw_tokens) >= 20 and single_token_ratio > 0.14:
         score -= min(0.35, (single_token_ratio - 0.16) * 1.8)
     if spaced_letter_runs:
         score -= min(0.35, spaced_letter_runs * 0.18)
@@ -154,7 +154,7 @@ def assess_text_quality(text):
         reason = "private_use_glyphs"
     elif cjk_ratio > 0.08 and latin_ratio < 0.75:
         reason = "suspicious_cid_glyphs"
-    elif len(raw_tokens) >= 20 and single_token_ratio > 0.22:
+    elif len(raw_tokens) >= 20 and single_token_ratio > 0.18:
         reason = "fragmented_glyph_spacing"
     elif spaced_letter_runs >= 2:
         reason = "fragmented_glyph_spacing"
