@@ -16,8 +16,8 @@ import uuid
 
 from host_self_test import check_host
 
-VERSION = '2.7.65'
-MIN_REUSABLE_VERSION = '2.7.65'
+VERSION = '2.7.66'
+MIN_REUSABLE_VERSION = '2.7.66'
 HOST_NAME = 'tr.gov.uyap.archive_agent'
 STANDARD_EXTENSION_ID = 'mkcemhoekaohggeebgkifcmjbilincfl'
 EXTENSION_ID = 'fppnhbkemmbocmicplkfidcbggeininh'
