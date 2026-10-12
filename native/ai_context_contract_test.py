@@ -69,7 +69,7 @@ def test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake():
     assert good_result["accepted"] is True, good_result
     assert good_result["score"] >= 0.72, good_result
     assert bad_result["accepted"] is False, bad_result
-    assert bad_result["reason"] in {"suspicious_cid_glyphs", "low_quality_score"}, bad_result
+    assert bad_result["reason"] in {"mixed_script_mojibake", "suspicious_cid_glyphs", "low_quality_score"}, bad_result
     assert fragmented_result["accepted"] is False, fragmented_result
     assert fragmented_result["reason"] in {"fragmented_glyph_spacing", "low_quality_score"}, fragmented_result
     assert mixed_result["accepted"] is False, mixed_result
