@@ -1,6 +1,5 @@
 from pathlib import Path
 import json
-import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -11,6 +10,10 @@ def test_ai_policy_defaults_fail_closed():
     assert policy["provider"]["mode"] == "disabled"
     assert policy["provider"]["apiKeyInExtensionAllowed"] is False
     assert policy["archiveBoundary"]["verifiedOnly"] is True
+    assert policy["archiveBoundary"]["allowQueued"] is False
+    assert policy["archiveBoundary"]["allowRetryWait"] is False
+    assert policy["archiveBoundary"]["allowReviewRequired"] is False
+    assert policy["archiveBoundary"]["allowFailed"] is False
     assert policy["cloud"]["rawDocumentUploadByDefault"] is False
     assert policy["cloud"]["explicitUserConsentRequiredForRawDocumentUpload"] is True
     assert policy["answers"]["citationsRequired"] is True
@@ -19,22 +22,37 @@ def test_ai_policy_defaults_fail_closed():
     assert policy["context"]["includeTokensOrUrls"] is False
 
 
-def test_ai_context_builder_has_no_path_or_raw_content_fields():
+def test_ai_context_builder_is_verified_only_and_privacy_light():
     source = (ROOT / "background" / "ai-context.js").read_text(encoding="utf-8")
     assert 'status === "verified"' in source
     assert 'status === "skipped"' in source
     assert "hasSha256PhysicalProof" in source
+    assert 'sourceRef(index)' in source
+    assert 'padStart(6, "0")' in source
     assert "rawDocumentContentIncluded: false" in source
     assert "absolutePathsIncluded: false" in source
     assert "uyapDocumentIdsIncluded: false" in source
     assert "citationsRequired: true" in source
-    assert re.search(r'D\\\$\\\{String\\\(index \+ 1\\\)\.padStart', source) is None
+    assert "targetPath:" not in source
+    assert "localPath:" not in source
+    assert "documentId:" not in source
 
 
-def test_workspace_message_contract_exposes_ai_context_only():
+def test_workspace_message_contract_exposes_ai_context_and_status():
     constants = (ROOT / "shared" / "constants.js").read_text(encoding="utf-8")
     worker = (ROOT / "background" / "service-worker.js").read_text(encoding="utf-8")
-    assert "GET_AI_CONTEXT" in constants
-    assert "GET_AI_SERVICE_STATUS" in constants
+    workspace = (ROOT / "workspace" / "workspace.js").read_text(encoding="utf-8")
+    assert 'GET_AI_CONTEXT: "get_ai_context"' in constants
+    assert 'GET_AI_SERVICE_STATUS: "get_ai_service_status"' in constants
+    assert "case MESSAGE.GET_AI_CONTEXT:" in worker
     assert "buildAiContext" in worker
     assert "getAiServiceStatus" in worker
+    assert "MESSAGE.GET_AI_CONTEXT" in workspace
+    assert "MESSAGE.GET_AI_SERVICE_STATUS" in workspace
+
+
+if __name__ == "__main__":
+    test_ai_policy_defaults_fail_closed()
+    test_ai_context_builder_is_verified_only_and_privacy_light()
+    test_workspace_message_contract_exposes_ai_context_and_status()
+    print("AI context contract: PASS")
