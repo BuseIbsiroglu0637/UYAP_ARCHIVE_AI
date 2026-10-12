@@ -20,7 +20,9 @@
   "storage": {
     "indexedDbName": "uyap-profesyonel-arsiv-v1",
     "indexedDbVersion": 6,
-    "reliabilitySchemaVersion": 5
+    "reliabilitySchemaVersion": 5,
+    "migrationFrameworkVersion": 1,
+    "rollbackPolicy": "same-db-version-or-backup-required"
   },
   "contentProtocolVersion": "2.9.0",
   "compatibility": {

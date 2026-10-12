@@ -25,7 +25,7 @@
 4. [x] Connector / Core / Native / Workspace / Control Plane modül sınırlarını tanımla ve CI ile koru.
 5. [x] Config ve environment yönetimi için `dev/stage/prod` politika sözleşmesini oluştur.
 6. [x] Structured logging ve privacy-light diagnostic paketini standartlaştır. Diagnostic schema v2 + redaction policy + CI.
-7. [ ] DB migration ve rollback iskeletini sabitle.
+7. [x] DB migration ve rollback iskeletini sabitle. Versioned migration registry + downgrade gate + backup-required policy.
 8. [ ] Alpha / beta / stable release kanallarını dağıtım akışına bağla.
 9. [ ] Core Certification için canlı UYAP ve UYAP Kurum kabul paketini tamamla.
 
