@@ -9,7 +9,7 @@
   "archiveBoundary": {
     "verifiedOnly": true,
     "allowVerifiedDownloads": true,
-    "allowSkippedWithSha256PhysicalProof": true,
+    "allowSkippedWithSha256PhysicalProof": false,
     "allowQueued": false,
     "allowRetryWait": false,
     "allowReviewRequired": false,
