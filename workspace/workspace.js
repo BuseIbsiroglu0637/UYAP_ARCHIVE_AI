@@ -301,7 +301,7 @@ async function renderAiWorkspace(){
     $("aiDateRange").textContent=dates.length?`${shortDate(dates[0])} – ${shortDate(dates[dates.length-1])}`:"-";
     const providerReady=service?.enabled===true&&service?.configured===true,indexReady=indexStatus?.ready===true;
     ready.innerHTML=`<span class="ai-ready-pill good">✓ Dosya seçili</span><span class="ai-ready-pill ${docs.length?"good":"warn"}">${docs.length?"✓ VERIFIED bağlam hazır":"• VERIFIED evrak bekleniyor"}</span><span class="ai-ready-pill ${indexReady?"good":"warn"}">${indexReady?"✓ Yerel indeks hazır":"• Yerel indeks bekleniyor"}</span><span class="ai-ready-pill ${providerReady?"good":"warn"}">${providerReady?"✓ AI sağlayıcısı bağlı":"• AI sağlayıcısı bekleniyor"}</span>`;
-    if(serviceLabel)serviceLabel.textContent=providerReady?((service?.provider==="openai"?"OpenAI":"AI")+" • "+(service?.model||"Bağlı")):"Provider bekleniyor";
+    if(serviceLabel){const providerName=service?.provider==="openai"?"OpenAI":service?.provider==="lmstudio"?"LM Studio":"AI";serviceLabel.textContent=providerReady?`${providerName} • ${service?.model||"Bağlı"}`:"Provider bekleniyor";}
     if(indexLabel)indexLabel.textContent=indexReady?`${n(indexStatus.documents).toLocaleString("tr-TR")} evrak • ${n(indexStatus.chunks).toLocaleString("tr-TR")} yerel metin parçası hazır.`:"VERIFIED evraklardan yerel metin indeksi henüz oluşturulmadı.";
     if(buildButton)buildButton.textContent=indexReady?"Yerel AI indeksini güncelle":"Yerel AI indeksini hazırla";
     if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel kaynaklarda ara":"Önce yerel indeksi hazırla";}
