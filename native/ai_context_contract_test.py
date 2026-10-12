@@ -50,12 +50,20 @@ def test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake():
         "T.C. SATIYE DEMİRBAS 法律文書編碼錯誤資料"
     )
     good_result = assess_text_quality(good)
+    fragmented = (
+        "Y K B1K4 G B 8US 09/11/2024 E D EN : YAPI BANKASI ve Kredi Bil gi "
+        "MUHATAP: ÖZEN ÇÖZTÜRK No: 75956 41 TCKN: 4812 4369658 "
+        "Ana Borcu MERKEZ MAH. SK. NO: 8 KAPI NO: 2 TÜRKİYE KONUSU"
+    )
     bad_result = assess_text_quality(bad)
+    fragmented_result = assess_text_quality(fragmented)
     assert good_result["accepted"] is True, good_result
     assert good_result["score"] >= 0.72, good_result
     assert bad_result["accepted"] is False, bad_result
     assert bad_result["reason"] in {"suspicious_cid_glyphs", "low_quality_score"}, bad_result
-    assert PDF_EXTRACTOR_METHOD == "pdf-content-stream-v2-quality-gated"
+    assert fragmented_result["accepted"] is False, fragmented_result
+    assert fragmented_result["reason"] in {"fragmented_glyph_spacing", "low_quality_score"}, fragmented_result
+    assert PDF_EXTRACTOR_METHOD == "pdf-content-stream-v3-quality-gated"
 
 
 def test_workspace_message_contract_exposes_ai_context_and_status():
