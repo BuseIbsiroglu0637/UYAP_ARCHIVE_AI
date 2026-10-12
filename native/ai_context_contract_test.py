@@ -1,6 +1,6 @@
 from pathlib import Path
 import json
-from ai_local_index import assess_text_quality, PDF_EXTRACTOR_METHOD
+from ai_local_index import assess_text_quality, PDF_EXTRACTOR_METHOD, _quality_gate_pdf_chunks
 from ai_provider import _validate_citations
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,9 +67,24 @@ def test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake():
     assert bad_result["reason"] in {"suspicious_cid_glyphs", "low_quality_score"}, bad_result
     assert fragmented_result["accepted"] is False, fragmented_result
     assert fragmented_result["reason"] in {"fragmented_glyph_spacing", "low_quality_score"}, fragmented_result
-    assert PDF_EXTRACTOR_METHOD == "pdf-content-stream-v3-quality-gated"
+    assert PDF_EXTRACTOR_METHOD == "pdf-content-stream-v4-chunk-quality-gated"
 
  
+
+def test_pdf_chunk_quality_gate_filters_mixed_documents():
+    clean = (
+        "Kastamonu 1. İş Mahkemesi müzekkere cevabı. Taraflara tebliğ yapıldı ve "
+        "dosyanın 15 Haziran 2026 tarihli duruşması için bilgi sunuldu."
+    )
+    corrupt = (
+        "Dosya No 384 Y K B 1 K 4 G B 8 U S E D E N B i l g i M U H A T A P "
+        "tek harfli parçalanmış metin örneği ile birlikte anlamsız glif dizisi"
+    )
+    gated = _quality_gate_pdf_chunks([clean, corrupt])
+    assert gated["chunks"] == [clean], gated
+    assert gated["rejectedChunks"] == 1, gated
+    assert gated["rejectedByReason"], gated
+
 def test_provider_gateway_is_secret_safe_and_citation_gated():
     source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert 'OPENAI_API_KEY' in source
@@ -116,6 +131,7 @@ if __name__ == "__main__":
     test_ai_policy_defaults_fail_closed()
     test_ai_context_builder_is_verified_only_and_privacy_light()
     test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake()
+    test_pdf_chunk_quality_gate_filters_mixed_documents()
     test_provider_gateway_is_secret_safe_and_citation_gated()
     test_workspace_message_contract_exposes_ai_context_and_status()
     print("AI context contract: PASS")
