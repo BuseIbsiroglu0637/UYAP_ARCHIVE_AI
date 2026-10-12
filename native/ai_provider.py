@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit, urlunsplit
 
-from ai_local_index import search_index
+from ai_local_index import search_index, summary_context
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 LMSTUDIO_RESPONSES_URL = "http://127.0.0.1:1234/v1/responses"
@@ -194,13 +194,18 @@ Aynı olguyu farklı cümlelerle tekrarlama. Kaynakta olmayan hukuki sonuç, niy
 """
 
 
-def _task_instructions(query):
+def _is_summary_query(query):
     normalized = re.sub(r"\s+", " ", str(query or "").strip().casefold())
-    summary_request = (
+    return (
         "özet" in normalized
         or "ozet" in normalized
         or normalized in {"bu dosya", "dosya özeti", "dosya ozeti"}
     )
+
+
+def _task_instructions(query):
+    normalized = re.sub(r"\s+", " ", str(query or "").strip().casefold())
+    summary_request = _is_summary_query(query)
     if not summary_request:
         return """Kullanıcının sorusunu doğrudan yanıtla.
 Önce kesin kaynaklı bulguları ver; kaynakta olmayan veya belirsiz kalan kısmı ayrıca belirt.
@@ -220,7 +225,11 @@ Kurallar:
 - Her maddi iddianın sonunda en az bir geçerli [Dxxxxxx] kaynağı olsun.
 - Evrak başlığını tekrar ederek yer doldurma; içeriğin anlamını özetle.
 - Bir kaynak yalnız teknik kayıt, sayı dizisi veya anlamsız veri içeriyorsa onu sonuç üretmek için kullanma.
-- 'Dosya kesin olarak şu aşamadadır' gibi sonuçları yalnız kaynak bunu açıkça destekliyorsa yaz.
+- Taraf/rol bölümünde yalnız kaynakta açıkça adı veya unvanı geçen gerçek kişi ve kurumları yaz.
+- Belge türlerini veya işlem adlarını kişi/rol gibi yorumlama. Örneğin 'müzekkere' bir taraf veya rol değildir.
+- Kaynakta geçmeyen 'davacı', 'davalı', 'soruşturma mühendisi' gibi sıfat ve unvanları üretme.
+- Bir kişi yalnız imza satırında görünüyorsa rolünü metinde açıkça belirtilen unvanla sınırla; unvan yoksa rol uydurma.
+- 'Dosya kesin olarak şu aşamadadır' gibi sonuçları yalnız kaynak bunu açıkça destekliyorsa yaz; aksi halde aşama hakkında hüküm kurma.
 - En fazla 8 kısa madde kullan; uzun giriş ve kapanış yazma."""
 
 
@@ -363,7 +372,12 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
     profile = _provider_limits(status["provider"])
     requested_limit = max(1, int(limit or profile["maxSources"]))
     effective_limit = min(profile["maxSources"], requested_limit)
-    retrieval = search_index(downloads_root, session_id, query, effective_limit)
+    summary_request = _is_summary_query(query)
+    retrieval = (
+        summary_context(downloads_root, session_id, effective_limit)
+        if summary_request
+        else search_index(downloads_root, session_id, query, effective_limit)
+    )
     results = list(retrieval.get("results") or [])
     if not results:
         return {
@@ -488,6 +502,7 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "providerCalled": True,
         "rawDocumentsUploaded": False,
         "retrievedSnippetsOnly": True,
+        "retrievalMode": "summary_diversified" if summary_request else "lexical_search",
         "store": False,
         "usage": usage,
     }
