@@ -311,45 +311,30 @@ def _index_db(root):
     return db, fts5
 
 
-def _archive_rows(root, scope_id, bindings):
+def _archive_rows(root, session_id, bindings):
     archive_root = (root / "UYAP_Arsiv").resolve()
     database_path = archive_root / "_archive.db"
     if not database_path.is_file():
         raise ValueError("AI_ARCHIVE_DB_NOT_FOUND")
-    binding_by_pair = {}
-    for row in bindings or []:
-        session_id = str(row.get("sessionId") or scope_id or "").strip()
-        document_id = str(row.get("documentId") or "").strip()
-        source_ref = str(row.get("sourceRef") or "").strip()
-        if session_id and document_id and source_ref:
-            binding_by_pair[(session_id, document_id)] = source_ref
-    if not binding_by_pair:
+    binding_by_id = {str(row.get("documentId") or ""): str(row.get("sourceRef") or "") for row in bindings or [] if row.get("documentId") and row.get("sourceRef")}
+    if not binding_by_id:
         return []
-
-    document_ids = sorted({document_id for _, document_id in binding_by_pair})
-    rows = []
     db = sqlite3.connect(database_path, timeout=30.0)
     db.execute("PRAGMA query_only=ON")
     db.execute("PRAGMA busy_timeout=30000")
     try:
-        for first in range(0, len(document_ids), 400):
-            batch = document_ids[first:first + 400]
-            placeholders = ",".join("?" for _ in batch)
-            rows.extend(db.execute(
-                f"""SELECT session_id, document_id, display_name, local_path, size, sha256, document_date
-                    FROM documents WHERE status='VERIFIED'
-                    AND document_id IN ({placeholders}) ORDER BY uyap_path, display_name""",
-                batch,
-            ).fetchall())
+        placeholders = ",".join("?" for _ in binding_by_id)
+        params = [session_id, *binding_by_id.keys()]
+        rows = db.execute(
+            f"""SELECT document_id, display_name, local_path, size, sha256, document_date
+                FROM documents WHERE session_id=? AND status='VERIFIED'
+                AND document_id IN ({placeholders}) ORDER BY uyap_path, display_name""",
+            params,
+        ).fetchall()
     finally:
         db.close()
-
     proven = []
-    seen_refs = set()
-    for row_session_id, document_id, title, local_path, expected_size, expected_sha, document_date in rows:
-        source_ref = binding_by_pair.get((str(row_session_id), str(document_id)))
-        if not source_ref or source_ref in seen_refs:
-            continue
+    for document_id, title, local_path, expected_size, expected_sha, document_date in rows:
         try:
             path = Path(local_path or "").resolve(strict=True)
             path.relative_to(archive_root)
@@ -361,21 +346,20 @@ def _archive_rows(root, scope_id, bindings):
             if digest.lower() != str(expected_sha or "").lower():
                 continue
             proven.append({
-                "documentId": str(document_id), "sourceRef": source_ref,
+                "documentId": str(document_id), "sourceRef": binding_by_id[str(document_id)],
                 "title": str(title or "Adsız evrak"), "path": path, "sha256": digest, "date": document_date,
             })
-            seen_refs.add(source_ref)
         except (OSError, ValueError, TypeError):
             continue
     return proven
 
 
-def build_index(downloads_root, scope_id, bindings):
+def build_index(downloads_root, session_id, bindings):
     root = Path(downloads_root).resolve(strict=True)
-    scope_id = str(scope_id or "").strip()
-    if not scope_id:
-        raise ValueError("AI_SCOPE_REQUIRED")
-    rows = _archive_rows(root, scope_id, bindings)
+    session_id = str(session_id or "").strip()
+    if not session_id:
+        raise ValueError("AI_SESSION_REQUIRED")
+    rows = _archive_rows(root, session_id, bindings)
     db, fts5 = _index_db(root)
     indexed = reused = unsupported = failed = 0
     methods = {}
@@ -383,7 +367,7 @@ def build_index(downloads_root, scope_id, bindings):
     try:
         for item in rows:
             ref = item["sourceRef"]
-            current = db.execute("SELECT file_sha256 FROM ai_documents WHERE source_ref=? AND session_id=?", (ref, scope_id)).fetchone()
+            current = db.execute("SELECT file_sha256 FROM ai_documents WHERE source_ref=? AND session_id=?", (ref, session_id)).fetchone()
             if current and str(current[0]) == item["sha256"]:
                 reused += 1
                 continue
@@ -407,7 +391,7 @@ def build_index(downloads_root, scope_id, bindings):
                        (source_ref,session_id,document_id_hash,file_sha256,title,document_type,document_date,
                         extraction_method,extraction_quality,text_chars,chunk_count,indexed_at)
                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (ref, scope_id, hashlib.sha256(item["documentId"].encode()).hexdigest(), item["sha256"],
+                    (ref, session_id, hashlib.sha256(item["documentId"].encode()).hexdigest(), item["sha256"],
                      item["title"], item["path"].suffix.lower().lstrip(".").upper() or "DOSYA", item["date"],
                      method, extracted.get("quality"), len(extracted.get("text") or ""), len(chunks), now),
                 )
@@ -415,11 +399,11 @@ def build_index(downloads_root, scope_id, bindings):
             except Exception:
                 failed += 1
         db.commit()
-        available = db.execute("SELECT COUNT(*) FROM ai_documents WHERE session_id=?", (scope_id,)).fetchone()[0]
-        chunks = db.execute("SELECT COUNT(*) FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref WHERE d.session_id=?", (scope_id,)).fetchone()[0]
+        available = db.execute("SELECT COUNT(*) FROM ai_documents WHERE session_id=?", (session_id,)).fetchone()[0]
+        chunks = db.execute("SELECT COUNT(*) FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref WHERE d.session_id=?", (session_id,)).fetchone()[0]
         return {
             "ok": True, "kind": "UYAP_AI_LOCAL_INDEX", "schemaVersion": AI_INDEX_SCHEMA_VERSION,
-            "scopeId": scope_id, "verifiedSourceRows": len(rows), "indexedDocuments": indexed,
+            "sessionId": session_id, "verifiedSourceRows": len(rows), "indexedDocuments": indexed,
             "reusedDocuments": reused, "unsupportedDocuments": unsupported, "failedDocuments": failed,
             "availableDocuments": int(available), "availableChunks": int(chunks), "fts5": bool(fts5),
             "extractionMethods": methods, "rawDocumentsUploaded": False, "networkUsed": False,
@@ -428,17 +412,17 @@ def build_index(downloads_root, scope_id, bindings):
         db.close()
 
 
-def index_status(downloads_root, scope_id):
+def index_status(downloads_root, session_id):
     root = Path(downloads_root).resolve(strict=True)
-    scope_id = str(scope_id or "").strip()
+    session_id = str(session_id or "").strip()
     path = _index_path(root)
     if not path.is_file():
-        return {"ok": True, "kind": "UYAP_AI_INDEX_STATUS", "schemaVersion": 1, "ready": False, "scopeId": scope_id, "documents": 0, "chunks": 0}
+        return {"ok": True, "kind": "UYAP_AI_INDEX_STATUS", "schemaVersion": 1, "ready": False, "sessionId": session_id, "documents": 0, "chunks": 0}
     db, fts5 = _index_db(root)
     try:
-        documents = db.execute("SELECT COUNT(*) FROM ai_documents WHERE session_id=?", (scope_id,)).fetchone()[0]
-        chunks = db.execute("SELECT COUNT(*) FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref WHERE d.session_id=?", (scope_id,)).fetchone()[0]
-        return {"ok": True, "kind": "UYAP_AI_INDEX_STATUS", "schemaVersion": 1, "ready": int(chunks) > 0, "scopeId": scope_id, "documents": int(documents), "chunks": int(chunks), "fts5": bool(fts5)}
+        documents = db.execute("SELECT COUNT(*) FROM ai_documents WHERE session_id=?", (session_id,)).fetchone()[0]
+        chunks = db.execute("SELECT COUNT(*) FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref WHERE d.session_id=?", (session_id,)).fetchone()[0]
+        return {"ok": True, "kind": "UYAP_AI_INDEX_STATUS", "schemaVersion": 1, "ready": int(chunks) > 0, "sessionId": session_id, "documents": int(documents), "chunks": int(chunks), "fts5": bool(fts5)}
     finally:
         db.close()
 
@@ -447,9 +431,9 @@ def _tokens(query):
     return [part.casefold() for part in re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşü]{2,}", str(query or ""))][:16]
 
 
-def search_index(downloads_root, scope_id, query, limit=8):
+def search_index(downloads_root, session_id, query, limit=8):
     root = Path(downloads_root).resolve(strict=True)
-    scope_id = str(scope_id or "").strip()
+    session_id = str(session_id or "").strip()
     tokens = _tokens(query)
     if not tokens:
         return {"ok": True, "kind": "UYAP_AI_SEARCH", "schemaVersion": 1, "query": "", "results": []}
@@ -466,7 +450,7 @@ def search_index(downloads_root, scope_id, query, limit=8):
                        JOIN ai_chunks c ON c.source_ref=ai_chunks_fts.source_ref AND c.text=ai_chunks_fts.text
                        JOIN ai_documents d ON d.source_ref=c.source_ref
                        WHERE d.session_id=? AND ai_chunks_fts MATCH ? ORDER BY bm25(ai_chunks_fts) LIMIT ?""",
-                    (scope_id, expression, limit),
+                    (session_id, expression, limit),
                 ).fetchall()
             except sqlite3.Error:
                 rows = []
@@ -474,7 +458,7 @@ def search_index(downloads_root, scope_id, query, limit=8):
             all_rows = db.execute(
                 """SELECT c.source_ref, c.text, d.title, d.document_type, d.document_date
                    FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref WHERE d.session_id=?""",
-                (scope_id,),
+                (session_id,),
             ).fetchall()
             scored = []
             for row in all_rows:
