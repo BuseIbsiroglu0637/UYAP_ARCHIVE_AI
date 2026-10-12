@@ -25,6 +25,11 @@ MAX_QUERY_CHARS = 1200
 MAX_SOURCE_SNIPPET_CHARS = 2600
 MAX_SOURCES = 8
 MAX_OUTPUT_TOKENS = 1800
+LMSTUDIO_MAX_SOURCES = 4
+LMSTUDIO_MAX_SOURCE_SNIPPET_CHARS = 1400
+LMSTUDIO_MAX_OUTPUT_TOKENS = 600
+OPENAI_TIMEOUT_SECONDS = 120
+LMSTUDIO_TIMEOUT_SECONDS = 300
 SOURCE_REF_RE = re.compile(r"\[(D\d{6})\]")
 
 
@@ -43,6 +48,49 @@ def _read_user_setting(name, default=""):
         except (OSError, ImportError, ValueError):
             pass
     return str(default or "").strip(), None
+
+
+def _read_int_setting(name, default, minimum, maximum):
+    raw, source = _read_user_setting(name, str(default))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = int(default)
+        source = None
+    return max(minimum, min(value, maximum)), source or "default"
+
+
+def _provider_limits(provider):
+    if provider == "lmstudio":
+        timeout, timeout_source = _read_int_setting("UYAP_AI_TIMEOUT_SECONDS", LMSTUDIO_TIMEOUT_SECONDS, 30, 900)
+        max_sources, sources_source = _read_int_setting("UYAP_AI_MAX_SOURCES", LMSTUDIO_MAX_SOURCES, 1, MAX_SOURCES)
+        snippet_chars, snippet_source = _read_int_setting(
+            "UYAP_AI_MAX_SOURCE_SNIPPET_CHARS", LMSTUDIO_MAX_SOURCE_SNIPPET_CHARS, 400, MAX_SOURCE_SNIPPET_CHARS
+        )
+        output_tokens, output_source = _read_int_setting(
+            "UYAP_AI_MAX_OUTPUT_TOKENS", LMSTUDIO_MAX_OUTPUT_TOKENS, 128, MAX_OUTPUT_TOKENS
+        )
+    else:
+        timeout, timeout_source = _read_int_setting("UYAP_AI_TIMEOUT_SECONDS", OPENAI_TIMEOUT_SECONDS, 30, 900)
+        max_sources, sources_source = _read_int_setting("UYAP_AI_MAX_SOURCES", MAX_SOURCES, 1, MAX_SOURCES)
+        snippet_chars, snippet_source = _read_int_setting(
+            "UYAP_AI_MAX_SOURCE_SNIPPET_CHARS", MAX_SOURCE_SNIPPET_CHARS, 400, MAX_SOURCE_SNIPPET_CHARS
+        )
+        output_tokens, output_source = _read_int_setting(
+            "UYAP_AI_MAX_OUTPUT_TOKENS", MAX_OUTPUT_TOKENS, 128, MAX_OUTPUT_TOKENS
+        )
+    return {
+        "timeoutSeconds": timeout,
+        "maxSources": max_sources,
+        "maxSourceSnippetChars": snippet_chars,
+        "maxOutputTokens": output_tokens,
+        "sources": {
+            "timeoutSeconds": timeout_source,
+            "maxSources": sources_source,
+            "maxSourceSnippetChars": snippet_source,
+            "maxOutputTokens": output_source,
+        },
+    }
 
 
 def _is_local_http_url(value):
@@ -188,6 +236,7 @@ def provider_status():
             "retrievedSnippetsOnly": True,
             "store": False,
             "citationsRequired": True,
+            "requestProfile": _provider_limits("lmstudio"),
         }
 
     key, key_source = _read_user_setting("OPENAI_API_KEY")
@@ -209,17 +258,18 @@ def provider_status():
         "retrievedSnippetsOnly": True,
         "store": False,
         "citationsRequired": True,
+        "requestProfile": _provider_limits("openai"),
     }
 
 
-def _source_prompt(results):
+def _source_prompt(results, max_sources=MAX_SOURCES, max_snippet_chars=MAX_SOURCE_SNIPPET_CHARS):
     blocks = []
-    for row in results[:MAX_SOURCES]:
+    for row in results[:max_sources]:
         source_ref = str(row.get("sourceRef") or "").strip()
         title = str(row.get("title") or "Adsız evrak").strip()[:240]
         document_type = str(row.get("documentType") or "DOSYA").strip()[:32]
         document_date = str(row.get("documentDate") or "").strip()[:64]
-        snippet = str(row.get("snippet") or "").strip()[:MAX_SOURCE_SNIPPET_CHARS]
+        snippet = str(row.get("snippet") or "").strip()[:max_snippet_chars]
         blocks.append(
             f"[{source_ref}]\n"
             f"Başlık: {title}\n"
@@ -279,7 +329,10 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
     if not query:
         return {"ok": False, "errorCode": "AI_QUERY_REQUIRED", "error": "AI sorusu boş olamaz."}
 
-    retrieval = search_index(downloads_root, session_id, query, min(MAX_SOURCES, max(1, int(limit or MAX_SOURCES))))
+    profile = _provider_limits(status["provider"])
+    requested_limit = max(1, int(limit or profile["maxSources"]))
+    effective_limit = min(profile["maxSources"], requested_limit)
+    retrieval = search_index(downloads_root, session_id, query, effective_limit)
     results = list(retrieval.get("results") or [])
     if not results:
         return {
@@ -297,11 +350,15 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         }
 
     allowed_refs = {str(row.get("sourceRef") or "") for row in results if row.get("sourceRef")}
-    source_text = _source_prompt(results)
+    source_text = _source_prompt(
+        results,
+        max_sources=profile["maxSources"],
+        max_snippet_chars=profile["maxSourceSnippetChars"],
+    )
     body = {
         "model": status["model"],
         "store": False,
-        "max_output_tokens": MAX_OUTPUT_TOKENS,
+        "max_output_tokens": profile["maxOutputTokens"],
         "instructions": _PROVIDER_INSTRUCTIONS,
         "input": (
             "Kullanıcı sorusu:\n"
@@ -334,7 +391,7 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=profile["timeoutSeconds"]) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         detail = ""
