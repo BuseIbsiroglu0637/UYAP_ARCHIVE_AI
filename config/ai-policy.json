@@ -1,13 +1,19 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "enabledByDefault": false,
   "provider": {
     "mode": "local-native-gateway",
     "name": "openai",
+    "supportedProviders": ["openai", "lmstudio"],
     "enabledByDefault": false,
-    "credentialSource": "OPENAI_API_KEY environment variable",
+    "providerSource": "UYAP_AI_PROVIDER environment variable",
+    "credentialSource": "OPENAI_API_KEY environment variable (OpenAI only)",
     "modelSource": "UYAP_AI_MODEL environment variable",
+    "baseUrlSource": "UYAP_AI_BASE_URL environment variable (LM Studio only)",
     "defaultModel": "gpt-5.6-terra",
+    "lmStudioDefaultModel": "qwen2.5-3b-instruct",
+    "lmStudioDefaultBaseUrl": "http://127.0.0.1:1234/v1/responses",
+    "lmStudioLocalhostOnly": true,
     "apiKeyInExtensionAllowed": false
   },
   "archiveBoundary": {
