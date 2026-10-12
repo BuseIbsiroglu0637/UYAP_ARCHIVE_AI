@@ -9,7 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_ai_policy_defaults_fail_closed():
     policy = json.loads((ROOT / "config" / "ai-policy.json").read_text(encoding="utf-8"))
     assert policy["enabledByDefault"] is False
-    assert policy["provider"]["mode"] == "disabled"
+    assert policy["provider"]["mode"] == "local-native-gateway"
+    assert policy["provider"]["name"] == "openai"
+    assert policy["provider"]["enabledByDefault"] is False
+    assert policy["provider"]["credentialSource"].startswith("OPENAI_API_KEY")
     assert policy["provider"]["apiKeyInExtensionAllowed"] is False
     assert policy["archiveBoundary"]["verifiedOnly"] is True
     assert policy["archiveBoundary"]["allowQueued"] is False
