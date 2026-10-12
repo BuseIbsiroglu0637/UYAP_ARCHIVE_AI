@@ -2,8 +2,12 @@
   "schemaVersion": 1,
   "enabledByDefault": false,
   "provider": {
-    "mode": "disabled",
-    "name": null,
+    "mode": "local-native-gateway",
+    "name": "openai",
+    "enabledByDefault": false,
+    "credentialSource": "OPENAI_API_KEY environment variable",
+    "modelSource": "UYAP_AI_MODEL environment variable",
+    "defaultModel": "gpt-5.6-terra",
     "apiKeyInExtensionAllowed": false
   },
   "archiveBoundary": {
@@ -18,7 +22,9 @@
   "cloud": {
     "rawDocumentUploadByDefault": false,
     "explicitUserConsentRequiredForRawDocumentUpload": true,
-    "metadataOnlyContextAllowed": true
+    "metadataOnlyContextAllowed": true,
+    "retrievedSnippetsOnly": true,
+    "providerRequestStore": false
   },
   "answers": {
     "citationsRequired": true,
