@@ -37,21 +37,26 @@ function titleFor(document) {
   );
 }
 
-function hasSha256PhysicalProof(document) {
-  return String(document?.localArchivePhysicalProofLevel || "").toLowerCase() === "sha256" &&
-    Boolean(document?.localArchivePhysicalProofSha256) &&
-    Boolean(document?.localArchivePhysicalProofAt);
-}
-
 function isAiEligible(document) {
-  const status = String(document?.status || "").toLowerCase();
-  if (status === "verified") return true;
-  if (status === "skipped") return hasSha256PhysicalProof(document);
-  return false;
+  return String(document?.status || "").toLowerCase() === "verified";
 }
 
 function sourceRef(index) {
   return `D${String(index + 1).padStart(6, "0")}`;
+}
+
+export function buildAiNativeBindings(report, {limit = DEFAULT_LIMIT} = {}) {
+  if (!report || typeof report !== "object") throw new Error("AI_CONTEXT_REPORT_REQUIRED");
+  const rawDocuments = Array.isArray(report.documents) ? report.documents : [];
+  const cappedLimit = Math.max(1, Math.min(n(limit) || DEFAULT_LIMIT, DEFAULT_LIMIT));
+  return rawDocuments
+    .filter(isAiEligible)
+    .slice(0, cappedLimit)
+    .map((document, index) => ({
+      sourceRef: sourceRef(index),
+      documentId: String(document?.documentId || "")
+    }))
+    .filter((item) => item.documentId);
 }
 
 export function buildAiContext(report, {limit = DEFAULT_LIMIT} = {}) {
@@ -68,7 +73,7 @@ export function buildAiContext(report, {limit = DEFAULT_LIMIT} = {}) {
     documentDate: documentDate(document),
     sourceSystem: cleanText(document?.sourceSystem || report?.session?.sourceSystem || report?.sourceSystem || "UYAP", 32),
     archiveStatus: String(document?.status || "").toLowerCase(),
-    physicalProof: String(document?.status || "").toLowerCase() === "verified" ? "verified" : "sha256"
+    physicalProof: "verified"
   }));
 
   return {
