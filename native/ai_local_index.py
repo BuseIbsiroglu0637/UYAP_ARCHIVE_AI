@@ -23,7 +23,7 @@ DEFAULT_CHUNK_CHARS = 3200
 DEFAULT_OVERLAP_CHARS = 400
 MAX_CHUNKS_PER_DOCUMENT = 500
 MAX_RESULTS = 20
-PDF_EXTRACTOR_METHOD = "pdf-content-stream-v4-chunk-quality-gated"
+PDF_EXTRACTOR_METHOD = "pdf-content-stream-v5-mixed-script-gated"
 PDF_MIN_QUALITY_SCORE = 0.72
 
 ZIP_XML_TYPES = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
@@ -103,6 +103,7 @@ def assess_text_quality(text):
         or 0xAC00 <= ord(ch) <= 0xD7AF
         or 0xF900 <= ord(ch) <= 0xFAFF
     )
+    cjk_runs = re.findall(r"[\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]{2,}", value)
     latin_letters = sum(
         1 for ch in chars
         if ("A" <= ch <= "Z") or ("a" <= ch <= "z")
@@ -125,6 +126,7 @@ def assess_text_quality(text):
     replacement_ratio = replacements / total
     private_ratio = private_use / total
     cjk_ratio = cjk_hangul / total
+    mixed_script_ratio = cjk_hangul / max(1, cjk_hangul + latin_letters)
     latin_ratio = latin_letters / max(1, letters)
     signal_ratio = (letters + digits) / total
     token_density = min(1.0, len(word_tokens) / max(1.0, len(value) / 18.0))
@@ -133,6 +135,8 @@ def assess_text_quality(text):
     score -= min(0.55, replacement_ratio * 12.0)
     score -= min(0.45, private_ratio * 10.0)
     score -= min(0.50, cjk_ratio * 2.5)
+    if cjk_runs and latin_letters >= 20:
+        score -= min(0.45, 0.18 + mixed_script_ratio * 1.8)
     if letters >= 24 and latin_ratio < 0.55:
         score -= min(0.35, (0.55 - latin_ratio) * 0.8)
     if visible_ratio < 0.98:
@@ -152,7 +156,9 @@ def assess_text_quality(text):
         reason = "replacement_characters"
     elif private_ratio > 0.01:
         reason = "private_use_glyphs"
-    elif cjk_ratio > 0.08 and latin_ratio < 0.75:
+    elif cjk_runs and latin_letters >= 20 and (cjk_hangul >= 3 or mixed_script_ratio >= 0.015):
+        reason = "mixed_script_mojibake"
+    elif cjk_ratio > 0.04 and latin_ratio < 0.85:
         reason = "suspicious_cid_glyphs"
     elif len(raw_tokens) >= 20 and single_token_ratio > 0.18:
         reason = "fragmented_glyph_spacing"
@@ -173,6 +179,8 @@ def assess_text_quality(text):
             "replacementRatio": round(replacement_ratio, 4),
             "privateUseRatio": round(private_ratio, 4),
             "cjkHangulRatio": round(cjk_ratio, 4),
+            "mixedScriptRatio": round(mixed_script_ratio, 4),
+            "cjkRuns": len(cjk_runs),
             "latinLetterRatio": round(latin_ratio, 4),
             "signalRatio": round(signal_ratio, 4),
             "tokenDensity": round(token_density, 4),
