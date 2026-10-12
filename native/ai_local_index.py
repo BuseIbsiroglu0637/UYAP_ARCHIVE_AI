@@ -23,7 +23,7 @@ DEFAULT_CHUNK_CHARS = 3200
 DEFAULT_OVERLAP_CHARS = 400
 MAX_CHUNKS_PER_DOCUMENT = 500
 MAX_RESULTS = 20
-PDF_EXTRACTOR_METHOD = "pdf-content-stream-v2-quality-gated"
+PDF_EXTRACTOR_METHOD = "pdf-content-stream-v3-quality-gated"
 PDF_MIN_QUALITY_SCORE = 0.72
 
 ZIP_XML_TYPES = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
@@ -111,6 +111,16 @@ def assess_text_quality(text):
     letters = sum(1 for ch in chars if ch.isalpha())
     digits = sum(1 for ch in chars if ch.isdigit())
     word_tokens = re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû]{2,}", value)
+    raw_tokens = re.findall(r"\S+", value)
+    single_alnum_tokens = [
+        token for token in raw_tokens
+        if len(re.sub(r"[^0-9A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû]", "", token)) == 1
+    ]
+    single_token_ratio = len(single_alnum_tokens) / max(1, len(raw_tokens))
+    spaced_letter_runs = len(re.findall(
+        r"(?:\b[A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû]\s+){4,}[A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû]\b",
+        value
+    ))
     visible_ratio = printable / total
     replacement_ratio = replacements / total
     private_ratio = private_use / total
@@ -131,6 +141,10 @@ def assess_text_quality(text):
         score -= min(0.25, (0.45 - signal_ratio) * 0.8)
     if len(value) >= 120 and token_density < 0.18:
         score -= min(0.25, (0.18 - token_density) * 1.2)
+    if len(raw_tokens) >= 20 and single_token_ratio > 0.16:
+        score -= min(0.35, (single_token_ratio - 0.16) * 1.8)
+    if spaced_letter_runs:
+        score -= min(0.35, spaced_letter_runs * 0.18)
     score = max(0.0, min(1.0, score))
 
     reason = None
@@ -140,6 +154,10 @@ def assess_text_quality(text):
         reason = "private_use_glyphs"
     elif cjk_ratio > 0.08 and latin_ratio < 0.75:
         reason = "suspicious_cid_glyphs"
+    elif len(raw_tokens) >= 20 and single_token_ratio > 0.22:
+        reason = "fragmented_glyph_spacing"
+    elif spaced_letter_runs >= 2:
+        reason = "fragmented_glyph_spacing"
     elif visible_ratio < 0.92:
         reason = "non_printable_text"
     elif score < PDF_MIN_QUALITY_SCORE:
@@ -158,6 +176,8 @@ def assess_text_quality(text):
             "latinLetterRatio": round(latin_ratio, 4),
             "signalRatio": round(signal_ratio, 4),
             "tokenDensity": round(token_density, 4),
+            "singleTokenRatio": round(single_token_ratio, 4),
+            "spacedLetterRuns": spaced_letter_runs,
         },
     }
 
