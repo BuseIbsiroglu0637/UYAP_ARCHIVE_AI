@@ -38,6 +38,8 @@ jobs:
         run: node native/phase1_diagnostics_policy_test.mjs
       - name: DB migration and rollback contract
         run: python native/phase1_db_migration_contract_test.py
+      - name: Release channel and packaging contract
+        run: python native/phase1_release_channel_contract_test.py
       - name: Offline targeted regression tests
         run: |
           python native/rc15_9_11_state_race_security_regression_test.py

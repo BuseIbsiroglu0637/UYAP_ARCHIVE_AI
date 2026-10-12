@@ -26,7 +26,7 @@
 5. [x] Config ve environment yönetimi için `dev/stage/prod` politika sözleşmesini oluştur.
 6. [x] Structured logging ve privacy-light diagnostic paketini standartlaştır. Diagnostic schema v2 + redaction policy + CI.
 7. [x] DB migration ve rollback iskeletini sabitle. Versioned migration registry + downgrade gate + backup-required policy.
-8. [ ] Alpha / beta / stable release kanallarını dağıtım akışına bağla.
+8. [x] Alpha / beta / RC / stable release kanallarını dağıtım kimliğine bağla. Packaging artık release-contract + release-channels okur.
 9. [ ] Core Certification için canlı UYAP ve UYAP Kurum kabul paketini tamamla.
 
 ## Çıkış kapısı

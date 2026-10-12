@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "defaultChannel": "rc",
+  "distributionCapabilities": {
+    "automaticUpdaterImplemented": false,
+    "codeSigningPipelineImplemented": false,
+    "stagedRolloutBackendImplemented": false
+  },
+  "channels": {
+    "alpha": {
+      "environment": "dev",
+      "audience": "internal",
+      "signedBuildRequired": false,
+      "rolloutMode": "manual",
+      "rollbackRequired": true
+    },
+    "beta": {
+      "environment": "stage",
+      "audience": "pilot",
+      "signedBuildRequired": true,
+      "rolloutMode": "canary",
+      "rollbackRequired": true
+    },
+    "rc": {
+      "environment": "prod",
+      "audience": "release-candidate",
+      "signedBuildRequired": true,
+      "rolloutMode": "canary",
+      "rollbackRequired": true,
+      "stablePromotionRequired": true
+    },
+    "stable": {
+      "environment": "prod",
+      "audience": "production",
+      "signedBuildRequired": true,
+      "rolloutMode": "staged",
+      "rollbackRequired": true
+    }
+  }
+}
