@@ -5,6 +5,7 @@ import {captureSaveRequest} from './save-capture.js';
 import {pingNativeAgent, askNativeAgent} from './native-agent.js';
 import {restoreArchiveDownloadUi} from './download-ui.js';
 import {logOperationalError} from './operational-logger.js';
+import {buildAiContext, getAiServiceStatus} from "./ai-context.js";
 import {focusSessionFromNotification, openLoginRouteFromNotification, openKurumLoginRoute} from './session-notifications.js';
 import {
   createSession,
@@ -236,6 +237,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return resumeSavedSession({sessionId:request.sessionId,tabId:request.tabId,autoStart:request.autoStart!==false});
       case MESSAGE.GET_REPORT_DATA:
         return getReportData(request.sessionId);
+      case MESSAGE.GET_AI_CONTEXT: {
+        const report = await getReportData(request.sessionId);
+        return buildAiContext(report, {limit:request.limit});
+      }
+      case MESSAGE.GET_AI_SERVICE_STATUS:
+        return getAiServiceStatus();
       case MESSAGE.GET_ARCHIVE_REGISTRY:
         return listArchiveRegistry({sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,limit:request.limit,forceRefresh:request.forceRefresh===true});
       case MESSAGE.SELECT_EXISTING_ARCHIVE:
