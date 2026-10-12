@@ -5,7 +5,7 @@ import {captureSaveRequest} from './save-capture.js';
 import {pingNativeAgent, askNativeAgent} from './native-agent.js';
 import {restoreArchiveDownloadUi} from './download-ui.js';
 import {logOperationalError} from './operational-logger.js';
-import {buildAiContext, getAiServiceStatus} from "./ai-context.js";
+import {buildAiContext, buildAiNativeBindings, getAiServiceStatus} from "./ai-context.js";
 import {focusSessionFromNotification, openLoginRouteFromNotification, openKurumLoginRoute} from './session-notifications.js';
 import {
   createSession,
@@ -243,6 +243,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
       case MESSAGE.GET_AI_SERVICE_STATUS:
         return getAiServiceStatus();
+      case MESSAGE.BUILD_AI_INDEX: {
+        const report = await getReportData(request.sessionId);
+        const downloadsRoot = report?.session?.downloadsRoot;
+        if (!downloadsRoot) throw new Error("AI yerel indeksi için arşiv kökü henüz hazır değil.");
+        const bindings = buildAiNativeBindings(report, {limit:request.limit});
+        return askNativeAgent({
+          action:"ai_build_index",
+          sessionId:request.sessionId,
+          downloadsRoot,
+          bindings
+        });
+      }
+      case MESSAGE.GET_AI_INDEX_STATUS: {
+        const report = await getReportData(request.sessionId);
+        const downloadsRoot = report?.session?.downloadsRoot;
+        if (!downloadsRoot) return {ok:true,kind:"UYAP_AI_INDEX_STATUS",schemaVersion:1,ready:false,sessionId:request.sessionId,documents:0,chunks:0};
+        return askNativeAgent({action:"ai_index_status",sessionId:request.sessionId,downloadsRoot});
+      }
+      case MESSAGE.SEARCH_AI_INDEX: {
+        const report = await getReportData(request.sessionId);
+        const downloadsRoot = report?.session?.downloadsRoot;
+        if (!downloadsRoot) throw new Error("AI araması için arşiv kökü henüz hazır değil.");
+        return askNativeAgent({
+          action:"ai_search",
+          sessionId:request.sessionId,
+          downloadsRoot,
+          query:String(request.query || "").slice(0,500),
+          limit:Math.max(1,Math.min(Number(request.limit || 8),20))
+        });
+      }
       case MESSAGE.GET_ARCHIVE_REGISTRY:
         return listArchiveRegistry({sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,limit:request.limit,forceRefresh:request.forceRefresh===true});
       case MESSAGE.SELECT_EXISTING_ARCHIVE:
