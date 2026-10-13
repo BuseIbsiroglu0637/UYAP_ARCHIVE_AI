@@ -477,7 +477,7 @@ async function renderAiWorkspace(){
     const indexReady=selected.readyForAi===true&&indexStatus?.ready===true;
     ready.innerHTML=`<span class="ai-ready-pill good">✓ Arşiv dosyası seçili</span><span class="ai-ready-pill ${selected.readyForAi?"good":"warn"}">${selected.readyForAi?"✓ Tüm evraklar fiziksel hazır":"• Dosya tamamlanmamış"}</span><span class="ai-ready-pill ${indexReady?"good":"warn"}">${indexReady?"✓ Yerel indeks hazır":"• Yerel indeks bekleniyor"}</span><span class="ai-ready-pill ${providerReady?"good":"warn"}">${providerReady?"✓ AI sağlayıcısı bağlı":"• AI sağlayıcısı bekleniyor"}</span>`;
     if(indexLabel)indexLabel.textContent=indexReady
-      ?`${n(indexStatus.documents).toLocaleString("tr-TR")} evrak • ${n(indexStatus.chunks).toLocaleString("tr-TR")} yerel metin parçası hazır.`
+      ?`${n(indexStatus.documents).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} evrakın metni AI indeksinde • ${n(indexStatus.chunks).toLocaleString("tr-TR")} parça. ${n(selected.totalDocuments)>n(indexStatus.documents)?`${n(selected.totalDocuments)-n(indexStatus.documents)} evrakın metni indekslenmemiş; görsel/OCR eksikliği, biçim veya kalite kontrolü gibi nedenler araştırılmalı. AI yalnız indeksli kaynaklara dayanır.`:""}`
       :selected.readyForAi?"Tam arşivden yerel metin indeksi henüz oluşturulmadı.":"Dosya tamamlanmadan indeks oluşturulamaz.";
     if(buildButton){buildButton.disabled=!selected.readyForAi;buildButton.textContent=indexReady?"Tam dava indeksini güncelle":"Tam dava indeksini hazırla";}
     if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel dava kaynaklarında ara":"Önce tam dava indeksini hazırla";}
