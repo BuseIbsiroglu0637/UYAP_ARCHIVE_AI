@@ -12,6 +12,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
 from ai_local_index import search_index, summary_context
@@ -434,7 +435,8 @@ def _validate_summary_v1(answer, source_text):
     })
     if unsupported_roles:
         return False, "AI_SUMMARY_UNSUPPORTED_ROLE", {"unsupportedRoles": unsupported_roles}
-    normalized = text.casefold().replace("ı", "i").replace("i̇", "i")
+    normalized = unicodedata.normalize("NFKD", text.casefold().replace("ı", "i").replace("i̇", "i"))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     required = ("dosyanin konusu", "son durum", "one cikan gelismeler", "onemli tarihler")
     missing_sections = [label for label in required if label not in normalized]
     if missing_sections:
