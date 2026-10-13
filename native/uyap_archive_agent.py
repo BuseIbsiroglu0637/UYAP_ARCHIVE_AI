@@ -4677,8 +4677,10 @@ def list_archive_registry(message):
         # documents. They must remain visible for reconciliation, but must not
         # inflate documentCount/problemCount or block AI when every registered
         # logical document is VERIFIED and physically intact.
+        group["presentCount"] += 1
         group["unregisteredPhysicalCount"] += 1
         group["unregisteredPhysicalBytes"] += int(item.get("size") or 0)
+        group["totalBytes"] += int(item.get("size") or 0)
         when = item.get("updatedAt") or item.get("fileModifiedAt") or None
         if when and (not group["latestAt"] or str(when) > str(group["latestAt"])):
             group["latestAt"] = when
