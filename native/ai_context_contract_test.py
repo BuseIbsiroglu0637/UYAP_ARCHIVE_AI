@@ -11,6 +11,7 @@ from ai_local_index import (
     _quality_gate_pdf_chunks,
     _xlsx_text,
     _select_summary_rows,
+    _select_summary_documents,
     archive_case_scope_id,
     build_archive_case_index,
     index_status,
@@ -19,6 +20,7 @@ from ai_local_index import (
 from ai_provider import (
     _validate_citations,
     _validate_grounding,
+    _validate_summary_v1,
     _is_local_http_url,
     _task_instructions,
     _is_summary_query,
@@ -188,6 +190,41 @@ def test_summary_context_diversifies_sources_and_avoids_numeric_noise():
     assert "1655422 18778" not in selected_d1[1]
 
 
+def test_case_summary_v1_prefers_opening_final_and_distinct_documents():
+    rows = [
+        ("D000001", "Dava dilekçesi ile alacak talep edilmiştir.", "Dava Dilekçesi 03/09/2025", "UDF", "2025-09-03", 0),
+        ("D000010", "Ara karar ile belge sunulması istenmiştir.", "Ara Karar", "UDF", "2025-10-01", 0),
+        ("D000020", "Bilirkişi raporu dosyaya sunulmuştur.", "Bilirkişi Raporu", "PDF", "2025-12-15", 0),
+        ("D000078", "Gerekçeli karar ile uyuşmazlık hakkında hüküm kurulmuştur.", "Gerekçeli Karar Evrakı 22/04/2026", "UDF", "2026-04-22", 0),
+        ("D000078", "Aynı kararın ikinci metin parçasıdır.", "Gerekçeli Karar Evrakı 22/04/2026", "UDF", "2026-04-22", 1),
+        ("D000081", "Son tebligat işlemi yapılmıştır.", "Tebligat", "UDF", "2026-05-01", 0),
+    ]
+    chosen = _select_summary_documents(rows, 5)
+    refs = [item["sourceRef"] for item in chosen]
+    assert len(refs) == len(set(refs)), chosen
+    assert "D000001" in refs, chosen
+    assert "D000078" in refs, chosen
+    assert any(item["selectionReason"] == "Dosya başlangıcı" for item in chosen), chosen
+    assert any(item["reason"] == "Sonuç / karar" for item in chosen), chosen
+    assert len(chosen) <= 5
+
+
+def test_case_summary_v1_does_not_require_model_written_citations():
+    source_text = (
+        "[D000001]\nBaşlık: Dava Dilekçesi\nMetin:\nAlacak talebiyle dava açılmıştır.\n\n"
+        "[D000078]\nBaşlık: Gerekçeli Karar\nMetin:\n22 Nisan 2026 tarihinde gerekçeli karar oluşturulmuştur."
+    )
+    answer = (
+        "DOSYANIN KONUSU\nAlacak talebine ilişkin bir uyuşmazlık bulunmaktadır.\n\n"
+        "SON DURUM\n22 Nisan 2026 tarihli gerekçeli karar dosyada yer almaktadır.\n\n"
+        "ÖNE ÇIKAN GELİŞMELER\n- Dava dilekçesi sunulmuştur.\n- Gerekçeli karar oluşturulmuştur.\n\n"
+        "ÖNEMLİ TARİHLER\n- 22 Nisan 2026 — Gerekçeli karar."
+    )
+    ok, error, detail = _validate_summary_v1(answer, source_text)
+    assert ok is True, (error, detail)
+    assert "[D000001]" not in answer
+
+
 def test_grounding_rejects_uncited_claims_single_source_summary_and_invented_roles():
     allowed = {"D000001", "D000002"}
     source_text = (
@@ -338,6 +375,9 @@ def test_workspace_archive_case_ai_contract_is_independent_from_active_session()
     assert "MESSAGE.AI_ASK_ARCHIVE_CASE" in workspace
     assert 'id="aiArchiveCasePicker"' in html
     assert "Tam dava indeksini hazırla" in workspace
+    assert "Dosya özetini oluştur" in workspace
+    assert "Özet için seçilen evraklar" in workspace
+    assert "deterministic_case_summary_v1" in (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert "Oturumdan bağımsız" in workspace or "oturumdan bağımsız" in workspace
 
 
@@ -495,6 +535,8 @@ if __name__ == "__main__":
     test_summary_prompt_is_structured_and_source_grounded()
     test_summary_prompt_forbids_invented_roles_and_detects_summary_request()
     test_summary_context_diversifies_sources_and_avoids_numeric_noise()
+    test_case_summary_v1_prefers_opening_final_and_distinct_documents()
+    test_case_summary_v1_does_not_require_model_written_citations()
     test_grounding_rejects_uncited_claims_single_source_summary_and_invented_roles()
     test_grounding_accepts_markdown_summary_headings_without_citations()
     test_archive_case_ai_requires_complete_physical_case_and_builds_isolated_index()
