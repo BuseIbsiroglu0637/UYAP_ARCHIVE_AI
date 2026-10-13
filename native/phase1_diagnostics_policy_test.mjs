@@ -7,12 +7,21 @@ const policySource = fs.readFileSync(path.join(ROOT, "shared", "diagnostic-polic
 const policyUrl = "data:text/javascript;base64," + Buffer.from(policySource, "utf8").toString("base64");
 const {
   DIAGNOSTIC_SCHEMA_VERSION,
+  diagnosticReference,
   normalizeDiagnosticEvent,
   sanitizeDiagnosticMetadata,
   sanitizeDiagnosticText
 } = await import(policyUrl);
 
 assert.equal(DIAGNOSTIC_SCHEMA_VERSION, 2);
+const refA = await diagnosticReference("session-a", "987654321012345");
+const refB = await diagnosticReference("session-a", "987654321012345");
+const refOtherScope = await diagnosticReference("session-b", "987654321012345");
+assert.equal(refA, refB, "diagnostic reference must be deterministic within scope");
+assert.notEqual(refA, refOtherScope, "diagnostic reference must be scope-specific");
+assert.match(refA, /^ref_[0-9a-f]{20}$/);
+assert(!refA.includes("987654321012345"), "raw document identity leaked into reference");
+
 
 const sample = sanitizeDiagnosticText(
   "https://kurum.uyap.gov.tr/doc?id=123456789012 C:\\Users\\Buse\\UYAP_Arsiv\\evrak.pdf token=abcdefghijklmnopqrstuvwxyz123456 2026/12345 user@example.com"
@@ -82,6 +91,7 @@ assert(manager.includes("UYAP_PRIVACY_LIGHT_DIAGNOSTIC"));
 assert(manager.includes("DIAGNOSTIC_SCHEMA_VERSION"));
 assert(manager.includes("sanitizeDiagnosticMetadata"));
 assert(manager.includes("documentRef = await diagnosticReference"));
+assert(manager.includes("DIAGNOSTIC_SCHEMA_VERSION, diagnosticReference"));
 
 const worker = fs.readFileSync(path.join(ROOT, "background", "service-worker.js"), "utf8");
 assert(worker.includes("logOperationalError"));
