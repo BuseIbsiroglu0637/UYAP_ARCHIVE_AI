@@ -270,6 +270,7 @@ function renderTimelineRows(){
   let lastDay="";for(const {d,date} of filtered){const day=shortDate(date),row=document.createElement("div");row.className="timeline-item";row.innerHTML=`<div class="timeline-rail"><span></span></div><div class="timeline-date">${day!==lastDay?esc(day):""}</div><div class="timeline-content"><div class="timeline-title-row"><strong>${esc(documentTitle(d))}</strong><span>${esc(documentType(d))}</span></div><p>${esc(d.uyapPath||d.targetPath||d.localPath||"Arşiv kaydı")}</p><div class="timeline-meta"><span>${esc(archiveRowStatusLabel(d.status))}</span><span>${esc(d.sourceSystem==="UYAP_KURUM"?"UYAP Kurum":"UYAP")}</span></div></div>`;list.append(row);lastDay=day;}
 }
 function setAiPrompt(prompt,{navigate=true}={}){state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if(navigate)showView("ai");}
+function selectedAiArchiveCase(){return state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;}
 async function renderAiWorkspace(){
   const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex"),retrieveButton=$("aiRetrieve"),resultsBox=$("aiSearchResults"),answerBox=$("aiAnswerBox"),picker=$("aiArchiveCasePicker"),caseStatus=$("aiArchiveCaseStatus");
   try{
@@ -512,15 +513,18 @@ $("openAiWorkspace").addEventListener("click",()=>showView("ai"));
 $("timelineOpenArchive").addEventListener("click",()=>showView("archive"));$("timelineOpenAi").addEventListener("click",()=>showView("ai"));
 $("timelineSearch").addEventListener("input",renderTimelineRows);$("timelineType").addEventListener("change",renderTimelineRows);
 $("aiPrompt").addEventListener("input",()=>{state.aiPrompt=$("aiPrompt").value;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;});
+$("aiArchiveCasePicker")?.addEventListener("change",async()=>{state.aiSelectedCaseKey=$("aiArchiveCasePicker").value||null;state.aiIndex=null;if($("aiSearchResults"))$("aiSearchResults").textContent="";if($("aiAnswerBox")){$("aiAnswerBox").hidden=true;$("aiAnswerBox").textContent="";}await renderAiWorkspace();});
 $("aiBuildIndex").addEventListener("click",async()=>{
-  if(!state.selectedId)return showToast("Önce bir arşiv işi seçin.",true);
+  const selected=selectedAiArchiveCase();
+  if(!selected)return showToast("Önce yerel arşivden bir dava dosyası seçin.",true);
+  if(selected.readyForAi!==true)return showToast("Bu dava dosyasının tüm evrakları fiziksel olarak hazır değil.",true);
   const button=$("aiBuildIndex"),label=$("aiIndexStatus");
-  button.disabled=true;button.textContent="Yerel indeks hazırlanıyor…";
-  if(label)label.textContent="VERIFIED evraklar yerelde metne dönüştürülüyor.";
+  button.disabled=true;button.textContent="Tam dava indeksi hazırlanıyor…";
+  if(label)label.textContent=`${n(selected.totalDocuments).toLocaleString("tr-TR")} fiziksel evrak SHA-256/metadata doğrulamasından geçirilip yerelde indeksleniyor.`;
   try{
-    const result=await sendRuntime(MESSAGE.BUILD_AI_INDEX,{sessionId:state.selectedId});
+    const result=await sendRuntime(MESSAGE.BUILD_AI_ARCHIVE_CASE_INDEX,{institutionName:selected.institutionName,caseId:selected.caseId});
     state.aiIndex=result;
-    showToast(`AI indeksi hazır: ${n(result.indexedDocuments)} yeni, ${n(result.reusedDocuments)} mevcut, ${n(result.unsupportedDocuments)} metin çıkarılamayan${n(result.qualityRejectedDocuments)?`, ${n(result.qualityRejectedDocuments)} PDF dışlandı`:""}${n(result.qualityRejectedChunks)?`, ${n(result.qualityRejectedChunks)} bozuk PDF metin parçası filtrelendi`:""}.`);
+    showToast(`Tam dava AI indeksi hazır: ${n(result.availableDocuments)} metin evrakı, ${n(result.availableChunks)} parça, ${n(result.unsupportedDocuments)} metin çıkarılamayan${n(result.qualityRejectedDocuments)?`, ${n(result.qualityRejectedDocuments)} PDF kalite kapısında dışlandı`:""}.`);
     await renderAiWorkspace();
   }catch(error){
     if(label)label.textContent=String(error).replace(/^Error:\s*/,"");
@@ -528,18 +532,19 @@ $("aiBuildIndex").addEventListener("click",async()=>{
   }finally{button.disabled=false;}
 });
 $("aiRetrieve").addEventListener("click",async()=>{
-  if(!state.selectedId)return showToast("Önce bir arşiv işi seçin.",true);
+  const selected=selectedAiArchiveCase();
+  if(!selected)return showToast("Önce yerel arşivden bir dava dosyası seçin.",true);
   const query=String($("aiPrompt")?.value||"").trim();
   if(!query)return showToast("Önce aramak istediğiniz soruyu veya anahtar kelimeyi yazın.",true);
   const button=$("aiRetrieve"),box=$("aiSearchResults");
-  button.disabled=true;button.textContent="Yerelde aranıyor…";
-  if(box)box.innerHTML='<div class="ai-search-empty">VERIFIED yerel metin parçaları taranıyor…</div>';
+  button.disabled=true;button.textContent="Tam dava arşivinde aranıyor…";
+  if(box)box.innerHTML='<div class="ai-search-empty">Seçilen dava dosyasının yerel metin parçaları taranıyor…</div>';
   try{
-    const result=await sendRuntime(MESSAGE.SEARCH_AI_INDEX,{sessionId:state.selectedId,query,limit:8});
+    const result=await sendRuntime(MESSAGE.SEARCH_AI_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,query,limit:8});
     const rows=Array.isArray(result?.results)?result.results:[];
     if(!box)return;
     if(!rows.length){
-      box.innerHTML='<div class="ai-search-empty">Bu sorgu için yerel indekste eşleşen kaynak bulunamadı.</div>';
+      box.innerHTML='<div class="ai-search-empty">Bu sorgu için seçilen dava arşivinde eşleşen kaynak bulunamadı.</div>';
       return;
     }
     box.innerHTML=rows.map(row=>`<article class="ai-search-result"><div><strong>${esc(row.sourceRef||"-")}</strong><span>${esc(row.documentType||"DOSYA")}${row.documentDate?` • ${esc(shortDate(row.documentDate))}`:""}</span></div><h4>${esc(row.title||"Adsız evrak")}</h4><p>${esc(row.snippet||"")}</p></article>`).join("");
@@ -547,29 +552,30 @@ $("aiRetrieve").addEventListener("click",async()=>{
     if(box)box.innerHTML=`<div class="ai-search-empty bad-text">${esc(String(error).replace(/^Error:\s*/,""))}</div>`;
     showToast(String(error).replace(/^Error:\s*/,""),true);
   }finally{
-    button.disabled=false;button.textContent="Yerel kaynaklarda ara";
+    button.disabled=!(state.aiIndex?.ready===true);button.textContent="Yerel dava kaynaklarında ara";
   }
 });
 $("aiSend").addEventListener("click",async()=>{
-  if(!state.selectedId)return showToast("Önce bir arşiv işi seçin.",true);
+  const selected=selectedAiArchiveCase();
+  if(!selected)return showToast("Önce yerel arşivden bir dava dosyası seçin.",true);
   const query=String($("aiPrompt")?.value||"").trim();
   if(!query)return showToast("Önce AI’ya sorulacak metni yazın.",true);
   const button=$("aiSend"),box=$("aiAnswerBox");
   button.disabled=true;button.textContent="Kaynaklı yanıt hazırlanıyor…";
-  if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-loading">Yerel kaynaklar seçiliyor ve AI yanıtı hazırlanıyor…</div>';}
+  if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-loading">Tam dava arşivinden kaynaklar seçiliyor ve AI yanıtı hazırlanıyor…</div>';}
   try{
-    const result=await sendRuntime(MESSAGE.AI_ASK,{sessionId:state.selectedId,query,limit:8});
+    const result=await sendRuntime(MESSAGE.AI_ASK_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,query,limit:8});
     if(box){
       const refs=Array.isArray(result?.sourceRefs)?result.sourceRefs:[];
-      const meta=[result?.provider||"AI",result?.model||"",refs.length?(refs.length+" kaynak"):"kaynak eşleşmedi"].filter(Boolean).join(" • ");
+      const meta=[result?.provider||"AI",result?.model||"",refs.length?(refs.length+" kaynak"):"kaynak eşleşmedi",`${n(selected.totalDocuments)} evraklık dava arşivi`].filter(Boolean).join(" • ");
       box.innerHTML='<div class="ai-answer-head"><strong>Kaynaklı yanıt</strong><span>'+esc(meta)+'</span></div><div class="ai-answer-text">'+esc(result?.answer||"Yanıt alınamadı.")+'</div>';
     }
   }catch(error){
-    if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-error">'+esc(String(error).replace(/^Error:\\s*/,""))+'</div>';}
-    showToast(String(error).replace(/^Error:\\s*/,""),true);
+    if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-error">'+esc(String(error).replace(/^Error:\s*/,""))+'</div>';}
+    showToast(String(error).replace(/^Error:\s*/,""),true);
   }finally{
-    const ready=state.aiService?.enabled===true&&state.aiService?.configured===true&&state.aiIndex?.ready===true;
-    button.disabled=!ready;button.textContent=ready?"Soruyu gönder":"AI sağlayıcısı bağlanınca kullanılabilir";
+    const ready=state.aiService?.enabled===true&&state.aiService?.configured===true&&state.aiIndex?.ready===true&&selected.readyForAi===true;
+    button.disabled=!ready;button.textContent=ready?"Soruyu gönder":"AI bağlamı hazır değil";
   }
 });
 $("globalSearch").addEventListener("keydown",event=>{if(event.key!=="Enter")return;const q=$("globalSearch").value.trim();$("jobSearch").value=q;showView("jobs");renderJobs();});
