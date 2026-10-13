@@ -30,7 +30,7 @@ import { suppressArchiveDownloadUi, restoreArchiveDownloadUi, handleArchiveDownl
 import { FINAL_RECOVERY_MAX_PASSES, planFinalRecovery } from '../shared/final-recovery.js';
 import { showLoginRequiredNotification, clearLoginRequiredNotification, showArchiveCompletionNotification, showArchiveProblemNotification } from './session-notifications.js';
 import { classifyAuthRoute, isUyapHostUrl } from '../shared/auth-routes.js';
-import { DIAGNOSTIC_SCHEMA_VERSION, normalizeDiagnosticEvent, sanitizeDiagnosticMetadata, sanitizeDiagnosticText as sanitizePrivacyText } from "../shared/diagnostic-policy.js";
+import { DIAGNOSTIC_SCHEMA_VERSION, diagnosticReference, normalizeDiagnosticEvent, sanitizeDiagnosticMetadata, sanitizeDiagnosticText as sanitizePrivacyText } from "../shared/diagnostic-policy.js";
 
 const ACTIVE_SESSION_KEY = "activeSessionId";
 const PENDING_DOWNLOAD_KEY = "pendingDownload";
