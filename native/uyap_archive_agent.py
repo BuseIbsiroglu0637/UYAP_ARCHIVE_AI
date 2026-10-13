@@ -2804,6 +2804,54 @@ def _settled_source_size(source: Path, expected_size=None):
     return observed
 
 
+def _await_visible_candidate(candidates, expected_size=None, delays=(0.10, 0.25, 0.50, 1.00)):
+    expected = _positive_size(expected_size)
+    diagnostics = {}
+    waited_ms = 0
+    unique = []
+    seen = set()
+    for mode, path in candidates:
+        try:
+            normalized = _lexical_abs(Path(path))
+            key = os.path.normcase(str(normalized))
+        except (OSError, ValueError, TypeError):
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((mode, normalized))
+
+    for step in range(len(delays) + 1):
+        for mode, candidate in unique:
+            try:
+                exists = candidate.is_file()
+                observed = candidate.stat().st_size if exists else None
+                size_matches = observed is not None and (expected is None or observed == expected)
+                diagnostics[mode] = {
+                    "exists": bool(exists),
+                    "observedSize": observed,
+                    "expectedSize": expected,
+                    "sizeMatches": bool(size_matches),
+                    "waitedMs": waited_ms,
+                }
+                if size_matches:
+                    return candidate, mode, diagnostics
+            except OSError:
+                diagnostics[mode] = {
+                    "exists": False,
+                    "observedSize": None,
+                    "expectedSize": expected,
+                    "sizeMatches": False,
+                    "waitedMs": waited_ms,
+                }
+        if step >= len(delays):
+            break
+        delay = float(delays[step])
+        time.sleep(delay)
+        waited_ms += int(round(delay * 1000))
+    return None, None, diagnostics
+
+
 def _completion_guard(source: Path, message):
     state = message.get("browserState")
     browser_exists = message.get("browserExists")
