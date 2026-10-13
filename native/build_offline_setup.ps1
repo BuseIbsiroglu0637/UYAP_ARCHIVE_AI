@@ -107,10 +107,19 @@ FILE1=bootstrap.cmd
 $sedText | Set-Content -LiteralPath $sed -Encoding ASCII
 $iexpress=Join-Path $env:SystemRoot 'System32\iexpress.exe'
 if (-not (Test-Path $iexpress)) { throw 'IExpress bulunamadi. Bu Windows surumunde tek EXE olusturucu mevcut degil.' }
-$sedArg = '"' + $sed + '"'
-$iexpressProcess = Start-Process -FilePath $iexpress -ArgumentList @('/N', $sedArg) -Wait -PassThru
+if (-not (Test-Path $sed)) { throw ('IExpress directive dosyasi olusturulamadi: ' + $sed) }
+
+# IExpress'in eski komut satiri ayrıştırıcısı, Start-Process üzerinden elle
+# tırnaklanmış mutlak SED yolunu bazı Windows sürümlerinde dosya adının parçası
+# gibi yorumlayıp "Error opening the IExpress Self Extraction Directive file"
+# hatası verebiliyor. SED dosyasını çalışma dizininden basit dosya adıyla açmak
+# bu parser belirsizliğini kaldırır. /Q ayrıca GUI hata penceresi yerine exit code
+# ve hedef dosya kontrolünün tek doğrulama kaynağı olmasını sağlar.
+$sedLeaf = Split-Path -Leaf $sed
+Write-Host ('IExpress paketleyici calistiriliyor: ' + $sedLeaf)
+$iexpressProcess = Start-Process -FilePath $iexpress -WorkingDirectory $Work -ArgumentList @('/N', '/Q', $sedLeaf) -Wait -PassThru
 if ($null -eq $iexpressProcess -or $iexpressProcess.ExitCode -ne 0) {
-  throw ('IExpress Setup.exe olusturamadi. ExitCode=' + ($(if ($null -eq $iexpressProcess) { 'unknown' } else { [string]$iexpressProcess.ExitCode })))
+  throw ('IExpress Setup.exe olusturamadi. ExitCode=' + ($(if ($null -eq $iexpressProcess) { 'unknown' } else { [string]$iexpressProcess.ExitCode })) + '; SED=' + $sed)
 }
 $targetDeadline = [DateTime]::UtcNow.AddSeconds(15)
 while (-not (Test-Path $target) -and [DateTime]::UtcNow -lt $targetDeadline) {
