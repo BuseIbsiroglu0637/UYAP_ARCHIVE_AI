@@ -452,6 +452,7 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert 'ARCHIVE_CASE_AI_CAPABILITY = "archive_case_ai_v1"' in native_bridge
     assert "!result.capabilities?.includes(ARCHIVE_CASE_AI_CAPABILITY)" in native_bridge
     assert '"ai_build_archive_case_index"' in native_bridge
+    assert 'if (action === "ai_answer") return 6 * 60_000;' in native_bridge
     assert 'action == "ai_build_index"' in native
     assert "rawDocumentsUploaded" in local_index
     assert "networkUsed" in local_index
