@@ -210,7 +210,7 @@ function pumpLane(lane) {
       settleRequest(request, {
         ok:false,
         errorCode:"NATIVE_AGENT_TIMEOUT",
-        error:"Yerel ajan zaman aşımı; dosyalar korunuyor.",
+        error:request.message?.action==="ai_answer" ? "Yerel AI yanıt süresi aşıldı; arşiv dosyaları korunuyor." : "Yerel ajan zaman aşımı; dosyalar korunuyor.",
         nativeLane:lane.name
       });
       try { timedOutPort?.disconnect(); } catch {}
@@ -234,7 +234,10 @@ function timeoutForNativeAction(action) {
   if (action === "open_archive_folder" || action === "open_final_package_folder") return 8_000;
   if (action === "list_archive_registry") return 2 * 60_000;
   if (action === "select_existing_archive") return 190_000;
-  if (action === "ai_answer") return 3 * 60_000;
+  // LM Studio provider waits up to 300s by default. The Native Messaging
+  // bridge must outlive that provider deadline or Chromium aborts a healthy
+  // local inference before the agent can return its structured result.
+  if (action === "ai_answer") return 6 * 60_000;
   if (action === "discard_review_html") return 15_000;
   return 30 * 60_000;
 }
