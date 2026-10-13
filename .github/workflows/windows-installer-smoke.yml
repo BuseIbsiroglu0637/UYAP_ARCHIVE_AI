@@ -31,6 +31,8 @@ jobs:
         run: python native/rc15_7_portable_installer_regression_test.py
       - name: Release channel packaging contract
         run: python native/phase1_release_channel_contract_test.py
+      - name: IExpress directive invocation contract
+        run: python native/offline_setup_iexpress_regression_test.py
       - name: PowerShell installer syntax
         shell: powershell
         run: |
