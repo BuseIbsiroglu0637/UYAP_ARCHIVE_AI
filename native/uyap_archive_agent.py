@@ -2949,6 +2949,8 @@ def validate_download(message):
         if source_path_recovery_mode:
             result["sourcePathRecovered"] = True
             result["sourcePathRecoveryMode"] = source_path_recovery_mode
+        if source_path_recovery_checks:
+            result["sourcePathRecoveryChecks"] = source_path_recovery_checks
         return result
 
     raw_filename = str(message.get("filename") or "").strip()
