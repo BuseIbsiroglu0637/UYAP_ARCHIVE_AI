@@ -46,6 +46,128 @@ HINTS = {
 DATE_IN_TEXT = re.compile(r"(?<!\d)(?:\d{1,2}[./-]\d{1,2}[./-]20\d{2}|20\d{2}[./-]\d{1,2}[./-]\d{1,2})(?!\d)")
 
 
+# Important dates must be dates of an identifiable event, not merely the
+# document's archive timestamp or the UYAP header field "Dava tarihi".
+EVENT_HINTS = (
+    ("Duruşma", ("duruşma", "duruşmanın", "celse")),
+    ("Tebliğ / tebligat", ("tebliğ", "teblig", "tebellüğ")),
+    ("Ara karar", ("ara karar",)),
+    ("Tensip", ("tensip",)),
+    ("Keşif", ("keşif",)),
+    ("Bilirkişi incelemesi", ("bilirkişi", "rapor teslim")),
+    ("Başvuru / itiraz", ("istinaf", "itiraz", "başvuru")),
+    ("Süre işlemi", ("kesin süre", "son gün", "süre son", "müddet")),
+    ("Karar", ("gerekçeli karar", "hüküm", "karar ver", "karar tarihi")),
+)
+
+
+def _normalize_event_date(value):
+    """Accept only valid calendar dates, normalized for cross-format checks."""
+    token = str(value or "").strip()
+    parts = re.split(r"[./-]", token)
+    if len(parts) != 3:
+        return None
+    try:
+        if len(parts[0]) == 4:
+            year, month, day = map(int, parts)
+        else:
+            day, month, year = map(int, parts)
+        return datetime(year, month, day).date().isoformat()
+    except (ValueError, TypeError):
+        return None
+
+
+def _date_events(text):
+    """Extract only explicit dates close to a named legal event on one line.
+
+    Keep provenance snippets short, avoiding arbitrary unrelated dates in a
+    long PDF chunk. This is an evidence candidate, not a calculated deadline.
+    """
+    events = []
+    for raw_line in str(text or "").splitlines():
+        line = _clean(raw_line)
+        if not line:
+            continue
+        for match in DATE_IN_TEXT.finditer(line):
+            iso = _normalize_event_date(match.group())
+            if not iso:
+                continue
+            before = line[max(0, match.start() - 95):match.start()]
+            after = line[match.end():min(len(line), match.end() + 95)]
+            window = (before + " " + after).casefold()
+            label = next(
+                (name for name, words in EVENT_HINTS if any(term in window for term in words)),
+                None,
+            )
+            if not label:
+                continue
+            # "Dava tarihi: ..." alone cannot be a hearing, notice or judgment.
+            evidence = _clean(line[max(0, match.start()-110):min(len(line),match.end()+110)])
+            events.append({
+                "eventDate": iso,
+                "eventType": label,
+                "snippet": evidence,
+            })
+    return events
+
+
+def _important_dates_context(db, scope_id, limit):
+    rows = db.execute(
+        """SELECT c.source_ref, c.text, d.title, d.document_type,
+                  d.document_date, c.chunk_no
+           FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref
+           WHERE d.session_id=? ORDER BY c.source_ref, c.chunk_no LIMIT 20000""",
+        (scope_id,),
+    )
+    candidates = {}
+    for ref, text, title, doc_type, doc_date, chunk_no in rows:
+        for event in _date_events(text):
+            key = (ref, event["eventDate"], event["eventType"])
+            if key in candidates:
+                continue
+            weight = 20 if event["eventType"] in ("Duruşma","Tebliğ / tebligat","Ara karar") else 10
+            candidates[key] = {
+                "sourceRef": ref,
+                "title": title,
+                "documentType": doc_type,
+                "documentDate": doc_date,
+                "eventDate": event["eventDate"],
+                "eventType": event["eventType"],
+                "snippet": event["snippet"],
+                "score": weight,
+                "chunkNo": int(chunk_no or 0),
+                "selectionReason": "Metinde olay ve açık tarih yakınlığı",
+            }
+    if not candidates:
+        return _empty(
+            "important_dates",
+            "Doğrulanmış ve metni okunabilen evraklarda, aynı bağlamda açık "
+            "bir hukuki olay ve tarih eşleşmesi bulunamadı. Bu sonuç, "
+            "dosyada önemli tarih olmadığı anlamına gelmez.",
+            "AI_IMPORTANT_DATES_NO_EVENT_EVIDENCE",
+        )
+    ordered = sorted(
+        candidates.values(),
+        key=lambda r: (-r["score"], r["eventDate"], r["sourceRef"]),
+    )
+    selected = []
+    seen_sources = set()
+    for row in ordered:
+        if row["sourceRef"] not in seen_sources:
+            selected.append(row)
+            seen_sources.add(row["sourceRef"])
+        if len(selected) >= limit:
+            break
+    selected.sort(key=lambda r: (r["eventDate"],r["sourceRef"]))
+    return {
+        "ok": True, "kind": "UYAP_AI_WORKFLOW_CONTEXT", "schemaVersion": 1,
+        "workflowId": "important_dates", "results": selected,
+        "notice": f"Yalnız açık olay-tarih kanıtı bulunan {len(selected)} seçili kaynağın analizi.",
+        "networkUsed": False, "rawDocumentsUploaded": False,
+        "distinctSources": len(selected), "coverage": "selected_events_only",
+    }
+
+
 def _empty(workflow_id, notice, code):
     return {
         "ok": True, "kind": "UYAP_AI_WORKFLOW_CONTEXT", "schemaVersion": 1,
@@ -119,6 +241,8 @@ def workflow_context(downloads_root, scope_id, workflow_id, query="", limit=6):
     limit = max(1, min(int(limit or 6), 20))
     db, _ = _index_db(root, scope_id)
     try:
+        if workflow_id == "important_dates":
+            return _important_dates_context(db, scope_id, limit)
         allowed_refs = None
         notice = None
         if workflow_id == "new_updates":
