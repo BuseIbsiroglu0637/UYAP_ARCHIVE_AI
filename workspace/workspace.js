@@ -332,9 +332,12 @@ async function renderAiWorkspace(){
     $("aiDocCount").textContent=n(selected.physicalReadyDocuments).toLocaleString("tr-TR");
     $("aiDateRange").textContent=selected.latestAt?`Son kayıt: ${formatDate(selected.latestAt)}`:"Tam arşiv";
     if(caseStatus){
+      const orphanNote=n(selected.unregisteredPhysicalDocuments)>0
+        ?` Ayrıca ${n(selected.unregisteredPhysicalDocuments).toLocaleString("tr-TR")} kayıt dışı fiziksel dosya var; bunlar AI kapsamına alınmaz ve dava tamlık hesabını etkilemez.`
+        :"";
       caseStatus.textContent=selected.readyForAi
-        ?`${n(selected.physicalReadyDocuments).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} evrak fiziksel olarak hazır. Tam dava arşivi AI indekslemeye hazır; metin çıkarılabilen evraklar sorguya alınır.`
-        :`${n(selected.physicalReadyDocuments).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} evrak hazır; ${n(selected.problemDocuments).toLocaleString("tr-TR")} kayıt kontrol gerektiriyor. Dosya tamamlanmadan AI sorgusu açılmaz.`;
+        ?`${n(selected.physicalReadyDocuments).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} kayıtlı evrak fiziksel olarak hazır. Tam dava arşivi AI indekslemeye hazır; metin çıkarılabilen evraklar sorguya alınır.${orphanNote}`
+        :`${n(selected.physicalReadyDocuments).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} kayıtlı evrak hazır; ${n(selected.problemDocuments).toLocaleString("tr-TR")} kayıt kontrol gerektiriyor. Dosya tamamlanmadan AI sorgusu açılmaz.${orphanNote}`;
     }
 
     let indexStatus={ready:false,documents:0,chunks:0};
