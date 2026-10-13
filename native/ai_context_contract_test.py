@@ -364,7 +364,17 @@ def test_archive_registry_orphan_files_do_not_inflate_logical_case_completeness(
         db.commit()
         db.close()
 
-        registry = list_archive_registry({"downloadsRoot": str(root), "limit": 1})
+        # list_archive_registry normally searches selected/browser archive roots
+        # in addition to the supplied root. Keep this unit test hermetic so a
+        # developer's real UYAP_Arsiv cannot contaminate the temporary fixture.
+        import uyap_archive_agent as agent_module
+        original_candidates = agent_module._archive_root_candidates
+        try:
+            agent_module._archive_root_candidates = lambda supplied_root=None: [Path(str(supplied_root)).resolve()]
+            registry = list_archive_registry({"downloadsRoot": str(root), "limit": 1})
+        finally:
+            agent_module._archive_root_candidates = original_candidates
+
         case = next(
             item for item in registry["caseIndex"]
             if item["institutionName"] == "Kastamonu 1. Asliye Hukuk Mahkemesi"
