@@ -5208,6 +5208,7 @@ export async function handleDownloadChanged(delta) {
       attemptId: document.attemptId,
       sessionId: document.sessionId,
       filename: item?.filename || document.actualFilename,
+      downloadsRoot: pipelineSession?.downloadsRoot || null,
       stagingPath: document.stagingPath,
       targetPath: document.targetPath,
       extension: document.extension,
