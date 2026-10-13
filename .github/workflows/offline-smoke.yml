@@ -44,6 +44,7 @@ jobs:
         run: python native/ai_context_contract_test.py
       - name: Offline targeted regression tests
         run: |
+          python native/rc15_9_8_source_path_self_heal_regression_test.py
           python native/rc15_9_11_state_race_security_regression_test.py
           python native/rc15_9_32_kurum_frame_context_auth_regression_test.py
           python native/rc15_9_35_workspace_live_sync_regression_test.py
