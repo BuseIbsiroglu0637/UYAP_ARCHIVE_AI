@@ -16,6 +16,7 @@ import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
 from ai_local_index import search_index, summary_context
+from ai_workflows import ALL_WORKFLOW_IDS, WORKFLOW_LABELS, workflow_context
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 LMSTUDIO_RESPONSES_URL = "http://127.0.0.1:1234/v1/responses"
@@ -273,6 +274,28 @@ Kurallar:
 - En fazla 8 kısa madde kullan; uzun giriş ve kapanış yazma."""
 
 
+# Independent task contracts: one workflow may not silently fall back to another.
+_WORKFLOW_TASKS = {
+    "important_dates": """Yalnız belgede açıkça geçen olay tarihlerini ve süreleri çıkar.
+Belge tarihi ile olay tarihini ayır. Hukuki son gün hesaplama; süre başlangıcı
+ve tebliğ tarihi belirsizse kesin son tarih üretme. Her olguyu [Dxxxxxx] ile bitir.""",
+    "new_updates": """Yalnız yerel ilk karşılaştırma kaydından sonra yeni veya
+değişmiş olduğu hash karşılaştırmasıyla belirlenen sağlanan evrakları incele.
+Kaynak yoksa gelişme uydurma; silindiği veya sonuçlandığı gibi hükümler kurma.
+Her olguyu [Dxxxxxx] ile bitir.""",
+    "parties": """Yalnız kaynakta açıkça yazan kişi/kurum ve rolünü çıkar.
+Davacı/davalı/vekil/sanık gibi rolleri yalnız belge açıkça destekliyorsa yaz.
+Sırf benzer isimlerden aynı kişi sonucu çıkarma. Her olguyu [Dxxxxxx] ile bitir.""",
+    "classification": """Yalnız sağlanan doğrulanmış evrak parçalarını belge türü
+ve gerekçesiyle sınıflandır. Emin değilsen Belirsiz yaz. Belge başlığı ile
+içerik çelişiyorsa bunu belirt. Tüm dosyanın sınıflandırıldığını iddia etme.
+Her olguyu [Dxxxxxx] ile bitir.""",
+    "chronology": """Kaynaklara göre olay kronolojisi çıkar. Belge tarihi ve
+belgede anlatılan olay tarihi farklı olabilir; ayrı yaz.
+Tarihsiz olaya tarih uydurma, olay sırası kesin değilse belirsiz de.
+Her maddi olguyu [Dxxxxxx] ile bitir.""",
+}
+
 def provider_status():
     config = _provider_config()
 
@@ -476,7 +499,13 @@ def _validate_grounding(answer, allowed_refs, source_text, summary_request=False
     return True, None, {"citedSourceRefs": cited_refs}
 
 
-def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES):
+def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES, workflow_id=None):
+    # Legacy callers remain compatible; explicit Workspace IDs never inferred.
+    if workflow_id is None:
+        workflow_id = "case_summary" if _is_summary_query(query) else "ask"
+    if workflow_id not in ALL_WORKFLOW_IDS:
+        return {"ok": False, "errorCode": "AI_WORKFLOW_UNSUPPORTED",
+                "error": "Tanımlanmamış AI iş akışı."}
     status = provider_status()
     if not status["configured"]:
         provider = status.get("provider")
@@ -505,19 +534,22 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
     profile = _provider_limits(status["provider"])
     requested_limit = max(1, int(limit or profile["maxSources"]))
     effective_limit = min(profile["maxSources"], requested_limit)
-    summary_request = _is_summary_query(query)
-    retrieval = (
-        summary_context(downloads_root, session_id, effective_limit)
-        if summary_request
-        else search_index(downloads_root, session_id, query, effective_limit)
-    )
+    summary_request = workflow_id == "case_summary"
+    try:
+        retrieval = workflow_context(downloads_root, session_id, workflow_id, query, effective_limit)
+    except ValueError as error:
+        return {"ok": False, "errorCode": str(error), "error": "AI kaynak seçimi yapılamadı."}
     results = list(retrieval.get("results") or [])
     if not results:
         return {
             "ok": True,
             "kind": "UYAP_AI_ANSWER",
             "schemaVersion": 1,
-            "answer": "Doğrulanmış yerel kaynaklarda bu soruyu yanıtlayacak eşleşen içerik bulunamadı.",
+            "answer": retrieval.get("notice") or "Doğrulanmış yerel kaynaklarda bu soruyu yanıtlayacak eşleşen içerik bulunamadı.",
+            "workflowId": workflow_id,
+            "workflowTitle": WORKFLOW_LABELS[workflow_id],
+            "workflowNotice": retrieval.get("notice"),
+            "workflowNoticeCode": retrieval.get("noticeCode"),
             "sourceRefs": [],
             "sources": [],
             "model": status["model"],
@@ -537,7 +569,11 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "model": status["model"],
         "store": False,
         "max_output_tokens": profile["maxOutputTokens"],
-        "instructions": _SUMMARY_V1_INSTRUCTIONS if summary_request else (_PROVIDER_INSTRUCTIONS + "\n\n" + _task_instructions(query)),
+        "instructions": _SUMMARY_V1_INSTRUCTIONS if summary_request else (
+            _PROVIDER_INSTRUCTIONS + "\n\n" + (
+                _task_instructions(query) if workflow_id == "ask" else _WORKFLOW_TASKS[workflow_id]
+            )
+        ),
         "input": (
             "Kullanıcı sorusu:\n"
             + query
@@ -620,7 +656,10 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
                 "provider": status["provider"],
                 "model": status["model"],
                 "summaryRequest": summary_request,
-                "retrievalMode": "case_summary_v1" if summary_request else "lexical_search",
+                "workflowId": workflow_id,
+                "retrievalMode": "case_summary_v1" if summary_request else (
+                    "lexical_search" if workflow_id == "ask" else f"workflow_{workflow_id}_v1"
+                ),
                 "groundingMode": "selected_verified_sources_v1" if summary_request else "claim_citations_v1",
                 "selectionPolicy": "deterministic_case_summary_v1" if summary_request else None,
                 "selectedSources": [
@@ -665,6 +704,9 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "kind": "UYAP_AI_ANSWER",
         "schemaVersion": 1,
         "answer": answer,
+        "workflowId": workflow_id,
+        "workflowTitle": WORKFLOW_LABELS[workflow_id],
+        "workflowNotice": retrieval.get("notice"),
         "sourceRefs": cited_refs,
         "sources": sources,
         "model": status["model"],
@@ -673,7 +715,9 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "providerCalled": True,
         "rawDocumentsUploaded": False,
         "retrievedSnippetsOnly": True,
-        "retrievalMode": "case_summary_v1" if summary_request else "lexical_search",
+        "retrievalMode": "case_summary_v1" if summary_request else (
+                    "lexical_search" if workflow_id == "ask" else f"workflow_{workflow_id}_v1"
+                ),
         "groundingMode": "selected_verified_sources_v1" if summary_request else "claim_citations_v1",
         "selectionPolicy": "deterministic_case_summary_v1" if summary_request else None,
         "store": False,
