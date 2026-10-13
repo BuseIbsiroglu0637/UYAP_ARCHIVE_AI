@@ -89,6 +89,49 @@ with tempfile.TemporaryDirectory() as td:
     req(recovered.get('sourcePathRecoveryMode') == 'known-downloads-root-staging', recovered)
     req(recovered.get('errorCode') != 'SOURCE_FILE_MISSING', recovered)
 
+    delayed_doc = 'doc-delayed'
+    delayed_rel = f'UYAP_Arsiv/_incoming/{session}/{delayed_doc}.part'
+    delayed_candidate = root / delayed_rel
+    delayed_candidate.parent.mkdir(parents=True, exist_ok=True)
+    delayed_bytes = b'delayed-source-visible-after-browser-complete'
+
+    def materialize_delayed_source():
+        time.sleep(0.30)
+        delayed_candidate.write_bytes(delayed_bytes)
+
+    writer = threading.Thread(target=materialize_delayed_source, daemon=True)
+    writer.start()
+    delayed = agent.dispatch({
+        'action':'validate_download',
+        'attemptId':'attempt-delayed-source',
+        'sessionId':session,
+        'filename':str(root / 'stale-browser-name' / 'evrak_777777.udf'),
+        'downloadsRoot':str(root),
+        'stagingPath':delayed_rel,
+        'targetPath':f'UYAP_Arsiv/Test/2026_1/Evrak/{delayed_doc}.udf',
+        'extension':'.udf',
+        'browserState':'complete',
+        'browserExists':True,
+        'browserFileSize':len(delayed_bytes),
+        'browserTotalBytes':len(delayed_bytes),
+        'document':{
+            'documentId':delayed_doc,
+            'sourceSystem':'UYAP',
+            'caseId':'2026/1',
+            'documentTitle':'Delayed Test',
+            'bindingMethod':'native-uyap-exact-source-id',
+            'correlationMode':'exact',
+            'correlationCandidateCount':1,
+            'attempts':1,
+        }
+    })
+    writer.join(timeout=2)
+    req(delayed.get('sourcePathRecovered') is True, delayed)
+    req(delayed.get('sourcePathRecoveryMode') == 'known-downloads-root-staging', delayed)
+    req(delayed.get('errorCode') != 'SOURCE_FILE_MISSING', delayed)
+    checks = delayed.get('sourcePathRecoveryChecks') or {}
+    req((checks.get('known-downloads-root-staging') or {}).get('waitedMs', 0) >= 100, delayed)
+
 js = (HERE.parent / 'background' / 'download-manager.js').read_text(encoding='utf-8')
 req('SOURCE_PATH_RECOVERY_QUEUED' in js, 'missing compatibility recovery event')
 req('nativePathMissingResponse' in js, 'missing compatibility bridge classifier')
