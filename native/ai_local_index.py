@@ -542,14 +542,35 @@ def _sha256_file(path):
     return digest.hexdigest()
 
 
-def _index_path(root):
+def archive_case_scope_id(institution_name, case_id):
+    institution = re.sub(r"\s+", " ", str(institution_name or "").strip()).casefold()
+    normalized_case = _normalize_case_id(case_id).casefold()
+    if not institution or not normalized_case:
+        raise ValueError("AI_ARCHIVE_CASE_IDENTITY_REQUIRED")
+    digest = hashlib.sha256(f"{institution}|{normalized_case}".encode("utf-8")).hexdigest()[:24]
+    return f"case:{digest}"
+
+
+def _normalize_case_id(value):
+    raw = re.sub(r"\s+", "", str(value or "").strip()).replace("_", "/").replace("-", "/")
+    match = re.fullmatch(r"(20\d{2})/(\d{1,10})", raw)
+    return f"{match.group(1)}/{int(match.group(2))}" if match else raw
+
+
+def _index_path(root, scope_id=None):
     folder = root / "UYAP_Arsiv" / AI_INDEX_DIR
     folder.mkdir(parents=True, exist_ok=True)
+    scope = str(scope_id or "")
+    if scope.startswith("case:"):
+        digest = scope.split(":", 1)[1]
+        if not re.fullmatch(r"[0-9a-f]{24}", digest):
+            raise ValueError("AI_ARCHIVE_CASE_SCOPE_INVALID")
+        return folder / f"case-{digest}-v1.sqlite"
     return folder / AI_INDEX_FILE
 
 
-def _index_db(root):
-    db = sqlite3.connect(_index_path(root), timeout=30.0)
+def _index_db(root, scope_id=None):
+    db = sqlite3.connect(_index_path(root, scope_id), timeout=30.0)
     db.executescript("""
         PRAGMA journal_mode=WAL;
         PRAGMA synchronous=NORMAL;
@@ -625,7 +646,7 @@ def build_index(downloads_root, session_id, bindings):
     if not session_id:
         raise ValueError("AI_SESSION_REQUIRED")
     rows = _archive_rows(root, session_id, bindings)
-    db, fts5 = _index_db(root)
+    db, fts5 = _index_db(root, session_id)
     indexed = reused = unsupported = failed = 0
     quality_rejected = 0
     quality_reasons = {}
@@ -714,10 +735,10 @@ def build_index(downloads_root, session_id, bindings):
 def index_status(downloads_root, session_id):
     root = Path(downloads_root).resolve(strict=True)
     session_id = str(session_id or "").strip()
-    path = _index_path(root)
+    path = _index_path(root, session_id)
     if not path.is_file():
         return {"ok": True, "kind": "UYAP_AI_INDEX_STATUS", "schemaVersion": 1, "ready": False, "sessionId": session_id, "documents": 0, "chunks": 0}
-    db, fts5 = _index_db(root)
+    db, fts5 = _index_db(root, session_id)
     try:
         documents = db.execute("SELECT COUNT(*) FROM ai_documents WHERE session_id=?", (session_id,)).fetchone()[0]
         chunks = db.execute("SELECT COUNT(*) FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref WHERE d.session_id=?", (session_id,)).fetchone()[0]
@@ -789,7 +810,7 @@ def summary_context(downloads_root, session_id, limit=4):
     root = Path(downloads_root).resolve(strict=True)
     session_id = str(session_id or "").strip()
     limit = max(1, min(int(limit or 4), MAX_RESULTS))
-    db, _ = _index_db(root)
+    db, _ = _index_db(root, session_id)
     try:
         rows = db.execute(
             """SELECT c.source_ref, c.text, d.title, d.document_type, d.document_date, c.chunk_no
@@ -832,7 +853,7 @@ def search_index(downloads_root, session_id, query, limit=8):
     if not tokens:
         return {"ok": True, "kind": "UYAP_AI_SEARCH", "schemaVersion": 1, "query": "", "results": []}
     limit = max(1, min(int(limit or 8), MAX_RESULTS))
-    db, fts5 = _index_db(root)
+    db, fts5 = _index_db(root, session_id)
     try:
         rows = []
         if fts5:
