@@ -5456,6 +5456,7 @@ def dispatch(message):
             message["sessionId"],
             message.get("query") or "",
             message.get("limit") or 8,
+            workflow_id=message.get("workflowId"),
         )
         diagnostic_path = _write_ai_diagnostic(message, result)
         if isinstance(result, dict) and diagnostic_path:
