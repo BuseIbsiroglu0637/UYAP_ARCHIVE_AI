@@ -2877,6 +2877,7 @@ def _verified_content_hash_candidate(connection, root: Path, document, digest: s
 
 def validate_download(message):
     perf_started = time.perf_counter()
+    source_path_recovery_mode = None
     perf = {
         "databaseOpenMs": 0.0,
         "journalLookupMs": 0.0,
@@ -2896,6 +2897,9 @@ def validate_download(message):
     def finish(result):
         perf["agentTotalMs"] = _perf_ms(perf_started)
         result["nativePerf"] = {key: round(float(value or 0), 2) for key, value in perf.items()}
+        if source_path_recovery_mode:
+            result["sourcePathRecovered"] = True
+            result["sourcePathRecoveryMode"] = source_path_recovery_mode
         return result
 
     raw_filename = str(message.get("filename") or "").strip()
@@ -2906,6 +2910,31 @@ def validate_download(message):
     source = _lexical_abs(Path(raw_filename))
     original_source = source
     staging_path = message["stagingPath"]
+
+    # Chrome can report a completed DownloadItem whose filename still reflects
+    # the pre-onDeterminingFilename path for a short race window. When the
+    # extension already knows the downloads root and the attempt-specific
+    # staging path, recover only that exact safe candidate. Browser completion
+    # and size evidence remain mandatory; arbitrary path probing is forbidden.
+    if (
+        not source.is_file()
+        and message.get("browserState") == "complete"
+        and message.get("browserExists") is not False
+        and message.get("downloadsRoot")
+    ):
+        try:
+            staging_parts = _staging_parts(staging_path)
+            supplied_root = _lexical_abs(Path(str(message.get("downloadsRoot"))))
+            candidate = _lexical_abs(supplied_root.joinpath(*staging_parts))
+            candidate.relative_to(supplied_root)
+            expected_size = _positive_size(message.get("browserFileSize"))
+            observed_size = _settled_source_size(candidate, expected_size) if candidate.is_file() else None
+            size_ok = expected_size is None or observed_size == expected_size
+            if observed_size is not None and size_ok:
+                source = candidate
+                source_path_recovery_mode = "known-downloads-root-staging"
+        except (OSError, ValueError, TypeError):
+            pass
 
     # RC15.9.17: canonical/lease adoption can legitimately start from a browser
     # path outside _incoming, but it must never override Chrome's completion/size proof.
