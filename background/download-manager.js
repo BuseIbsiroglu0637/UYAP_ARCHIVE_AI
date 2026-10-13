@@ -5752,6 +5752,92 @@ async function migrateTerminalHtmlReviewState(sessionId) {
   return changed;
 }
 
+function hasCompleteBrowserByteProof(item, agent = {}) {
+  const state = String(agent.browserState || item?.state || "");
+  const fileSize = Number.isFinite(Number(agent.browserFileSize))
+    ? Number(agent.browserFileSize)
+    : (Number.isFinite(Number(item?.fileSize)) ? Number(item.fileSize) : null);
+  const totalBytes = Number.isFinite(Number(agent.browserTotalBytes))
+    ? Number(agent.browserTotalBytes)
+    : (Number.isFinite(Number(item?.totalBytes)) ? Number(item.totalBytes) : null);
+  return state === "complete" &&
+    Number.isFinite(fileSize) && fileSize > 0 &&
+    Number.isFinite(totalBytes) && totalBytes > 0 &&
+    fileSize === totalBytes;
+}
+
+async function maybePauseForSystemicSourcePathMissing(document, item, agent = {}) {
+  if (!hasCompleteBrowserByteProof(item, agent)) return {tripped:false, streak:0, proof:false};
+  const session = await sessionStore.get(document.sessionId);
+  if (!session || session.status !== SESSION_STATUS.RUNNING) return {tripped:false, streak:0, proof:true};
+
+  const nowMs = Date.now();
+  const previousAtMs = Date.parse(String(session.sourcePathMissingLastAt || ""));
+  const withinWindow = Number.isFinite(previousAtMs) && (nowMs - previousAtMs) <= SOURCE_PATH_SYSTEMIC_WINDOW_MS;
+  const sameDocument = session.sourcePathMissingLastDocumentKey === document.key;
+  const previousStreak = withinWindow ? Math.max(0, Number(session.sourcePathMissingSystemicStreak || 0)) : 0;
+  const streak = sameDocument ? previousStreak : previousStreak + 1;
+  const seen = Array.isArray(session.sourcePathMissingRecentDocuments)
+    ? session.sourcePathMissingRecentDocuments.filter((value) => value && value !== document.key).slice(-4)
+    : [];
+  seen.push(document.key);
+
+  await sessionStore.update(document.sessionId, {
+    sourcePathMissingSystemicStreak: streak,
+    sourcePathMissingLastDocumentKey: document.key,
+    sourcePathMissingLastAt: new Date(nowMs).toISOString(),
+    sourcePathMissingRecentDocuments: seen.slice(-5)
+  });
+  await recordDiagnosticEvent(document.sessionId, "SOURCE_PATH_SYSTEMIC_SIGNAL", {
+    documentId: document.documentId || null,
+    errorCode: "SOURCE_FILE_MISSING",
+    streak,
+    threshold: SOURCE_PATH_SYSTEMIC_THRESHOLD,
+    browserBytesComplete: true
+  });
+
+  if (streak < SOURCE_PATH_SYSTEMIC_THRESHOLD) return {tripped:false, streak, proof:true};
+
+  await documentStore.update(document.key, {
+    status: STATUS.RETRY_WAIT,
+    errorCode: "SOURCE_FILE_MISSING",
+    errorMessage: "Tarayıcı indirmeyi tamamladı ancak yerel ajan dosyayı göremedi. Aynı sistemik hata farklı evraklarda tekrarlandığı için iş otomatik olarak duraklatıldı.",
+    retryAt: null,
+    retryQueuedAt: null,
+    retryClass: "systemic_source_path_pause",
+    retryExhausted: false
+  });
+  await clearSessionRuntimeAlarms(document.sessionId);
+  await sessionStore.update(document.sessionId, {
+    status: SESSION_STATUS.PAUSED,
+    pauseReason: SOURCE_PATH_SYSTEMIC_PAUSE_REASON,
+    pausedAt: new Date(nowMs).toISOString(),
+    sessionGuardStatus: "SOURCE_PATH_SYSTEMIC",
+    queueError: "Chrome indirmeyi tamamlıyor ancak Native Agent dosya yolunu göremiyor. Tekrar indirme zinciri durduruldu; yol görünürlüğü düzeltilip işe devam edilmesi gerekiyor.",
+    sourcePathMissingCircuitOpenedAt: new Date(nowMs).toISOString(),
+    sourcePathMissingCircuitTrips: Math.max(0, Number(session.sourcePathMissingCircuitTrips || 0)) + 1
+  });
+  await recordDiagnosticEvent(document.sessionId, "SOURCE_PATH_SYSTEMIC_PAUSED", {
+    documentId: document.documentId || null,
+    errorCode: "SOURCE_FILE_MISSING",
+    streak,
+    threshold: SOURCE_PATH_SYSTEMIC_THRESHOLD,
+    browserBytesComplete: true
+  });
+  return {tripped:true, streak, proof:true};
+}
+
+async function resetSourcePathSystemicSignal(sessionId) {
+  const session = await sessionStore.get(sessionId);
+  if (!session || !Number(session.sourcePathMissingSystemicStreak || 0)) return;
+  await sessionStore.update(sessionId, {
+    sourcePathMissingSystemicStreak: 0,
+    sourcePathMissingLastDocumentKey: null,
+    sourcePathMissingLastAt: null,
+    sourcePathMissingRecentDocuments: []
+  });
+}
+
 async function handleFailure(document, errorCode, errorMessage = null) {
   const latest = await documentStore.get(document.key) || document;
   const attempts = latest.attempts ?? 0;
