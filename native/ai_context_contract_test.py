@@ -232,6 +232,29 @@ def test_grounding_rejects_uncited_claims_single_source_summary_and_invented_rol
     assert set(detail["citedSourceRefs"]) == allowed
 
 
+def test_grounding_accepts_markdown_summary_headings_without_citations():
+    allowed = {"D000001", "D000002"}
+    source_text = (
+        "[D000001]\nBelge, banka tarafından gönderilen kredi sözleşmesi bilgisini içerir.\n"
+        "[D000002]\nMahkeme 10 Ekim 2026 tarihli duruşma gününü bildirmiştir."
+    )
+    answer = (
+        "**1. Genel durum**\n"
+        "Banka tarafından kredi sözleşmesi bilgisi sunulmuştur [D000001].\n\n"
+        "### 2. Öne çıkan gelişmeler\n"
+        "Mahkeme 10 Ekim 2026 tarihli duruşma gününü bildirmiştir [D000002].\n\n"
+        "**5. Belirsiz veya eksik kalan noktalar:**"
+    )
+    ok, error, detail = _validate_grounding(
+        answer,
+        allowed,
+        source_text,
+        summary_request=True,
+    )
+    assert ok is True, (error, detail)
+    assert set(detail["citedSourceRefs"]) == allowed
+
+
 def test_archive_case_ai_requires_complete_physical_case_and_builds_isolated_index():
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
@@ -468,6 +491,7 @@ if __name__ == "__main__":
     test_summary_prompt_forbids_invented_roles_and_detects_summary_request()
     test_summary_context_diversifies_sources_and_avoids_numeric_noise()
     test_grounding_rejects_uncited_claims_single_source_summary_and_invented_roles()
+    test_grounding_accepts_markdown_summary_headings_without_citations()
     test_archive_case_ai_requires_complete_physical_case_and_builds_isolated_index()
     test_archive_registry_orphan_files_do_not_inflate_logical_case_completeness()
     test_workspace_archive_case_ai_contract_is_independent_from_active_session()
