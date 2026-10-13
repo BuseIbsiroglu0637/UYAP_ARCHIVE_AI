@@ -4565,7 +4565,8 @@ def list_archive_registry(message):
                 "documentCount": 0, "presentCount": 0, "verifiedCount": 0,
                 "metadataVerifiedCount": 0, "physicalReadyCount": 0,
                 "problemCount": 0, "missingCount": 0, "sizeMismatchCount": 0,
-                "staleMetadataCount": 0, "totalBytes": 0,
+                "staleMetadataCount": 0, "unregisteredPhysicalCount": 0,
+                "unregisteredPhysicalBytes": 0, "totalBytes": 0,
                 "latestAt": None, "sourceSystems": set(),
             }
             case_groups[group_key] = group
@@ -4667,14 +4668,17 @@ def list_archive_registry(message):
                 "documentCount": 0, "presentCount": 0, "verifiedCount": 0,
                 "metadataVerifiedCount": 0, "physicalReadyCount": 0,
                 "problemCount": 0, "missingCount": 0, "sizeMismatchCount": 0,
-                "staleMetadataCount": 0, "totalBytes": 0,
+                "staleMetadataCount": 0, "unregisteredPhysicalCount": 0,
+                "unregisteredPhysicalBytes": 0, "totalBytes": 0,
                 "latestAt": None, "sourceSystems": set(),
             }
             case_groups[group_key] = group
-        group["documentCount"] += 1
-        group["presentCount"] += 1
-        group["problemCount"] += 1
-        group["totalBytes"] += int(item.get("size") or 0)
+        # Physical-only files are recovery evidence, not logical UYAP
+        # documents. They must remain visible for reconciliation, but must not
+        # inflate documentCount/problemCount or block AI when every registered
+        # logical document is VERIFIED and physically intact.
+        group["unregisteredPhysicalCount"] += 1
+        group["unregisteredPhysicalBytes"] += int(item.get("size") or 0)
         when = item.get("updatedAt") or item.get("fileModifiedAt") or None
         if when and (not group["latestAt"] or str(when) > str(group["latestAt"])):
             group["latestAt"] = when
