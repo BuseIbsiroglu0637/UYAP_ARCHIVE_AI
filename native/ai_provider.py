@@ -16,7 +16,10 @@ import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
 from ai_local_index import search_index, summary_context
-from ai_workflows import ALL_WORKFLOW_IDS, WORKFLOW_LABELS, workflow_context
+from ai_workflows import (
+    ALL_WORKFLOW_IDS, WORKFLOW_LABELS, workflow_context, EVENT_HINTS,
+    DATE_IN_TEXT, _normalize_event_date,
+)
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 LMSTUDIO_RESPONSES_URL = "http://127.0.0.1:1234/v1/responses"
@@ -276,9 +279,15 @@ Kurallar:
 
 # Independent task contracts: one workflow may not silently fall back to another.
 _WORKFLOW_TASKS = {
-    "important_dates": """Yalnız belgede açıkça geçen olay tarihlerini ve süreleri çıkar.
-Belge tarihi ile olay tarihini ayır. Hukuki son gün hesaplama; süre başlangıcı
-ve tebliğ tarihi belirsizse kesin son tarih üretme. Her olguyu [Dxxxxxx] ile bitir.""",
+    "important_dates": """Görev: YALNIZ aşağıda açık olay ve tarihle ilişkilendirilmiş kanıtları listele.
+Her kaynakta "Olay tarihi" ve "Olay türü" önceden seçilmiştir.
+Cevap yalnız şu biçimdeki kısa satırlardan oluşsun:
+- GG.AA.YYYY — Olay türü: kanıtlanan kısa açıklama [D000001]
+Her satırdaki tarih, olay türü ve D kaynağı aynı kaynak bloğuna ait olmalı.
+"Dava tarihi" ya da "dosya tarihi" genel alanını duruşma veya tebligat yerine yazma.
+Hukuki süre sonu hesaplama; eksik tebliğ tarihi veya başlangıç varsa sonuç uydurma.
+Kaynakta yer almayan karar, sonuç, taraf veya kesinlik üretme.
+En fazla 6 kısa satır. Her satırın sonunda geçerli [Dxxxxxx] referansı.""",
     "new_updates": """Yalnız yerel ilk karşılaştırma kaydından sonra yeni veya
 değişmiş olduğu hash karşılaştırmasıyla belirlenen sağlanan evrakları incele.
 Kaynak yoksa gelişme uydurma; silindiği veya sonuçlandığı gibi hükümler kurma.
@@ -381,6 +390,56 @@ def _source_prompt(results, max_sources=MAX_SOURCES, max_snippet_chars=MAX_SOURC
             f"Metin:\n{snippet}"
         )
     return "\n\n---\n\n".join(blocks)
+
+
+
+def _important_dates_source_prompt(results):
+    """Pass only selected event-date context; archive date is not event proof."""
+    blocks = []
+    for row in results:
+        blocks.append(
+            f"[{row.get('sourceRef')}]\n"
+            f"Evrak: {str(row.get('title') or 'Adsız evrak')[:180]}\n"
+            f"Olay tarihi: {row.get('eventDate') or '-'}\n"
+            f"Olay türü: {row.get('eventType') or '-'}\n"
+            f"Olay-tarih kanıtı: {str(row.get('snippet') or '')[:500]}"
+        )
+    return "\n\n---\n\n".join(blocks)
+
+
+def _validate_important_dates_answer(answer, selected):
+    """Reject metadata-only 'Dava tarihi' and misattributed source dates."""
+    allowed = {
+        str(row.get("sourceRef") or ""): row
+        for row in selected if row.get("eventDate") and row.get("eventType")
+    }
+    event_keywords = {label: words for label, words in EVENT_HINTS}
+    checked = 0
+    for raw in str(answer or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        refs = SOURCE_REF_RE.findall(line)
+        dates = list(DATE_IN_TEXT.finditer(line))
+        if not refs or not dates:
+            return False, "AI_DATES_STRUCTURE_INVALID", {"reason": "Date and citation required per event."}
+        normalized = [_normalize_event_date(match.group()) for match in dates]
+        if not all(normalized):
+            return False, "AI_DATES_INVALID_CALENDAR", {}
+        supported = False
+        for ref in refs:
+            item = allowed.get(ref)
+            if not item or any(value != item["eventDate"] for value in normalized):
+                continue
+            if any(term in line.casefold() for term in event_keywords.get(item["eventType"], ())):
+                supported = True
+                break
+        if not supported:
+            return False, "AI_DATES_UNSUPPORTED_EVENT", {"reason": "Date/event pair not supported by cited candidate."}
+        checked += 1
+    if not checked:
+        return False, "AI_DATES_NO_GROUNDED_EVENTS", {}
+    return True, None, {"validatedEvents": checked}
 
 
 def _extract_output_text(payload):
@@ -560,10 +619,14 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         }
 
     allowed_refs = {str(row.get("sourceRef") or "") for row in results if row.get("sourceRef")}
-    source_text = _source_prompt(
-        results,
-        max_sources=profile["maxSources"],
-        max_snippet_chars=profile["maxSourceSnippetChars"],
+    source_text = (
+        _important_dates_source_prompt(results)
+        if workflow_id == "important_dates"
+        else _source_prompt(
+            results,
+            max_sources=profile["maxSources"],
+            max_snippet_chars=profile["maxSourceSnippetChars"],
+        )
     )
     body = {
         "model": status["model"],
@@ -646,6 +709,8 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
             source_text,
             summary_request=False,
         )
+    if valid and workflow_id == "important_dates":
+        valid, grounding_error, grounding_detail = _validate_important_dates_answer(answer, results)
     if not valid:
         return {
             "ok": False,
