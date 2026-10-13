@@ -104,6 +104,148 @@ def _write_ai_diagnostic(message, result):
         return None
 
 
+AI_SUMMARY_SCHEMA_VERSION = 1
+AI_SUMMARY_MAX_ANSWER_CHARS = 24_000
+AI_SUMMARY_MAX_SOURCES = 8
+
+
+def _safe_summary_component(value, fallback):
+    text = re.sub(r"[^0-9A-Za-zÇĞİÖŞÜçğıöşü._-]+", "_", str(value or "").strip())
+    text = text.strip("._-")[:100]
+    return text or fallback
+
+
+def _ai_summary_directory(downloads_root, institution_name, case_id):
+    root = Path(downloads_root).resolve(strict=True)
+    archive_root = (root / "UYAP_Arsiv").resolve(strict=True)
+    scope_id = ai_archive_case_scope_id(institution_name, case_id)
+    folder = archive_root / "_ai" / "summaries" / scope_id.replace(":", "-")
+    folder.mkdir(parents=True, exist_ok=True)
+    resolved = folder.resolve()
+    resolved.relative_to(archive_root)
+    return resolved
+
+
+def _public_summary(payload, path=None):
+    return {
+        "summaryId": str(payload.get("summaryId") or ""),
+        "schemaVersion": int(payload.get("schemaVersion") or AI_SUMMARY_SCHEMA_VERSION),
+        "createdAt": payload.get("createdAt"),
+        "institutionName": payload.get("institutionName"),
+        "caseId": payload.get("caseId"),
+        "answer": payload.get("answer"),
+        "sources": payload.get("sources") or [],
+        "sourceRefs": payload.get("sourceRefs") or [],
+        "provider": payload.get("provider"),
+        "model": payload.get("model"),
+        "retrievalMode": payload.get("retrievalMode"),
+        "selectionPolicy": payload.get("selectionPolicy"),
+        "path": str(path) if path else payload.get("path"),
+    }
+
+
+def save_ai_summary(message):
+    downloads_root = message.get("downloadsRoot")
+    institution_name = str(message.get("institutionName") or "").strip()
+    case_id = str(message.get("caseId") or "").strip()
+    answer = str(message.get("answer") or "").strip()
+    if not downloads_root or not institution_name or not case_id:
+        raise ValueError("AI özet kaydı için arşiv kökü, kurum ve dosya no gerekli")
+    if not answer:
+        raise ValueError("Kaydedilecek AI özeti boş")
+    answer = answer[:AI_SUMMARY_MAX_ANSWER_CHARS]
+    raw_sources = message.get("sources") or []
+    sources = []
+    if isinstance(raw_sources, list):
+        for item in raw_sources[:AI_SUMMARY_MAX_SOURCES]:
+            if not isinstance(item, dict):
+                continue
+            sources.append({
+                "sourceRef": str(item.get("sourceRef") or "")[:32],
+                "title": str(item.get("title") or "")[:300],
+                "documentType": str(item.get("documentType") or "")[:64] or None,
+                "documentDate": str(item.get("documentDate") or "")[:40] or None,
+                "selectionReason": str(item.get("selectionReason") or "")[:240] or None,
+                "summaryRole": str(item.get("summaryRole") or "")[:80] or None,
+            })
+    source_refs = [str(value)[:32] for value in (message.get("sourceRefs") or [])[:AI_SUMMARY_MAX_SOURCES]]
+    digest_input = json.dumps(
+        {"answer": answer, "sourceRefs": source_refs, "institutionName": institution_name, "caseId": case_id},
+        ensure_ascii=False,
+        sort_keys=True,
+    ).encode("utf-8")
+    summary_hash = hashlib.sha256(digest_input).hexdigest()
+    folder = _ai_summary_directory(downloads_root, institution_name, case_id)
+
+    for existing in sorted(folder.glob("*.json"), reverse=True):
+        try:
+            payload = json.loads(existing.read_text(encoding="utf-8"))
+            if payload.get("summaryHash") == summary_hash:
+                return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True, "summary": _public_summary(payload, existing)}
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    summary_id = f"summary-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{summary_hash[:12]}"
+    payload = {
+        "schemaVersion": AI_SUMMARY_SCHEMA_VERSION,
+        "kind": "UYAP_AI_SAVED_SUMMARY",
+        "summaryId": summary_id,
+        "summaryHash": summary_hash,
+        "createdAt": now,
+        "institutionName": institution_name,
+        "caseId": case_id,
+        "answer": answer,
+        "sources": sources,
+        "sourceRefs": source_refs,
+        "provider": str(message.get("provider") or "")[:80] or None,
+        "model": str(message.get("model") or "")[:160] or None,
+        "retrievalMode": str(message.get("retrievalMode") or "")[:80] or None,
+        "selectionPolicy": str(message.get("selectionPolicy") or "")[:120] or None,
+        "privacy": {
+            "localOnly": True,
+            "rawDocumentsStored": False,
+            "rawSourceSnippetsStored": False,
+        },
+    }
+    filename = _safe_summary_component(summary_id, "summary") + ".json"
+    target = folder / filename
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, target)
+    return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": False, "summary": _public_summary(payload, target)}
+
+
+def list_ai_summaries(message):
+    downloads_root = message.get("downloadsRoot")
+    institution_name = str(message.get("institutionName") or "").strip()
+    case_id = str(message.get("caseId") or "").strip()
+    if not downloads_root or not institution_name or not case_id:
+        raise ValueError("AI özet geçmişi için arşiv kökü, kurum ve dosya no gerekli")
+    limit = max(1, min(int(message.get("limit") or 20), 100))
+    folder = _ai_summary_directory(downloads_root, institution_name, case_id)
+    summaries = []
+    for path in sorted(folder.glob("*.json"), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True):
+        if len(summaries) >= limit:
+            break
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if payload.get("kind") != "UYAP_AI_SAVED_SUMMARY":
+                continue
+            summaries.append(_public_summary(payload, path))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return {
+        "ok": True,
+        "kind": "UYAP_AI_SAVED_SUMMARY_LIST",
+        "schemaVersion": 1,
+        "institutionName": institution_name,
+        "caseId": case_id,
+        "count": len(summaries),
+        "summaries": summaries,
+    }
+
+
 def _portable_resume_config_path():
     base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
     return (Path(base) if base else Path.home() / ".local" / "share") / "UYAPArsiv" / PORTABLE_RESUME_CONFIG
@@ -5129,7 +5271,7 @@ def dispatch(message):
     action = message.get("action")
     if action == "ping":
         return {"ok": True, "version": AGENT_VERSION, "protocolVersion":PROTOCOL_VERSION, "echo":message.get('probe'),
-                "capabilities": ["sqlite", "sha256", "magic_bytes", "atomic_move", "quarantine", "attempt_journal", "attempt_owner_replay_v1", "validation_perf_v1", "persistent_session_v1", "final_integrity_v1", "source_adapter_v1", "chunked_archive_v1", "download_completion_guard_v1", "pdf_structure_v2", "uyap_pdf_control_suffix_1a04_v1", "bulk_reliability_v1", "legitimate_html_document_v1", "legitimate_html_document_v2", "image_document_v1", "uyap_streaming_udf_v1", "quarantine_revalidation_v1", "uyap_pdf_belgenet_suffix_v1", "uyap_pdf_avision_suffix_v1", "pdf_producer_comment_suffix_v1", "unified_document_sniffer_v1", "uyap_raw_xml_udf_v1", "format_lab_v1", "office_container_detection_v1", "bigtiff_detection_v1", "archive_registry_v1", "user_html_exclusion_v1", "visible_final_package_v1", "archive_root_rediscovery_v1", "sqlite_wal_dual_lane_v1", "sqlite_scandir_hotpath_v1", "jpeg_uyap_compatible_v1", "jpeg_windows_decoder_fallback_v1", "jpeg_windows_wic_decoder_v1", "document_type_truth_v1", "uyap_exact_content_truth_v1", "jpeg_uyap_trailing_preserve_v1", "html_circuit_deadline_v1", "source_path_self_heal_v1", "content_hash_reconciliation_v1", "verified_root_orphan_cleanup_v1", "opaque_binary_archive_v1", "finalization_validation_proof_v2", "duplicate_path_fresh_owner_v1", "portable_archive_resume_v1", "legacy_loose_archive_import_v2", "ai_local_index_v1", "ai_provider_gateway_v1", "archive_case_ai_v1"]}
+                "capabilities": ["sqlite", "sha256", "magic_bytes", "atomic_move", "quarantine", "attempt_journal", "attempt_owner_replay_v1", "validation_perf_v1", "persistent_session_v1", "final_integrity_v1", "source_adapter_v1", "chunked_archive_v1", "download_completion_guard_v1", "pdf_structure_v2", "uyap_pdf_control_suffix_1a04_v1", "bulk_reliability_v1", "legitimate_html_document_v1", "legitimate_html_document_v2", "image_document_v1", "uyap_streaming_udf_v1", "quarantine_revalidation_v1", "uyap_pdf_belgenet_suffix_v1", "uyap_pdf_avision_suffix_v1", "pdf_producer_comment_suffix_v1", "unified_document_sniffer_v1", "uyap_raw_xml_udf_v1", "format_lab_v1", "office_container_detection_v1", "bigtiff_detection_v1", "archive_registry_v1", "user_html_exclusion_v1", "visible_final_package_v1", "archive_root_rediscovery_v1", "sqlite_wal_dual_lane_v1", "sqlite_scandir_hotpath_v1", "jpeg_uyap_compatible_v1", "jpeg_windows_decoder_fallback_v1", "jpeg_windows_wic_decoder_v1", "document_type_truth_v1", "uyap_exact_content_truth_v1", "jpeg_uyap_trailing_preserve_v1", "html_circuit_deadline_v1", "source_path_self_heal_v1", "content_hash_reconciliation_v1", "verified_root_orphan_cleanup_v1", "opaque_binary_archive_v1", "finalization_validation_proof_v2", "duplicate_path_fresh_owner_v1", "portable_archive_resume_v1", "legacy_loose_archive_import_v2", "ai_local_index_v1", "ai_provider_gateway_v1", "archive_case_ai_v1", "ai_summary_archive_v1"]}
     if action == "ai_build_index":
         return ai_build_index(message["downloadsRoot"], message["sessionId"], message.get("bindings") or [])
     if action == "ai_archive_case_scope":
@@ -5144,6 +5286,10 @@ def dispatch(message):
         return ai_search_index(message["downloadsRoot"], message["sessionId"], message.get("query") or "", message.get("limit") or 8)
     if action == "ai_provider_status":
         return ai_provider_status()
+    if action == "ai_save_summary":
+        return save_ai_summary(message)
+    if action == "ai_list_summaries":
+        return list_ai_summaries(message)
     if action == "ai_answer":
         result = ai_answer_from_local_index(
             message["downloadsRoot"],
