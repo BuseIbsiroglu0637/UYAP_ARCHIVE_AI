@@ -636,8 +636,21 @@ document.querySelectorAll("[data-ai-prompt]").forEach(b=>b.addEventListener("cli
 $("openAiWorkspace").addEventListener("click",()=>showView("ai"));
 $("timelineOpenArchive").addEventListener("click",()=>showView("archive"));$("timelineOpenAi").addEventListener("click",()=>showView("ai"));
 $("timelineSearch").addEventListener("input",renderTimelineRows);$("timelineType").addEventListener("change",renderTimelineRows);
-$("aiPrompt").addEventListener("input",()=>{state.aiPrompt=$("aiPrompt").value;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;});
-$("aiArchiveCasePicker")?.addEventListener("change",async()=>{state.aiSelectedCaseKey=$("aiArchiveCasePicker").value||null;state.aiIndex=null;if($("aiSearchResults"))$("aiSearchResults").textContent="";if($("aiAnswerBox")){$("aiAnswerBox").hidden=true;$("aiAnswerBox").textContent="";}await renderAiWorkspace();});
+$("aiPrompt").addEventListener("input",()=>{state.aiPrompt=$("aiPrompt").value;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";});
+$("aiArchiveCasePicker")?.addEventListener("change",async()=>{state.aiSelectedCaseKey=$("aiArchiveCasePicker").value||null;state.aiIndex=null;state.aiCurrentResult=null;state.aiSummaries=[];if($("aiSearchResults"))$("aiSearchResults").textContent="";if($("aiAnswerBox")){$("aiAnswerBox").hidden=true;$("aiAnswerBox").textContent="";}if($("aiResultPanel"))$("aiResultPanel").hidden=true;renderAiSummaryHistory();await renderAiWorkspace();});
+$("aiSummaryPdf")?.addEventListener("click",async()=>{if(!state.aiCurrentResult)return showToast("PDF için önce bir dosya özeti oluşturun veya geçmişten açın.",true);try{await openSummaryPrint(state.aiCurrentResult);}catch(error){showToast(String(error).replace(/^Error:\s*/,""),true);}});
+$("aiSummaryHistory")?.addEventListener("click",async(event)=>{
+  const openButton=event.target.closest("[data-ai-summary-open]"),pdfButton=event.target.closest("[data-ai-summary-pdf]");
+  const button=openButton||pdfButton;if(!button)return;
+  const index=Number(button.dataset.aiSummaryOpen??button.dataset.aiSummaryPdf);
+  const item=state.aiSummaries[index];if(!item)return;
+  const selected=selectedAiArchiveCase();
+  const result={...item,retrievalMode:"case_summary_v1",archiveCase:selected};
+  if(openButton)renderAiResult(result,selected,{fromHistory:true});
+  else{
+    try{await openSummaryPrint(result);}catch(error){showToast(String(error).replace(/^Error:\s*/,""),true);}
+  }
+});
 $("aiBuildIndex").addEventListener("click",async()=>{
   const selected=selectedAiArchiveCase();
   if(!selected)return showToast("Önce yerel arşivden bir dava dosyası seçin.",true);
