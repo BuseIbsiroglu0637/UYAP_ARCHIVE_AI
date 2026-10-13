@@ -25,7 +25,7 @@ from ai_provider import (
     _task_instructions,
     _is_summary_query,
 )
-from uyap_archive_agent import list_archive_registry
+from uyap_archive_agent import list_archive_registry, save_ai_summary, list_ai_summaries
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -450,6 +450,81 @@ def test_archive_registry_orphan_files_do_not_inflate_logical_case_completeness(
         assert registry["physicalDiscoveredFiles"] >= 1, registry
 
 
+def test_ai_summary_archive_persists_and_deduplicates_locally():
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        (root / "UYAP_Arsiv").mkdir(parents=True)
+        message = {
+            "downloadsRoot": str(root),
+            "institutionName": "Kastamonu İcra Hukuk Mahkemesi",
+            "caseId": "2025/413",
+            "answer": (
+                "DOSYANIN KONUSU\nTakip dosyasındaki uyuşmazlık özetlenmiştir.\n\n"
+                "SON DURUM\nGerekçeli karar dosyada yer almaktadır.\n\n"
+                "ÖNE ÇIKAN GELİŞMELER\n- Dava dilekçesi sunulmuştur.\n\n"
+                "ÖNEMLİ TARİHLER\n- 22.04.2026 — Gerekçeli karar."
+            ),
+            "sources": [
+                {"sourceRef": "D000001", "title": "Dava Dilekçesi", "selectionReason": "Dosya başlangıcı"},
+                {"sourceRef": "D000078", "title": "Gerekçeli Karar", "selectionReason": "Sonuç / karar"},
+            ],
+            "sourceRefs": ["D000001", "D000078"],
+            "provider": "lmstudio",
+            "model": "qwen2.5-3b-instruct",
+            "retrievalMode": "case_summary_v1",
+            "selectionPolicy": "deterministic_case_summary_v1",
+        }
+        first = save_ai_summary(message)
+        second = save_ai_summary(message)
+        assert first["ok"] is True and first["deduplicated"] is False, first
+        assert second["ok"] is True and second["deduplicated"] is True, second
+        assert first["summary"]["summaryId"] == second["summary"]["summaryId"]
+        listing = list_ai_summaries({
+            "downloadsRoot": str(root),
+            "institutionName": message["institutionName"],
+            "caseId": message["caseId"],
+            "limit": 20,
+        })
+        assert listing["count"] == 1, listing
+        saved = listing["summaries"][0]
+        assert saved["answer"].startswith("DOSYANIN KONUSU")
+        assert len(saved["sources"]) == 2
+        assert Path(saved["path"]).is_file()
+        payload = json.loads(Path(saved["path"]).read_text(encoding="utf-8"))
+        assert payload["privacy"]["localOnly"] is True
+        assert payload["privacy"]["rawDocumentsStored"] is False
+        assert payload["privacy"]["rawSourceSnippetsStored"] is False
+
+
+def test_ai_workspace_has_readable_result_history_and_pdf_export_contract():
+    html = (ROOT / "workspace" / "index.html").read_text(encoding="utf-8")
+    css = (ROOT / "workspace" / "workspace.css").read_text(encoding="utf-8")
+    workspace = (ROOT / "workspace" / "workspace.js").read_text(encoding="utf-8")
+    constants = (ROOT / "shared" / "constants.js").read_text(encoding="utf-8")
+    worker = (ROOT / "background" / "service-worker.js").read_text(encoding="utf-8")
+    print_html = (ROOT / "workspace" / "summary-print.html").read_text(encoding="utf-8")
+    print_js = (ROOT / "workspace" / "summary-print.js").read_text(encoding="utf-8")
+    print_css = (ROOT / "workspace" / "summary-print.css").read_text(encoding="utf-8")
+
+    assert 'id="aiResultPanel"' in html
+    assert 'id="aiSummaryHistory"' in html
+    assert 'id="aiSummaryPdf"' in html
+    assert ".ai-summary-section" in css
+    assert ".ai-summary-history" in css
+    assert 'GET_AI_ARCHIVE_SUMMARIES:"get_ai_archive_summaries"' in workspace
+    assert "renderCaseSummaryHtml" in workspace
+    assert "openSummaryPrint" in workspace
+    assert "AI_PRINT_SUMMARY_KEY" in workspace
+    assert 'GET_AI_ARCHIVE_SUMMARIES: "get_ai_archive_summaries"' in constants
+    assert 'action:"ai_save_summary"' in worker
+    assert 'action:"ai_list_summaries"' in worker
+    assert "summary-print.css" in print_html
+    assert "summary-print.js" in print_html
+    assert 'const KEY="uyapAiPrintSummaryV1"' in print_js
+    assert "window.print()" in print_js
+    assert "@page{size:A4" in print_css
+
+
 def test_provider_gateway_is_secret_safe_citation_gated_and_local_capable():
     source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert 'OPENAI_API_KEY' in source
@@ -519,7 +594,7 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert "!result.capabilities?.includes(ARCHIVE_CASE_AI_CAPABILITY)" in native_bridge
     assert '"ai_build_archive_case_index"' in native_bridge
     assert 'if (action === "ai_answer") return 6 * 60_000;' in native_bridge
-    assert "REQUIRED_CAPABILITIES = {'archive_case_ai_v1'}" in installer
+    assert "ai_summary_archive_v1" in installer
     assert "check_host_details" in installer
     assert "def check_host_details" in self_test
     assert 'AI_DIAGNOSTIC_FILE = "ai-diagnostic-latest.json"' in native
@@ -549,6 +624,8 @@ if __name__ == "__main__":
     test_archive_case_ai_requires_complete_physical_case_and_builds_isolated_index()
     test_archive_registry_orphan_files_do_not_inflate_logical_case_completeness()
     test_workspace_archive_case_ai_contract_is_independent_from_active_session()
+    test_ai_summary_archive_persists_and_deduplicates_locally()
+    test_ai_workspace_has_readable_result_history_and_pdf_export_contract()
     test_provider_gateway_is_secret_safe_citation_gated_and_local_capable()
     test_workspace_message_contract_exposes_ai_context_and_status()
     print("AI context contract: PASS")
