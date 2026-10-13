@@ -2878,6 +2878,7 @@ def _verified_content_hash_candidate(connection, root: Path, document, digest: s
 def validate_download(message):
     perf_started = time.perf_counter()
     source_path_recovery_mode = None
+    source_path_recovery_checks = {}
     perf = {
         "databaseOpenMs": 0.0,
         "journalLookupMs": 0.0,
