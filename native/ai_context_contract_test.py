@@ -695,7 +695,7 @@ def test_six_ai_workflows_route_by_explicit_id_and_verified_case_scope():
             db.close()
         changed = workflow_context(root,scope,"new_updates","",6)
         assert [item["sourceRef"] for item in changed["results"]] == ["D000004"], changed
-        assert changed["noticeCode"] if False else True
+        assert changed.get("noticeCode") is None, changed
         assert changed["coverage"] == "selected_sources_only"
         assert answer_from_local_index(root,"not-a-case","Açıklama",
                                        workflow_id="improper")["errorCode"] == "AI_WORKFLOW_UNSUPPORTED"
@@ -710,6 +710,8 @@ def test_six_ai_workflows_workspace_and_worker_contract():
     for workflow_id in ("case_summary","important_dates","new_updates","parties","classification","chronology"):
         assert f'data-ai-workflow="{workflow_id}"' in html
     assert 'workflowId:state.aiWorkflowId' in js
+    assert 'id="aiFreeformMode"' in html
+    assert 'setAiPrompt("",{navigate:false,workflowId:"ask"})' in js
     assert 'request.workflowId||"ask"' in worker
     assert 'workflow_id=message.get("workflowId")' in native
     assert 'summary_request = workflow_id == "case_summary"' in provider
