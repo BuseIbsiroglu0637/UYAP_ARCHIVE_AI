@@ -117,7 +117,10 @@ function aiArchiveCasePublic(item) {
   };
 }
 async function getAiArchiveRegistry() {
-  const registry=await listArchiveRegistry({limit:20000});
+  // AI case selection only needs aggregate caseIndex metadata, not the full
+  // per-document registry. Request a single document row so large archives do
+  // not exceed Chromium Native Messaging's response-size ceiling.
+  const registry=await listArchiveRegistry({limit:1});
   if(!registry?.ok||!registry.archiveExists||!registry.downloadsRoot) throw new Error("AI için kullanılabilir yerel UYAP arşivi bulunamadı.");
   return registry;
 }
