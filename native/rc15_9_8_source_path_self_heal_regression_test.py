@@ -13,7 +13,7 @@ def req(cond, msg):
         raise AssertionError(msg)
 
 ping = agent.dispatch({'action':'ping','probe':'rc1598'})
-req(ping.get('version') == '2.7.64', ping)
+req(ping.get('version') == '2.7.68', ping)
 req('source_path_self_heal_v1' in ping.get('capabilities', []), ping)
 
 with tempfile.TemporaryDirectory() as td:
@@ -51,9 +51,46 @@ with tempfile.TemporaryDirectory() as td:
     req(result.get('errorCode') == 'SOURCE_FILE_MISSING', result)
     req(result.get('retryHint') == 'fresh_redownload', result)
 
+    # Chrome may briefly report a stale filename after onDeterminingFilename
+    # has already routed the completed bytes into the attempt staging path.
+    # The native agent must recover only that exact staging file under the
+    # already-known downloads root rather than burning all retries.
+    stale_browser_path = root / 'stale-browser-name' / 'evrak_123456.udf'
+    candidate = root / staging_rel
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_bytes(b'not-a-valid-udf-but-physically-present')
+    recovered = agent.dispatch({
+        'action':'validate_download',
+        'attemptId':'attempt-stale-browser-path',
+        'sessionId':session,
+        'filename':str(stale_browser_path),
+        'downloadsRoot':str(root),
+        'stagingPath':staging_rel,
+        'targetPath':f'UYAP_Arsiv/Test/2026_1/Evrak/{docid}.udf',
+        'extension':'.udf',
+        'browserState':'complete',
+        'browserExists':True,
+        'browserFileSize':candidate.stat().st_size,
+        'browserTotalBytes':candidate.stat().st_size,
+        'document':{
+            'documentId':docid,
+            'sourceSystem':'UYAP',
+            'caseId':'2026/1',
+            'documentTitle':'Test',
+            'bindingMethod':'native-uyap-exact-source-id',
+            'correlationMode':'exact',
+            'correlationCandidateCount':1,
+            'attempts':1,
+        }
+    })
+    req(recovered.get('sourcePathRecovered') is True, recovered)
+    req(recovered.get('sourcePathRecoveryMode') == 'known-downloads-root-staging', recovered)
+    req(recovered.get('errorCode') != 'SOURCE_FILE_MISSING', recovered)
+
 js = (HERE.parent / 'background' / 'download-manager.js').read_text(encoding='utf-8')
 req('SOURCE_PATH_RECOVERY_QUEUED' in js, 'missing compatibility recovery event')
 req('nativePathMissingResponse' in js, 'missing compatibility bridge classifier')
+req('downloadsRoot: pipelineSession?.downloadsRoot || null' in js, 'native validation must receive the known archive root')
 policy = (HERE.parent / 'shared' / 'failure-policy.js').read_text(encoding='utf-8')
 req("'SOURCE_FILE_MISSING'" in policy, 'SOURCE_FILE_MISSING not retryable')
 
