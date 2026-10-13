@@ -650,6 +650,9 @@ def test_important_dates_require_source_event_proximity_and_sane_dates():
     )
     found = _date_events(sample)
     assert len(found) == 2, found
+    close_header = _date_events("Dava tarihi: 23/03/2026, duruşma tarihi: 30/03/2026")
+    assert not any(item["eventDate"] == "2026-03-23" for item in close_header), close_header
+    assert any(item["eventDate"] == "2026-03-30" for item in close_header), close_header
     assert [x["eventDate"] for x in found] == ["2026-04-11", "2026-04-12"], found
     assert _normalize_event_date("2026-04-11") == "2026-04-11"
     assert _normalize_event_date("11/04/2026") == "2026-04-11"
