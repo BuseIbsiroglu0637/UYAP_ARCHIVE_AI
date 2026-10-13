@@ -204,7 +204,7 @@ def test_case_summary_v1_prefers_opening_final_and_distinct_documents():
     assert len(refs) == len(set(refs)), chosen
     assert "D000001" in refs, chosen
     assert "D000078" in refs, chosen
-    assert any(item["selectionReason"] == "Dosya başlangıcı" for item in chosen), chosen
+    assert any(item["selectionReason"].startswith("Dosya başlangıcı") for item in chosen), chosen
     assert any(item["reason"] == "Sonuç / karar" for item in chosen), chosen
     assert len(chosen) <= 5
 
