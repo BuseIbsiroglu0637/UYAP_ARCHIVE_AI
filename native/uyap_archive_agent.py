@@ -47,6 +47,63 @@ JPEG_UYAP_TRAILING_MAX_BYTES = 2 * 1024 * 1024
 PORTABLE_RESUME_CONFIG = "portable-resume-root.json"
 
 
+AI_DIAGNOSTIC_FILE = "ai-diagnostic-latest.json"
+
+
+def _ai_diagnostic_path():
+    base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
+    root = (Path(base) if base else Path.home() / ".local" / "share") / "UYAPArsiv"
+    return root / AI_DIAGNOSTIC_FILE
+
+
+def _write_ai_diagnostic(message, result):
+    try:
+        path = _ai_diagnostic_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        query = str(message.get("query") or "")
+        folded = query.casefold()
+        query_class = "summary" if ("özet" in folded or "ozet" in folded) else "freeform"
+        diagnostic = result.get("diagnostic") if isinstance(result, dict) and isinstance(result.get("diagnostic"), dict) else {}
+        payload = {
+            "schemaVersion": 1,
+            "kind": "UYAP_AI_DIAGNOSTIC",
+            "recordedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "action": "ai_answer",
+            "sessionId": str(message.get("sessionId") or ""),
+            "queryClass": query_class,
+            "queryStored": False,
+            "ok": bool(isinstance(result, dict) and result.get("ok") is True),
+            "errorCode": result.get("errorCode") if isinstance(result, dict) else "NATIVE_INVALID_RESULT",
+            "error": result.get("error") if isinstance(result, dict) else "Native AI sonucu nesne değil.",
+            "provider": (diagnostic.get("provider") or (result.get("provider") if isinstance(result, dict) else None)),
+            "model": (diagnostic.get("model") or (result.get("model") if isinstance(result, dict) else None)),
+            "retrievalMode": (diagnostic.get("retrievalMode") or (result.get("retrievalMode") if isinstance(result, dict) else None)),
+            "groundingMode": (diagnostic.get("groundingMode") or (result.get("groundingMode") if isinstance(result, dict) else None)),
+            "selectionPolicy": (diagnostic.get("selectionPolicy") or (result.get("selectionPolicy") if isinstance(result, dict) else None)),
+            "selectedSources": diagnostic.get("selectedSources") or (result.get("sources") if isinstance(result, dict) else []),
+            "sourceRefs": result.get("sourceRefs") if isinstance(result, dict) else [],
+            "missingSections": result.get("missingSections") if isinstance(result, dict) else None,
+            "unsupportedRoles": result.get("unsupportedRoles") if isinstance(result, dict) else None,
+            "invalidSourceRefs": result.get("invalidSourceRefs") if isinstance(result, dict) else None,
+            "uncitedClaims": result.get("uncitedClaims") if isinstance(result, dict) else None,
+            "providerOutputPreview": diagnostic.get("providerOutputPreview"),
+            "providerResponseId": diagnostic.get("providerResponseId") or (result.get("providerResponseId") if isinstance(result, dict) else None),
+            "usage": diagnostic.get("usage") or (result.get("usage") if isinstance(result, dict) else None),
+            "privacy": {
+                "rawDocumentsStored": False,
+                "rawSourceSnippetsStored": False,
+                "queryStored": False,
+                "providerOutputPreviewMaxChars": 1200,
+            },
+        }
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporary, path)
+        return str(path)
+    except Exception:
+        return None
+
+
 def _portable_resume_config_path():
     base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
     return (Path(base) if base else Path.home() / ".local" / "share") / "UYAPArsiv" / PORTABLE_RESUME_CONFIG
@@ -5088,12 +5145,16 @@ def dispatch(message):
     if action == "ai_provider_status":
         return ai_provider_status()
     if action == "ai_answer":
-        return ai_answer_from_local_index(
+        result = ai_answer_from_local_index(
             message["downloadsRoot"],
             message["sessionId"],
             message.get("query") or "",
             message.get("limit") or 8,
         )
+        diagnostic_path = _write_ai_diagnostic(message, result)
+        if isinstance(result, dict) and diagnostic_path:
+            result = {**result, "diagnosticPath": diagnostic_path}
+        return result
     if action == "select_existing_archive":
         return select_existing_archive(message)
     if action == "get_selected_archive":
