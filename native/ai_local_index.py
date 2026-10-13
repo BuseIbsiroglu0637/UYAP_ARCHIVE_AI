@@ -640,6 +640,296 @@ def _archive_rows(root, session_id, bindings):
     return proven
 
 
+
+def _safe_archive_candidate(archive_root, local_path, target_path):
+    candidates = []
+    raw_target = str(target_path or "").replace("\\", "/").strip("/")
+    if raw_target:
+        parts = [part for part in raw_target.split("/") if part and part not in {".", ".."}]
+        if parts and parts[0].casefold() == "uyap_arsiv":
+            parts = parts[1:]
+        if parts:
+            candidates.append(archive_root.joinpath(*parts))
+    if local_path:
+        candidates.append(Path(str(local_path)))
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve(strict=True)
+            resolved.relative_to(archive_root)
+            if resolved.is_file() and not resolved.is_symlink():
+                return resolved
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _archive_case_metadata(archive_root, row):
+    path = _safe_archive_candidate(archive_root, row.get("local_path"), row.get("target_path"))
+    relative_parts = []
+    if path is not None:
+        try:
+            relative_parts = list(path.relative_to(archive_root).parts)
+        except ValueError:
+            relative_parts = []
+    if not relative_parts:
+        target = str(row.get("target_path") or "").replace("\\", "/").strip("/")
+        relative_parts = [part for part in target.split("/") if part]
+        if relative_parts and relative_parts[0].casefold() == "uyap_arsiv":
+            relative_parts = relative_parts[1:]
+    institution = str(row.get("institution_name") or (relative_parts[0] if relative_parts else "") or "").strip()
+    case_id = _normalize_case_id(row.get("case_id") or (relative_parts[1] if len(relative_parts) > 1 else ""))
+    return path, institution, case_id
+
+
+def inspect_archive_case(downloads_root, institution_name, case_id):
+    root = Path(downloads_root).resolve(strict=True)
+    archive_root = (root / "UYAP_Arsiv").resolve(strict=True)
+    database_path = archive_root / "_archive.db"
+    if not database_path.is_file():
+        raise ValueError("AI_ARCHIVE_DB_NOT_FOUND")
+
+    wanted_institution = re.sub(r"\s+", " ", str(institution_name or "").strip()).casefold()
+    wanted_case = _normalize_case_id(case_id).casefold()
+    if not wanted_institution or not wanted_case:
+        raise ValueError("AI_ARCHIVE_CASE_IDENTITY_REQUIRED")
+
+    db = sqlite3.connect(database_path, timeout=30.0)
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA query_only=ON")
+    db.execute("PRAGMA busy_timeout=30000")
+    try:
+        columns = {str(row[1]) for row in db.execute("PRAGMA table_info(documents)").fetchall()}
+        required = {"document_id", "display_name", "local_path", "size", "sha256", "status", "updated_at"}
+        if not required.issubset(columns):
+            raise ValueError("AI_ARCHIVE_DB_SCHEMA_INCOMPLETE")
+        optional = {
+            "case_id": "NULL",
+            "institution_name": "NULL",
+            "target_path": "NULL",
+            "document_date": "NULL",
+            "uyap_path": "NULL",
+            "source_system": "NULL",
+        }
+        select_parts = ["document_id", "display_name", "local_path", "size", "sha256", "status", "updated_at"]
+        for name, fallback in optional.items():
+            select_parts.append(name if name in columns else f"{fallback} AS {name}")
+        rows = [
+            dict(row)
+            for row in db.execute(
+                f"SELECT {', '.join(select_parts)} FROM documents ORDER BY updated_at DESC"
+            ).fetchall()
+        ]
+    finally:
+        db.close()
+
+    matching = []
+    for row in rows:
+        path, institution, normalized_case = _archive_case_metadata(archive_root, row)
+        if institution.casefold() != wanted_institution or normalized_case.casefold() != wanted_case:
+            continue
+        row["_resolved_path"] = path
+        matching.append(row)
+
+    latest = {}
+    for row in matching:
+        key = str(row.get("document_id") or "").strip()
+        if not key:
+            key = str(row.get("target_path") or row.get("local_path") or "")
+        if key and key not in latest:
+            latest[key] = row
+
+    issues = []
+    proven = []
+    ordered = sorted(latest.items(), key=lambda item: (
+        str(item[1].get("document_date") or ""),
+        str(item[1].get("display_name") or ""),
+        item[0],
+    ))
+    for index, (document_id, row) in enumerate(ordered):
+        path = row.get("_resolved_path")
+        status = str(row.get("status") or "")
+        expected_sha = str(row.get("sha256") or "").strip().lower()
+        try:
+            expected_size = int(row.get("size") or 0)
+        except (TypeError, ValueError):
+            expected_size = 0
+
+        reason = None
+        digest = None
+        if status != "VERIFIED":
+            reason = "metadata_not_verified"
+        elif path is None:
+            reason = "file_missing"
+        else:
+            try:
+                actual_size = int(path.stat().st_size)
+            except OSError:
+                actual_size = -1
+            if expected_size > 0 and actual_size != expected_size:
+                reason = "size_mismatch"
+            elif not re.fullmatch(r"[0-9a-f]{64}", expected_sha):
+                reason = "sha256_missing"
+            else:
+                try:
+                    digest = _sha256_file(path).lower()
+                except OSError:
+                    reason = "sha256_read_failed"
+                if reason is None and digest != expected_sha:
+                    reason = "sha256_mismatch"
+
+        if reason:
+            issues.append({
+                "documentIdHash": hashlib.sha256(document_id.encode("utf-8")).hexdigest()[:16],
+                "title": str(row.get("display_name") or "Adsız evrak")[:240],
+                "reason": reason,
+            })
+            continue
+
+        proven.append({
+            "documentId": document_id,
+            "sourceRef": f"D{index + 1:06d}",
+            "title": str(row.get("display_name") or "Adsız evrak"),
+            "path": path,
+            "sha256": digest,
+            "date": row.get("document_date"),
+        })
+
+    scope_id = archive_case_scope_id(institution_name, case_id)
+    total = len(latest)
+    return {
+        "ok": True,
+        "kind": "UYAP_AI_ARCHIVE_CASE_INSPECTION",
+        "schemaVersion": 1,
+        "scopeId": scope_id,
+        "institutionName": str(institution_name or "").strip(),
+        "caseId": _normalize_case_id(case_id),
+        "totalDocuments": total,
+        "verifiedPhysicalDocuments": len(proven),
+        "problemDocuments": len(issues),
+        "readyForAi": total > 0 and len(proven) == total,
+        "issues": issues[:50],
+        "_rows": proven,
+    }
+
+
+def build_archive_case_index(downloads_root, institution_name, case_id):
+    inspection = inspect_archive_case(downloads_root, institution_name, case_id)
+    scope_id = inspection["scopeId"]
+    if not inspection["readyForAi"]:
+        return {
+            **{key: value for key, value in inspection.items() if key != "_rows"},
+            "kind": "UYAP_AI_ARCHIVE_CASE_INDEX",
+            "indexedDocuments": 0,
+            "availableDocuments": 0,
+            "availableChunks": 0,
+            "errorCode": "AI_ARCHIVE_CASE_INCOMPLETE",
+        }
+
+    root = Path(downloads_root).resolve(strict=True)
+    rows = list(inspection.get("_rows") or [])
+    db, fts5 = _index_db(root, scope_id)
+    indexed = unsupported = failed = quality_rejected = quality_rejected_chunks = 0
+    quality_reasons = {}
+    quality_chunk_reasons = {}
+    methods = {}
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        db.execute("DELETE FROM ai_chunks")
+        if fts5:
+            db.execute("DELETE FROM ai_chunks_fts")
+        db.execute("DELETE FROM ai_documents")
+
+        for item in rows:
+            ref = item["sourceRef"]
+            try:
+                extracted = extract_text(item["path"])
+                method = str(extracted.get("method") or "unknown")
+                methods[method] = methods.get(method, 0) + 1
+                chunks = chunk_text(extracted.get("text") or "")
+                if item["path"].suffix.lower() == ".pdf" and chunks:
+                    gated = _quality_gate_pdf_chunks(chunks)
+                    chunks = gated["chunks"]
+                    quality_rejected_chunks += int(gated["rejectedChunks"] or 0)
+                    for reason, count in (gated["rejectedByReason"] or {}).items():
+                        quality_chunk_reasons[reason] = quality_chunk_reasons.get(reason, 0) + int(count or 0)
+                    if chunks and gated["rejectedChunks"]:
+                        extracted["quality"] = "accepted_partial"
+                        extracted["qualityReason"] = "chunk_quality_gate"
+                if not chunks:
+                    if extracted.get("errorCode") == "AI_PDF_TEXT_LOW_QUALITY" or item["path"].suffix.lower() == ".pdf":
+                        quality_rejected += 1
+                        reason = str(extracted.get("qualityReason") or "all_pdf_chunks_rejected")
+                        quality_reasons[reason] = quality_reasons.get(reason, 0) + 1
+                    else:
+                        unsupported += 1
+                    continue
+
+                for chunk_no, chunk in enumerate(chunks):
+                    db.execute(
+                        "INSERT OR REPLACE INTO ai_chunks(source_ref,chunk_no,text) VALUES(?,?,?)",
+                        (ref, chunk_no, chunk),
+                    )
+                    if fts5:
+                        db.execute("INSERT INTO ai_chunks_fts(source_ref,text) VALUES(?,?)", (ref, chunk))
+                db.execute(
+                    """INSERT OR REPLACE INTO ai_documents
+                       (source_ref,session_id,document_id_hash,file_sha256,title,document_type,document_date,
+                        extraction_method,extraction_quality,text_chars,chunk_count,indexed_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        ref,
+                        scope_id,
+                        hashlib.sha256(item["documentId"].encode()).hexdigest(),
+                        item["sha256"],
+                        item["title"],
+                        item["path"].suffix.lower().lstrip(".").upper() or "DOSYA",
+                        item["date"],
+                        method,
+                        extracted.get("quality"),
+                        len(extracted.get("text") or ""),
+                        len(chunks),
+                        now,
+                    ),
+                )
+                indexed += 1
+            except Exception:
+                failed += 1
+
+        db.commit()
+        available = db.execute("SELECT COUNT(*) FROM ai_documents WHERE session_id=?", (scope_id,)).fetchone()[0]
+        chunks = db.execute(
+            "SELECT COUNT(*) FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref WHERE d.session_id=?",
+            (scope_id,),
+        ).fetchone()[0]
+        return {
+            "ok": True,
+            "kind": "UYAP_AI_ARCHIVE_CASE_INDEX",
+            "schemaVersion": AI_INDEX_SCHEMA_VERSION,
+            "scopeId": scope_id,
+            "institutionName": inspection["institutionName"],
+            "caseId": inspection["caseId"],
+            "readyForAi": True,
+            "totalDocuments": inspection["totalDocuments"],
+            "verifiedPhysicalDocuments": inspection["verifiedPhysicalDocuments"],
+            "indexedDocuments": indexed,
+            "unsupportedDocuments": unsupported,
+            "failedDocuments": failed,
+            "qualityRejectedDocuments": quality_rejected,
+            "qualityRejectedByReason": quality_reasons,
+            "qualityRejectedChunks": quality_rejected_chunks,
+            "qualityRejectedChunksByReason": quality_chunk_reasons,
+            "availableDocuments": int(available),
+            "availableChunks": int(chunks),
+            "fts5": bool(fts5),
+            "extractionMethods": methods,
+            "rawDocumentsUploaded": False,
+            "networkUsed": False,
+        }
+    finally:
+        db.close()
+
+
+
 def build_index(downloads_root, session_id, bindings):
     root = Path(downloads_root).resolve(strict=True)
     session_id = str(session_id or "").strip()
