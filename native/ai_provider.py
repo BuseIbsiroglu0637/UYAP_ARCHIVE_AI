@@ -25,7 +25,7 @@ MAX_QUERY_CHARS = 1200
 MAX_SOURCE_SNIPPET_CHARS = 2600
 MAX_SOURCES = 8
 MAX_OUTPUT_TOKENS = 1800
-LMSTUDIO_MAX_SOURCES = 4
+LMSTUDIO_MAX_SOURCES = 6
 LMSTUDIO_MAX_SOURCE_SNIPPET_CHARS = 1400
 LMSTUDIO_MAX_OUTPUT_TOKENS = 600
 OPENAI_TIMEOUT_SECONDS = 120
@@ -208,6 +208,28 @@ Hukuki tavsiye verdiğini iddia etme; dosya içeriğini özetle ve açıkça kay
 Kısa, doğal ve profesyonel Türkçe kullan. Bozuk, tekrar eden veya anlamsız kaynak parçalarını yorumlamaya çalışma.
 Aynı olguyu farklı cümlelerle tekrarlama. Kaynakta olmayan hukuki sonuç, niyet veya kesinlik üretme.
 """
+
+
+_SUMMARY_V1_INSTRUCTIONS = """UYAP Archive AI için kısa bir dava dosyası özeti hazırlıyorsun.
+Yalnız sana verilen, uygulama tarafından deterministik kurallarla seçilmiş VERIFIED kaynak parçalarını kullan.
+Kaynaklarda açıkça bulunmayan hiçbir olgu, taraf rolü, hukuki sonuç, niyet veya kesinlik üretme.
+Kaynak etiketlerini metne yazma; kullanılan kaynakları uygulama ayrıca gösterecek.
+Hukuki tavsiye verme ve kararın hukuki doğruluğunu değerlendirme.
+
+Yanıt yalnız şu dört bölümden oluşsun:
+DOSYANIN KONUSU
+En fazla 2 kısa cümle.
+
+SON DURUM
+En fazla 2 kısa cümle; en güncel veya sonuç niteliğindeki kaynak açıkça desteklemiyorsa "Kaynaklardan kesin son durum çıkarılamadı." yaz.
+
+ÖNE ÇIKAN GELİŞMELER
+En fazla 5 kısa madde. Her madde tek somut gelişme olsun.
+
+ÖNEMLİ TARİHLER
+En fazla 5 satır. Yalnız kaynakta açıkça görülen tarih + kısa olay yaz.
+
+Taraflar/roller bölümü oluşturma. Kaynakta olmayan kişi sıfatları ekleme. Tekrar yapma."""
 
 
 def _is_summary_query(query):
@@ -400,6 +422,26 @@ def _claim_units(answer):
     return units
 
 
+def _validate_summary_v1(answer, source_text):
+    text = str(answer or "").strip()
+    if not text:
+        return False, "AI_SUMMARY_EMPTY", {}
+    folded_sources = str(source_text or "").casefold()
+    unsupported_roles = sorted({
+        term
+        for term in RISKY_ROLE_TERMS
+        if term in text.casefold() and term not in folded_sources
+    })
+    if unsupported_roles:
+        return False, "AI_SUMMARY_UNSUPPORTED_ROLE", {"unsupportedRoles": unsupported_roles}
+    required = ("dosyanın konusu", "son durum", "öne çıkan gelişmeler", "önemli tarihler")
+    normalized = text.casefold()
+    missing_sections = [label for label in required if label not in normalized]
+    if missing_sections:
+        return False, "AI_SUMMARY_STRUCTURE_INVALID", {"missingSections": missing_sections}
+    return True, None, {}
+
+
 def _validate_grounding(answer, allowed_refs, source_text, summary_request=False):
     valid, error, invalid_refs = _validate_citations(answer, allowed_refs)
     if not valid:
@@ -493,11 +535,11 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "model": status["model"],
         "store": False,
         "max_output_tokens": profile["maxOutputTokens"],
-        "instructions": _PROVIDER_INSTRUCTIONS + "\n\n" + _task_instructions(query),
+        "instructions": _SUMMARY_V1_INSTRUCTIONS if summary_request else (_PROVIDER_INSTRUCTIONS + "\n\n" + _task_instructions(query)),
         "input": (
             "Kullanıcı sorusu:\n"
             + query
-            + "\n\nYalnız aşağıdaki VERIFIED yerel kaynak parçalarını kullan:\n\n"
+            + "\n\nUygulama tarafından seçilmiş VERIFIED yerel kaynaklar:\n\n"
             + source_text
         ),
     }
@@ -557,27 +599,36 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
             "error": "AI sağlayıcısı metin yanıtı döndürmedi.",
         }
 
-    valid, grounding_error, grounding_detail = _validate_grounding(
-        answer,
-        allowed_refs,
-        source_text,
-        summary_request=summary_request,
-    )
+    if summary_request:
+        valid, grounding_error, grounding_detail = _validate_summary_v1(answer, source_text)
+    else:
+        valid, grounding_error, grounding_detail = _validate_grounding(
+            answer,
+            allowed_refs,
+            source_text,
+            summary_request=False,
+        )
     if not valid:
         return {
             "ok": False,
             "errorCode": grounding_error,
-            "error": "AI yanıtı zorunlu kaynak doğrulamasını geçemedi.",
+            "error": "AI yanıtı kaynak güvenlik kontrolünü geçemedi.",
             **grounding_detail,
         }
 
-    cited_refs = list(dict.fromkeys(SOURCE_REF_RE.findall(answer)))
+    cited_refs = (
+        [str(row.get("sourceRef")) for row in results if row.get("sourceRef")]
+        if summary_request
+        else list(dict.fromkeys(SOURCE_REF_RE.findall(answer)))
+    )
     sources = [
         {
             "sourceRef": row.get("sourceRef"),
             "title": row.get("title"),
             "documentType": row.get("documentType"),
             "documentDate": row.get("documentDate"),
+            "selectionReason": row.get("selectionReason"),
+            "summaryRole": row.get("summaryRole"),
         }
         for row in results
         if row.get("sourceRef") in cited_refs
@@ -596,7 +647,9 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "providerCalled": True,
         "rawDocumentsUploaded": False,
         "retrievedSnippetsOnly": True,
-        "retrievalMode": "summary_diversified" if summary_request else "lexical_search",
+        "retrievalMode": "case_summary_v1" if summary_request else "lexical_search",
+        "groundingMode": "selected_verified_sources_v1" if summary_request else "claim_citations_v1",
+        "selectionPolicy": "deterministic_case_summary_v1" if summary_request else None,
         "store": False,
         "usage": usage,
     }
