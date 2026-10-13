@@ -120,8 +120,12 @@ def _ai_summary_scope_name(institution_name, case_id):
 
 
 def _central_ai_summary_directory(institution_name, case_id):
-    base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
-    root = (Path(base) if base else Path.home() / ".local" / "share") / "UYAPArsiv" / "AI_Summaries"
+    override = os.environ.get("UYAP_AI_SUMMARY_STORE_ROOT")
+    if override:
+        root = Path(override).expanduser()
+    else:
+        base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
+        root = (Path(base) if base else Path.home() / ".local" / "share") / "UYAPArsiv" / "AI_Summaries"
     folder = root / _ai_summary_scope_name(institution_name, case_id)
     folder.mkdir(parents=True, exist_ok=True)
     return folder.resolve()
