@@ -616,6 +616,30 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
             "errorCode": grounding_error,
             "error": "AI yanıtı kaynak güvenlik kontrolünü geçemedi.",
             **grounding_detail,
+            "diagnostic": {
+                "provider": status["provider"],
+                "model": status["model"],
+                "summaryRequest": summary_request,
+                "retrievalMode": "case_summary_v1" if summary_request else "lexical_search",
+                "groundingMode": "selected_verified_sources_v1" if summary_request else "claim_citations_v1",
+                "selectionPolicy": "deterministic_case_summary_v1" if summary_request else None,
+                "selectedSources": [
+                    {
+                        "sourceRef": row.get("sourceRef"),
+                        "title": row.get("title"),
+                        "documentType": row.get("documentType"),
+                        "documentDate": row.get("documentDate"),
+                        "selectionReason": row.get("selectionReason"),
+                        "summaryRole": row.get("summaryRole"),
+                    }
+                    for row in results
+                ],
+                "providerOutputPreview": answer[:1200],
+                "providerResponseId": payload.get("id"),
+                "usage": payload.get("usage") if isinstance(payload.get("usage"), dict) else None,
+                "rawSourceSnippetsStored": False,
+                "rawDocumentsStored": False,
+            },
         }
 
     cited_refs = (
