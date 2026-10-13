@@ -104,7 +104,7 @@ def _write_ai_diagnostic(message, result):
         return None
 
 
-AI_SUMMARY_SCHEMA_VERSION = 1
+AI_SUMMARY_SCHEMA_VERSION = 2
 AI_SUMMARY_MAX_ANSWER_CHARS = 24_000
 AI_SUMMARY_MAX_SOURCES = 8
 
@@ -115,15 +115,32 @@ def _safe_summary_component(value, fallback):
     return text or fallback
 
 
-def _ai_summary_directory(downloads_root, institution_name, case_id):
-    root = Path(downloads_root).resolve(strict=True)
-    archive_root = (root / "UYAP_Arsiv").resolve(strict=True)
-    scope_id = ai_archive_case_scope_id(institution_name, case_id)
-    folder = archive_root / "_ai" / "summaries" / scope_id.replace(":", "-")
+def _ai_summary_scope_name(institution_name, case_id):
+    return ai_archive_case_scope_id(institution_name, case_id).replace(":", "-")
+
+
+def _central_ai_summary_directory(institution_name, case_id):
+    base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
+    root = (Path(base) if base else Path.home() / ".local" / "share") / "UYAPArsiv" / "AI_Summaries"
+    folder = root / _ai_summary_scope_name(institution_name, case_id)
     folder.mkdir(parents=True, exist_ok=True)
-    resolved = folder.resolve()
-    resolved.relative_to(archive_root)
-    return resolved
+    return folder.resolve()
+
+
+def _archive_ai_summary_directory(downloads_root, institution_name, case_id, create=True):
+    if not downloads_root:
+        return None
+    try:
+        root = Path(downloads_root).resolve(strict=True)
+        archive_root = (root / "UYAP_Arsiv").resolve(strict=True)
+        folder = archive_root / "_ai" / "summaries" / _ai_summary_scope_name(institution_name, case_id)
+        if create:
+            folder.mkdir(parents=True, exist_ok=True)
+        resolved = folder.resolve()
+        resolved.relative_to(archive_root)
+        return resolved
+    except (OSError, ValueError):
+        return None
 
 
 def _public_summary(payload, path=None):
@@ -141,7 +158,33 @@ def _public_summary(payload, path=None):
         "retrievalMode": payload.get("retrievalMode"),
         "selectionPolicy": payload.get("selectionPolicy"),
         "path": str(path) if path else payload.get("path"),
+        "storage": payload.get("storage") or "central_local",
     }
+
+
+def _summary_payloads_from(folder):
+    if folder is None or not folder.is_dir():
+        return []
+    rows = []
+    for path in sorted(folder.glob("*.json"), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if payload.get("kind") != "UYAP_AI_SAVED_SUMMARY":
+                continue
+            rows.append((payload, path))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return rows
+
+
+def _write_summary_payload(folder, payload):
+    folder.mkdir(parents=True, exist_ok=True)
+    filename = _safe_summary_component(payload.get("summaryId"), "summary") + ".json"
+    target = folder / filename
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, target)
+    return target
 
 
 def save_ai_summary(message):
@@ -149,8 +192,8 @@ def save_ai_summary(message):
     institution_name = str(message.get("institutionName") or "").strip()
     case_id = str(message.get("caseId") or "").strip()
     answer = str(message.get("answer") or "").strip()
-    if not downloads_root or not institution_name or not case_id:
-        raise ValueError("AI özet kaydı için arşiv kökü, kurum ve dosya no gerekli")
+    if not institution_name or not case_id:
+        raise ValueError("AI özet kaydı için kurum ve dosya no gerekli")
     if not answer:
         raise ValueError("Kaydedilecek AI özeti boş")
     answer = answer[:AI_SUMMARY_MAX_ANSWER_CHARS]
@@ -175,15 +218,20 @@ def save_ai_summary(message):
         sort_keys=True,
     ).encode("utf-8")
     summary_hash = hashlib.sha256(digest_input).hexdigest()
-    folder = _ai_summary_directory(downloads_root, institution_name, case_id)
+    central = _central_ai_summary_directory(institution_name, case_id)
 
-    for existing in sorted(folder.glob("*.json"), reverse=True):
-        try:
-            payload = json.loads(existing.read_text(encoding="utf-8"))
-            if payload.get("summaryHash") == summary_hash:
-                return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True, "summary": _public_summary(payload, existing)}
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            continue
+    for payload, path in _summary_payloads_from(central):
+        if payload.get("summaryHash") == summary_hash:
+            return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True, "summary": _public_summary(payload, path)}
+
+    # Backward compatibility: if an earlier build saved only inside the archive
+    # tree, import that record into the stable central store on the next save.
+    archive_folder = _archive_ai_summary_directory(downloads_root, institution_name, case_id, create=False)
+    for payload, _path in _summary_payloads_from(archive_folder):
+        if payload.get("summaryHash") == summary_hash:
+            payload = {**payload, "schemaVersion": AI_SUMMARY_SCHEMA_VERSION, "storage": "central_local"}
+            target = _write_summary_payload(central, payload)
+            return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True, "summary": _public_summary(payload, target)}
 
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     summary_id = f"summary-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{summary_hash[:12]}"
@@ -202,17 +250,24 @@ def save_ai_summary(message):
         "model": str(message.get("model") or "")[:160] or None,
         "retrievalMode": str(message.get("retrievalMode") or "")[:80] or None,
         "selectionPolicy": str(message.get("selectionPolicy") or "")[:120] or None,
+        "storage": "central_local",
         "privacy": {
             "localOnly": True,
             "rawDocumentsStored": False,
             "rawSourceSnippetsStored": False,
         },
     }
-    filename = _safe_summary_component(summary_id, "summary") + ".json"
-    target = folder / filename
-    temporary = target.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temporary, target)
+    target = _write_summary_payload(central, payload)
+
+    # Best-effort mirror beside the archive for portability. The central copy is
+    # authoritative so changing/rediscovering the archive root cannot erase UI history.
+    archive_folder = _archive_ai_summary_directory(downloads_root, institution_name, case_id, create=True)
+    if archive_folder is not None:
+        try:
+            _write_summary_payload(archive_folder, {**payload, "storage": "archive_mirror"})
+        except OSError:
+            pass
+
     return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": False, "summary": _public_summary(payload, target)}
 
 
@@ -220,29 +275,44 @@ def list_ai_summaries(message):
     downloads_root = message.get("downloadsRoot")
     institution_name = str(message.get("institutionName") or "").strip()
     case_id = str(message.get("caseId") or "").strip()
-    if not downloads_root or not institution_name or not case_id:
-        raise ValueError("AI özet geçmişi için arşiv kökü, kurum ve dosya no gerekli")
+    if not institution_name or not case_id:
+        raise ValueError("AI özet geçmişi için kurum ve dosya no gerekli")
     limit = max(1, min(int(message.get("limit") or 20), 100))
-    folder = _ai_summary_directory(downloads_root, institution_name, case_id)
-    summaries = []
-    for path in sorted(folder.glob("*.json"), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True):
-        if len(summaries) >= limit:
-            break
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            if payload.get("kind") != "UYAP_AI_SAVED_SUMMARY":
-                continue
-            summaries.append(_public_summary(payload, path))
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            continue
+    central = _central_ai_summary_directory(institution_name, case_id)
+    archive_folder = _archive_ai_summary_directory(downloads_root, institution_name, case_id, create=False)
+
+    merged = {}
+    for payload, path in _summary_payloads_from(central):
+        key = str(payload.get("summaryHash") or payload.get("summaryId") or path.name)
+        merged[key] = (payload, path)
+
+    # Import archive-only summaries created by the previous implementation.
+    for payload, path in _summary_payloads_from(archive_folder):
+        key = str(payload.get("summaryHash") or payload.get("summaryId") or path.name)
+        if key not in merged:
+            imported = {**payload, "schemaVersion": AI_SUMMARY_SCHEMA_VERSION, "storage": "central_local"}
+            try:
+                central_path = _write_summary_payload(central, imported)
+                merged[key] = (imported, central_path)
+            except OSError:
+                merged[key] = (payload, path)
+
+    ordered = sorted(
+        merged.values(),
+        key=lambda item: str(item[0].get("createdAt") or ""),
+        reverse=True,
+    )[:limit]
+    summaries = [_public_summary(payload, path) for payload, path in ordered]
     return {
         "ok": True,
         "kind": "UYAP_AI_SAVED_SUMMARY_LIST",
-        "schemaVersion": 1,
+        "schemaVersion": AI_SUMMARY_SCHEMA_VERSION,
         "institutionName": institution_name,
         "caseId": case_id,
         "count": len(summaries),
         "summaries": summaries,
+        "historyRoot": str(central),
+        "archiveMirrorChecked": archive_folder is not None,
     }
 
 
