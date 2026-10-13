@@ -31,6 +31,17 @@ LMSTUDIO_MAX_OUTPUT_TOKENS = 600
 OPENAI_TIMEOUT_SECONDS = 120
 LMSTUDIO_TIMEOUT_SECONDS = 300
 SOURCE_REF_RE = re.compile(r"\[(D\d{6})\]")
+SUMMARY_SECTION_HEADINGS = {
+    "genel durum",
+    "öne çıkan gelişmeler",
+    "one cikan gelismeler",
+    "önemli tarihler / süreler",
+    "onemli tarihler / sureler",
+    "taraflar, kurumlar ve roller",
+    "belirsiz veya eksik kalan noktalar",
+}
+
+
 RISKY_ROLE_TERMS = (
     "davacı", "davalı", "sanık", "şüpheli", "müşteki", "mağdur",
     "bilirkişi", "avukat", "vekil", "hâkim", "hakim", "savcı",
@@ -349,22 +360,41 @@ def _validate_citations(answer, allowed_refs):
     return True, None, []
 
 
+def _markdown_plain_line(value):
+    line = str(value or "").strip()
+    line = re.sub(r"^#{1,6}\s*", "", line)
+    line = re.sub(r"^[>*]\s*", "", line)
+    line = re.sub(r"^(?:\*\*|__)(.*?)(?:\*\*|__)$", r"\1", line)
+    return line.strip()
+
+
+def _is_summary_heading(line):
+    plain = _markdown_plain_line(line)
+    plain = re.sub(r"^\d+[.)]\s*", "", plain).strip()
+    plain = plain.rstrip(":").strip()
+    normalized = re.sub(r"\s+", " ", plain).casefold()
+    return normalized in SUMMARY_SECTION_HEADINGS
+
+
 def _claim_units(answer):
     units = []
     for raw_line in str(answer or "").splitlines():
         line = raw_line.strip()
         if not line:
             continue
-        # Pure numbered headings such as "1. Genel durum" do not need citations.
-        if re.fullmatch(r"\d+[.)]\s*[^:]{1,90}:?", line):
+        # Section headings are formatting, not factual claims. Qwen often emits
+        # them with Markdown (**2. ...**, ### 2. ...), so normalize before the
+        # citation gate rather than rejecting a correctly grounded answer.
+        if _is_summary_heading(line):
             continue
-        numbered = re.match(r"^\d+[.)]\s*[^:]{1,90}:\s*(.+)$", line)
+        plain = _markdown_plain_line(line)
+        numbered = re.match(r"^\d+[.)]\s*[^:]{1,90}:\s*(.+)$", plain)
         if numbered:
-            line = numbered.group(1).strip()
-        line = re.sub(r"^[-•*]\s*", "", line).strip()
-        words = re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû]{2,}", line)
+            plain = numbered.group(1).strip()
+        plain = re.sub(r"^[-•*]\s*", "", plain).strip()
+        words = re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû]{2,}", plain)
         if len(words) >= 4:
-            units.append(line)
+            units.append(plain)
     return units
 
 
