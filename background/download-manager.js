@@ -5522,6 +5522,7 @@ export async function handleDownloadChanged(delta) {
       const browserFileSize = Number.isFinite(Number(agent.browserFileSize)) ? Number(agent.browserFileSize) : (item?.fileSize ?? null);
       const browserTotalBytes = Number.isFinite(Number(agent.browserTotalBytes)) ? Number(agent.browserTotalBytes) : (item?.totalBytes ?? null);
       const observedInvalidSize = Number.isFinite(Number(agent.observedSize)) ? Number(agent.observedSize) : null;
+      const sourcePathChecks = agent.sourcePathRecoveryChecks || {};
       await documentStore.update(document.key, {
         actualFilename: agent.quarantinePath || item?.filename || null,
         actualSize: observedInvalidSize ?? browserFileSize,
@@ -5529,6 +5530,10 @@ export async function handleDownloadChanged(delta) {
         browserFileSize,
         browserTotalBytes,
         observedInvalidSize,
+        sourcePathRecoveryMode: agent.sourcePathRecoveryMode || null,
+        sourcePathRecoveryKnownRootExists: sourcePathChecks["known-downloads-root-staging"]?.exists === true,
+        sourcePathRecoveryBrowserRootExists: sourcePathChecks["browser-reported-root-staging"]?.exists === true,
+        sourcePathRecoverySelectedRootExists: sourcePathChecks["selected-archive-root-staging"]?.exists === true,
         quarantinePath: agent.quarantinePath || null,
         invalidRetryHint: agent.retryHint || null,
         invalidSha256: agent.invalidSha256 || null,
