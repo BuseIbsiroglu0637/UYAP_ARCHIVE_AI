@@ -684,21 +684,27 @@ $("aiSend").addEventListener("click",async()=>{
   if(!selected)return showToast("Önce yerel arşivden bir dava dosyası seçin.",true);
   const query=String($("aiPrompt")?.value||"").trim();
   if(!query)return showToast("Önce AI’ya sorulacak metni yazın.",true);
-  const summaryMode=isCaseSummaryPrompt(query),button=$("aiSend"),box=$("aiAnswerBox");
+  const summaryMode=isCaseSummaryPrompt(query),button=$("aiSend");
   button.disabled=true;button.textContent=summaryMode?"Dosya özeti hazırlanıyor…":"Kaynaklı yanıt hazırlanıyor…";
-  if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-loading">'+(summaryMode?"Önemli evraklar kurallarla seçiliyor ve kısa dosya özeti hazırlanıyor…":"Tam dava arşivinden kaynaklar seçiliyor ve AI yanıtı hazırlanıyor…")+'</div>';}
+  renderAiResultLoading(summaryMode);
   try{
     const result=await sendRuntime(MESSAGE.AI_ASK_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,query,limit:summaryMode?6:8});
-    if(box){
-      const refs=Array.isArray(result?.sourceRefs)?result.sourceRefs:[],sources=Array.isArray(result?.sources)?result.sources:[];
-      const meta=[result?.provider||"AI",result?.model||"",refs.length?(refs.length+" seçili evrak"):"kaynak eşleşmedi",`${n(selected.totalDocuments)} evraklık dava arşivi`].filter(Boolean).join(" • ");
-      const sourceList=summaryMode&&sources.length
-        ?'<div class="ai-summary-sources"><strong>Özet için seçilen evraklar</strong>'+sources.map(source=>'<div><span>'+esc(source.sourceRef||"-")+'</span><div><b>'+esc(source.title||"Adsız evrak")+'</b><small>'+esc(source.selectionReason||"Seçili doğrulanmış kaynak")+(source.documentDate?' • '+esc(shortDate(source.documentDate)):"")+'</small></div></div>').join("")+'</div>'
-        :"";
-      box.innerHTML='<div class="ai-answer-head"><strong>'+(summaryMode?"Dosya Özeti":"Kaynaklı yanıt")+'</strong><span>'+esc(meta)+'</span></div><div class="ai-answer-text">'+esc(result?.answer||"Yanıt alınamadı.")+'</div>'+sourceList;
+    const displayResult={
+      ...result,
+      createdAt:result?.savedSummary?.createdAt||new Date().toISOString(),
+      summaryId:result?.savedSummary?.summaryId||null,
+      institutionName:selected.institutionName,
+      caseId:selected.caseId,
+      archiveCase:selected
+    };
+    renderAiResult(displayResult,selected);
+    if(summaryMode){
+      if(result?.summarySaveError)showToast("Özet oluşturuldu ancak yerel arşive kaydedilemedi: "+result.summarySaveError,true);
+      else showToast(result?.savedSummary?.summaryId?"Dosya özeti yerel arşive kaydedildi.":"Dosya özeti oluşturuldu.");
+      await loadAiSummaryHistory(selected);
     }
   }catch(error){
-    if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-error">'+esc(String(error).replace(/^Error:\s*/,""))+'</div>';}
+    renderAiResultError(error);
     showToast(String(error).replace(/^Error:\s*/,""),true);
   }finally{
     const ready=state.aiService?.enabled===true&&state.aiService?.configured===true&&state.aiIndex?.ready===true&&selected.readyForAi===true;
