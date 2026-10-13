@@ -357,15 +357,22 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert "case MESSAGE.GET_AI_CONTEXT:" in worker
     assert "buildAiContext" in worker
     assert 'action:"ai_provider_status"' in worker
-    assert "MESSAGE.GET_AI_CONTEXT" in workspace
+    # Legacy session AI messages remain available in the worker for backward
+    # compatibility, but the product workspace must use archive-case scope.
+    assert "MESSAGE.GET_AI_ARCHIVE_CASES" in workspace
     assert "MESSAGE.GET_AI_SERVICE_STATUS" in workspace
-    assert "MESSAGE.SEARCH_AI_INDEX" in workspace
-    assert "MESSAGE.AI_ASK" in workspace
+    assert "MESSAGE.SEARCH_AI_ARCHIVE_CASE" in workspace
+    assert "MESSAGE.AI_ASK_ARCHIVE_CASE" in workspace
     assert 'aiRetrieve' in workspace
     assert "BUILD_AI_INDEX" in constants
     assert "GET_AI_INDEX_STATUS" in constants
     assert "SEARCH_AI_INDEX" in constants
     assert "AI_ASK" in constants
+    assert "GET_AI_ARCHIVE_CASES" in constants
+    assert "BUILD_AI_ARCHIVE_CASE_INDEX" in constants
+    assert "GET_AI_ARCHIVE_CASE_INDEX_STATUS" in constants
+    assert "SEARCH_AI_ARCHIVE_CASE" in constants
+    assert "AI_ASK_ARCHIVE_CASE" in constants
     native = (ROOT / "native" / "uyap_archive_agent.py").read_text(encoding="utf-8")
     local_index = (ROOT / "native" / "ai_local_index.py").read_text(encoding="utf-8")
     assert "ai_local_index_v1" in native
