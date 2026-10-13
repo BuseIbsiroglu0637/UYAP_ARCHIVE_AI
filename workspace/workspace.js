@@ -1,5 +1,6 @@
 const MESSAGE=Object.freeze({
   GET_ACTIVE_SESSION:"get_active_session",GET_SESSIONS:"get_sessions",GET_REPORT_DATA:"get_report_data",GET_AI_CONTEXT:"get_ai_context",GET_AI_SERVICE_STATUS:"get_ai_service_status",BUILD_AI_INDEX:"build_ai_index",GET_AI_INDEX_STATUS:"get_ai_index_status",SEARCH_AI_INDEX:"search_ai_index",AI_ASK:"ai_ask",
+  GET_AI_ARCHIVE_CASES:"get_ai_archive_cases",BUILD_AI_ARCHIVE_CASE_INDEX:"build_ai_archive_case_index",GET_AI_ARCHIVE_CASE_INDEX_STATUS:"get_ai_archive_case_index_status",SEARCH_AI_ARCHIVE_CASE:"search_ai_archive_case",AI_ASK_ARCHIVE_CASE:"ai_ask_archive_case",
   GET_DIAGNOSTIC_DATA:"get_diagnostic_data",GET_PROBLEM_ITEMS:"get_problem_items",RETRY_SELECTED_PROBLEMS:"retry_selected_problems",
   RESET_RUNTIME:"reset_runtime",REPACKAGE_ARCHIVE:"repackage_archive",NEW_JOB:"new_job",SOURCE_DIAGNOSTIC:"source_diagnostic",
   TEST_NOTIFICATION:"test_notification",OPEN_ARCHIVE_FOLDER:"open_archive_folder",GET_ARCHIVE_REGISTRY:"get_archive_registry",CONFIRM_HTML_EXCLUSION:"confirm_html_exclusion",OPEN_FINAL_PACKAGE_FOLDER:"open_final_package_folder"
@@ -11,7 +12,7 @@ const DEFAULT_SETTINGS={loginNotification:true,completionNotification:true,probl
 const PAGE_SIZE=100;
 
 const $=id=>document.getElementById(id);
-const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",aiContext:null,aiService:null,aiIndex:null,timelineDocs:[],account:null,device:null};
+const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",aiContext:null,aiService:null,aiIndex:null,aiCases:[],aiSelectedCaseKey:null,timelineDocs:[],account:null,device:null};
 let toastTimer=null;
 let archiveRegistryRefreshTask=null;
 let workspaceLiveRefreshTask=null;
@@ -270,53 +271,96 @@ function renderTimelineRows(){
 }
 function setAiPrompt(prompt,{navigate=true}={}){state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if(navigate)showView("ai");}
 async function renderAiWorkspace(){
-  const s=state.summary;
-  $("aiCaseTitle").textContent=s?jobName(s):"Dosya seçilmedi";
-  $("aiCaseSubtitle").textContent=s?`${sourceLabel(s)} • ${statusInfo(s).label} • VERIFIED yerel arşiv bağlamı`:"AI bağlamı için bir arşiv işi seçin.";
-  $("aiSource").textContent=s?sourceLabel(s):"-";
-  const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex"),retrieveButton=$("aiRetrieve"),resultsBox=$("aiSearchResults"),answerBox=$("aiAnswerBox");
-  if(!s||!state.selectedId){
-    state.aiContext=null;state.aiService=null;state.aiIndex=null;
-    ready.innerHTML='<span class="ai-ready-pill warn">• Dosya bekleniyor</span><span class="ai-ready-pill warn">• VERIFIED evrak bekleniyor</span><span class="ai-ready-pill warn">• Yerel indeks bekleniyor</span><span class="ai-ready-pill warn">• AI sağlayıcısı bekleniyor</span>';
+  const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex"),retrieveButton=$("aiRetrieve"),resultsBox=$("aiSearchResults"),answerBox=$("aiAnswerBox"),picker=$("aiArchiveCasePicker"),caseStatus=$("aiArchiveCaseStatus");
+  try{
+    const [casePayload,service]=await Promise.all([
+      sendRuntime(MESSAGE.GET_AI_ARCHIVE_CASES),
+      sendRuntime(MESSAGE.GET_AI_SERVICE_STATUS)
+    ]);
+    state.aiCases=Array.isArray(casePayload?.cases)?casePayload.cases:[];
+    state.aiService=service;
+
+    const activeCaseKey=state.summary?archiveCaseKey({institutionName:state.summary.institutionName||state.summary.courtName,caseId:state.summary.caseId}):null;
+    if(!state.aiSelectedCaseKey||!state.aiCases.some(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)){
+      const activeMatch=activeCaseKey?state.aiCases.find(item=>archiveCaseKey(item)===activeCaseKey):null;
+      const initial=activeMatch||state.aiCases.find(item=>item.readyForAi)||state.aiCases[0]||null;
+      state.aiSelectedCaseKey=initial?archiveCaseKey(initial):null;
+    }
+    const selected=state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;
+
+    if(picker){
+      picker.textContent="";
+      if(!state.aiCases.length){
+        const option=document.createElement("option");option.value="";option.textContent="Yerel arşivde dava dosyası bulunamadı";picker.append(option);picker.disabled=true;
+      }else{
+        for(const item of state.aiCases){
+          const option=document.createElement("option"),key=archiveCaseKey(item),readyCase=item.readyForAi===true;
+          option.value=key;
+          option.selected=key===state.aiSelectedCaseKey;
+          option.textContent=`${readyCase?"✓":"⚠"} ${item.institutionName} • ${item.caseId} • ${n(item.physicalReadyDocuments)}/${n(item.totalDocuments)} evrak`;
+          picker.append(option);
+        }
+        picker.disabled=false;
+      }
+    }
+
+    const providerReady=service?.enabled===true&&service?.configured===true;
+    if(serviceLabel){const providerName=service?.provider==="openai"?"OpenAI":service?.provider==="lmstudio"?"LM Studio":"AI";serviceLabel.textContent=providerReady?`${providerName} • ${service?.model||"Bağlı"}`:"Provider bekleniyor";}
+
+    if(!selected){
+      state.aiContext=null;state.aiIndex=null;
+      $("aiCaseTitle").textContent="Yerel dava dosyası seçilmedi";
+      $("aiCaseSubtitle").textContent="AI, indirme oturumundan bağımsız olarak tamamlanmış yerel dava arşivleri üzerinde çalışır.";
+      $("aiSource").textContent="Yerel arşiv";
+      $("aiDocCount").textContent="0";$("aiDateRange").textContent="-";
+      ready.innerHTML='<span class="ai-ready-pill warn">• Arşiv dosyası bekleniyor</span><span class="ai-ready-pill warn">• Fiziksel bütünlük bekleniyor</span><span class="ai-ready-pill warn">• Yerel indeks bekleniyor</span><span class="ai-ready-pill '+(providerReady?"good":"warn")+'">'+(providerReady?"✓ AI sağlayıcısı bağlı":"• AI sağlayıcısı bekleniyor")+'</span>';
+      if(caseStatus)caseStatus.textContent="Yerel UYAP_Arsiv içinde kayıtlı bir dava dosyası bulunamadı.";
+      if(indexLabel)indexLabel.textContent="Önce tamamlanmış bir yerel dava dosyası seçin.";
+      if(buildButton){buildButton.disabled=true;buildButton.textContent="Yerel AI indeksini hazırla";}
+      if(retrieveButton)retrieveButton.disabled=true;
+      if(send){send.disabled=true;send.textContent="Önce yerel dava dosyası seçin";}
+      if(resultsBox)resultsBox.textContent="";
+      if(answerBox){answerBox.hidden=true;answerBox.textContent="";}
+      return;
+    }
+
+    state.aiContext={kind:"UYAP_AI_ARCHIVE_CASE_CONTEXT",archiveCase:selected};
+    $("aiCaseTitle").textContent=`${selected.institutionName} • ${selected.caseId}`;
+    $("aiCaseSubtitle").textContent=`Yerel UYAP arşivi • ${selected.readyForAi?"tam fiziksel dosya":"eksik/kontrollü dosya"} • oturumdan bağımsız AI bağlamı`;
+    $("aiSource").textContent="Yerel UYAP Arşiv";
+    $("aiDocCount").textContent=n(selected.physicalReadyDocuments).toLocaleString("tr-TR");
+    $("aiDateRange").textContent=selected.latestAt?`Son kayıt: ${formatDate(selected.latestAt)}`:"Tam arşiv";
+    if(caseStatus){
+      caseStatus.textContent=selected.readyForAi
+        ?`${n(selected.physicalReadyDocuments).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} evrak fiziksel olarak hazır. AI bu dava dosyasının tamamını indeksleyebilir.`
+        :`${n(selected.physicalReadyDocuments).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} evrak hazır; ${n(selected.problemDocuments).toLocaleString("tr-TR")} kayıt kontrol gerektiriyor. Dosya tamamlanmadan AI sorgusu açılmaz.`;
+    }
+
+    let indexStatus={ready:false,documents:0,chunks:0};
+    try{
+      indexStatus=await sendRuntime(MESSAGE.GET_AI_ARCHIVE_CASE_INDEX_STATUS,{institutionName:selected.institutionName,caseId:selected.caseId});
+    }catch{}
+    state.aiIndex=indexStatus;
+    const indexReady=selected.readyForAi===true&&indexStatus?.ready===true;
+    ready.innerHTML=`<span class="ai-ready-pill good">✓ Arşiv dosyası seçili</span><span class="ai-ready-pill ${selected.readyForAi?"good":"warn"}">${selected.readyForAi?"✓ Tüm evraklar fiziksel hazır":"• Dosya tamamlanmamış"}</span><span class="ai-ready-pill ${indexReady?"good":"warn"}">${indexReady?"✓ Yerel indeks hazır":"• Yerel indeks bekleniyor"}</span><span class="ai-ready-pill ${providerReady?"good":"warn"}">${providerReady?"✓ AI sağlayıcısı bağlı":"• AI sağlayıcısı bekleniyor"}</span>`;
+    if(indexLabel)indexLabel.textContent=indexReady
+      ?`${n(indexStatus.documents).toLocaleString("tr-TR")} evrak • ${n(indexStatus.chunks).toLocaleString("tr-TR")} yerel metin parçası hazır.`
+      :selected.readyForAi?"Tam arşivden yerel metin indeksi henüz oluşturulmadı.":"Dosya tamamlanmadan indeks oluşturulamaz.";
+    if(buildButton){buildButton.disabled=!selected.readyForAi;buildButton.textContent=indexReady?"Tam dava indeksini güncelle":"Tam dava indeksini hazırla";}
+    if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel dava kaynaklarında ara":"Önce tam dava indeksini hazırla";}
+    if(send){send.disabled=!providerReady||!indexReady;send.textContent=providerReady?(indexReady?"Soruyu gönder":"Önce tam dava indeksini hazırla"):"AI sağlayıcısı bağlanınca kullanılabilir";}
+  }catch(error){
+    state.aiCases=[];state.aiContext=null;state.aiIndex=null;
+    $("aiCaseTitle").textContent="Yerel arşiv okunamadı";
+    $("aiCaseSubtitle").textContent="AI için tamamlanmış dava dosyaları yüklenemedi.";
+    $("aiSource").textContent="Yerel arşiv";
     $("aiDocCount").textContent="0";$("aiDateRange").textContent="-";
-    if(serviceLabel)serviceLabel.textContent="Bağlantı bekleniyor";
-    if(indexLabel)indexLabel.textContent="Önce bir dosya seçin.";
+    ready.innerHTML='<span class="ai-ready-pill warn">• Arşiv dosyaları okunamadı</span><span class="ai-ready-pill warn">• Fiziksel bütünlük kontrol edilemedi</span><span class="ai-ready-pill warn">• Yerel indeks kontrol edilemedi</span><span class="ai-ready-pill warn">• AI bekliyor</span>';
+    if(caseStatus)caseStatus.textContent=String(error).replace(/^Error:\s*/,"");
+    if(indexLabel)indexLabel.textContent="Yerel dava arşivi hazır değil.";
     if(buildButton)buildButton.disabled=true;
     if(retrieveButton)retrieveButton.disabled=true;
-    if(resultsBox)resultsBox.textContent="";
-    if(answerBox){answerBox.hidden=true;answerBox.textContent="";}
-    if(send){send.disabled=true;send.textContent="Önce bir dosya seçin";}
-    return;
-  }
-  if(buildButton)buildButton.disabled=false;
-  try{
-    const [context,service,indexStatus]=await Promise.all([
-      sendRuntime(MESSAGE.GET_AI_CONTEXT,{sessionId:state.selectedId}),
-      sendRuntime(MESSAGE.GET_AI_SERVICE_STATUS),
-      sendRuntime(MESSAGE.GET_AI_INDEX_STATUS,{sessionId:state.selectedId})
-    ]);
-    state.aiContext=context;state.aiService=service;state.aiIndex=indexStatus;
-    const docs=Array.isArray(context?.documents)?context.documents:[],dates=docs.map(d=>normalizedDocDate({documentDate:d.documentDate})).filter(Boolean).sort((a,b)=>a-b);
-    $("aiDocCount").textContent=docs.length.toLocaleString("tr-TR");
-    $("aiDateRange").textContent=dates.length?`${shortDate(dates[0])} – ${shortDate(dates[dates.length-1])}`:"-";
-    const providerReady=service?.enabled===true&&service?.configured===true,indexReady=indexStatus?.ready===true;
-    ready.innerHTML=`<span class="ai-ready-pill good">✓ Dosya seçili</span><span class="ai-ready-pill ${docs.length?"good":"warn"}">${docs.length?"✓ VERIFIED bağlam hazır":"• VERIFIED evrak bekleniyor"}</span><span class="ai-ready-pill ${indexReady?"good":"warn"}">${indexReady?"✓ Yerel indeks hazır":"• Yerel indeks bekleniyor"}</span><span class="ai-ready-pill ${providerReady?"good":"warn"}">${providerReady?"✓ AI sağlayıcısı bağlı":"• AI sağlayıcısı bekleniyor"}</span>`;
-    if(serviceLabel){const providerName=service?.provider==="openai"?"OpenAI":service?.provider==="lmstudio"?"LM Studio":"AI";serviceLabel.textContent=providerReady?`${providerName} • ${service?.model||"Bağlı"}`:"Provider bekleniyor";}
-    if(indexLabel)indexLabel.textContent=indexReady?`${n(indexStatus.documents).toLocaleString("tr-TR")} evrak • ${n(indexStatus.chunks).toLocaleString("tr-TR")} yerel metin parçası hazır.`:"VERIFIED evraklardan yerel metin indeksi henüz oluşturulmadı.";
-    if(buildButton)buildButton.textContent=indexReady?"Yerel AI indeksini güncelle":"Yerel AI indeksini hazırla";
-    if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel kaynaklarda ara":"Önce yerel indeksi hazırla";}
-    if(send){
-      send.disabled=!providerReady||!indexReady;
-      send.textContent=providerReady?(indexReady?"Soruyu gönder":"Önce yerel indeksi hazırla"):"AI sağlayıcısı bağlanınca kullanılabilir";
-    }
-  }catch(error){
-    state.aiContext=null;state.aiIndex=null;
-    ready.innerHTML='<span class="ai-ready-pill good">✓ Dosya seçili</span><span class="ai-ready-pill warn">• AI bağlamı hazırlanamadı</span><span class="ai-ready-pill warn">• Yerel indeks kontrol edilemedi</span><span class="ai-ready-pill warn">• AI sağlayıcısı bekleniyor</span>';
-    $("aiDocCount").textContent=verifiedFor(s).toLocaleString("tr-TR");$("aiDateRange").textContent="-";
-    if(serviceLabel)serviceLabel.textContent="Bağlantı bekleniyor";
-    if(indexLabel)indexLabel.textContent=String(error).replace(/^Error:\s*/,"")||"Yerel indeks kontrol edilemedi.";
-    if(retrieveButton)retrieveButton.disabled=true;
-    if(send){send.disabled=true;send.textContent="AI bağlamı hazır değil";}
+    if(send){send.disabled=true;send.textContent="Yerel dava arşivi hazır değil";}
   }
   if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt||"";
   if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:"Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.";
