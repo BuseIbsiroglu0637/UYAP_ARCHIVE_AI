@@ -23,6 +23,14 @@ export function sanitizeDiagnosticText(value, maxLength = 400) {
     .slice(0, limit);
 }
 
+export async function diagnosticReference(scope, value) {
+  const encoder = new TextEncoder();
+  const input = encoder.encode(String(scope ?? "") + "\u0000" + String(value ?? ""));
+  const digest = await crypto.subtle.digest("SHA-256", input);
+  const hex = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return "ref_" + hex.slice(0, 20);
+}
+
 export function sanitizeDiagnosticMetadata(metadata = {}, maxKeys = 32) {
   const result = {};
   const entries = Object.entries(metadata && typeof metadata === "object" ? metadata : {}).slice(0, Math.max(1, Math.min(64, Number(maxKeys) || 32)));
