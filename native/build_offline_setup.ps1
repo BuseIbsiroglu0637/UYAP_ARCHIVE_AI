@@ -107,7 +107,15 @@ FILE1=bootstrap.cmd
 $sedText | Set-Content -LiteralPath $sed -Encoding ASCII
 $iexpress=Join-Path $env:SystemRoot 'System32\iexpress.exe'
 if (-not (Test-Path $iexpress)) { throw 'IExpress bulunamadi. Bu Windows surumunde tek EXE olusturucu mevcut degil.' }
-& $iexpress /N $sed
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path $target)) { throw 'IExpress Setup.exe olusturamadi.' }
+$sedArg = '"' + $sed + '"'
+$iexpressProcess = Start-Process -FilePath $iexpress -ArgumentList @('/N', $sedArg) -Wait -PassThru
+if ($null -eq $iexpressProcess -or $iexpressProcess.ExitCode -ne 0) {
+  throw ('IExpress Setup.exe olusturamadi. ExitCode=' + ($(if ($null -eq $iexpressProcess) { 'unknown' } else { [string]$iexpressProcess.ExitCode })))
+}
+$targetDeadline = [DateTime]::UtcNow.AddSeconds(15)
+while (-not (Test-Path $target) -and [DateTime]::UtcNow -lt $targetDeadline) {
+  Start-Sleep -Milliseconds 250
+}
+if (-not (Test-Path $target)) { throw 'IExpress basarili sonlandi ancak Setup.exe hedefte bulunamadi.' }
 Write-Host ('Hazir offline kurulum EXE: ' + $target)
 Remove-Item -LiteralPath $BuildRoot -Recurse -Force -ErrorAction SilentlyContinue
