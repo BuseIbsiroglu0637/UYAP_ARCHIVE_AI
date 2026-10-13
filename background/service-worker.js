@@ -100,6 +100,7 @@ function aiArchiveCasePublic(item) {
   const missing=Number(item?.missingCount||0);
   const sizeMismatch=Number(item?.sizeMismatchCount||0);
   const staleMetadata=Number(item?.staleMetadataCount||0);
+  const unregisteredPhysical=Number(item?.unregisteredPhysicalCount||0);
   return {
     institutionName:String(item?.institutionName||"").trim(),
     caseId:normalizeAiArchiveCaseId(item?.caseId),
@@ -111,6 +112,7 @@ function aiArchiveCasePublic(item) {
     missingDocuments:missing,
     sizeMismatchDocuments:sizeMismatch,
     staleMetadataDocuments:staleMetadata,
+    unregisteredPhysicalDocuments:unregisteredPhysical,
     totalBytes:Number(item?.totalBytes||0),
     latestAt:item?.latestAt||null,
     readyForAi:total>0&&physical===total&&problem===0&&missing===0&&sizeMismatch===0&&staleMetadata===0
