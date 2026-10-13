@@ -2970,46 +2970,26 @@ def validate_download(message):
         except ValueError:
             staging_parts = None
         if staging_parts:
-            expected_size = _positive_size(message.get("browserFileSize"))
-            roots = []
+            candidates = [("browser-reported-file", original_source)]
             if message.get("downloadsRoot"):
-                roots.append(("known-downloads-root-staging", _lexical_abs(Path(str(message.get("downloadsRoot"))))))
-            roots.append(("browser-reported-root-staging", _lexical_abs(original_source.parent)))
+                known_root = _lexical_abs(Path(str(message.get("downloadsRoot"))))
+                candidates.append(("known-downloads-root-staging", known_root.joinpath(*staging_parts)))
+            candidates.append(("browser-reported-root-staging", _lexical_abs(original_source.parent).joinpath(*staging_parts)))
             try:
                 selected_root = load_selected_archive_root()
                 if selected_root is not None:
-                    roots.append(("selected-archive-root-staging", _lexical_abs(selected_root)))
+                    candidates.append(("selected-archive-root-staging", _lexical_abs(selected_root).joinpath(*staging_parts)))
             except (OSError, ValueError):
                 pass
-            seen = set()
-            for mode, candidate_root in roots:
-                try:
-                    candidate = _lexical_abs(candidate_root.joinpath(*staging_parts))
-                    candidate.relative_to(candidate_root)
-                    key = os.path.normcase(str(candidate))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    exists = candidate.is_file()
-                    observed_size = _settled_source_size(candidate, expected_size) if exists else None
-                    size_ok = observed_size is not None and (expected_size is None or observed_size == expected_size)
-                    source_path_recovery_checks[mode] = {
-                        "exists": bool(exists),
-                        "observedSize": observed_size,
-                        "expectedSize": expected_size,
-                        "sizeMatches": bool(size_ok),
-                    }
-                    if size_ok:
-                        source = candidate
-                        source_path_recovery_mode = mode
-                        break
-                except (OSError, ValueError, TypeError):
-                    source_path_recovery_checks[mode] = {
-                        "exists": False,
-                        "observedSize": None,
-                        "expectedSize": expected_size,
-                        "sizeMatches": False,
-                    }
+            recovered, mode, checks = _await_visible_candidate(
+                candidates,
+                message.get("browserFileSize"),
+                delays=(0.10, 0.25, 0.50, 1.00),
+            )
+            source_path_recovery_checks.update(checks)
+            if recovered is not None:
+                source = recovered
+                source_path_recovery_mode = mode
 
     # RC15.9.17: canonical/lease adoption can legitimately start from a browser
     # path outside _incoming, but it must never override Chrome's completion/size proof.
