@@ -18,7 +18,7 @@ from host_self_test import check_host, check_host_details
 
 VERSION = '2.7.68'
 MIN_REUSABLE_VERSION = '2.7.68'
-REQUIRED_CAPABILITIES = {'archive_case_ai_v1'}
+REQUIRED_CAPABILITIES = {'archive_case_ai_v1', 'ai_summary_archive_v1'}
 HOST_NAME = 'tr.gov.uyap.archive_agent'
 STANDARD_EXTENSION_ID = 'mkcemhoekaohggeebgkifcmjbilincfl'
 EXTENSION_ID = 'fppnhbkemmbocmicplkfidcbggeininh'
