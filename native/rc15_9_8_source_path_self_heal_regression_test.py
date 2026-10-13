@@ -91,6 +91,7 @@ js = (HERE.parent / 'background' / 'download-manager.js').read_text(encoding='ut
 req('SOURCE_PATH_RECOVERY_QUEUED' in js, 'missing compatibility recovery event')
 req('nativePathMissingResponse' in js, 'missing compatibility bridge classifier')
 req('downloadsRoot: pipelineSession?.downloadsRoot || null' in js, 'native validation must receive the known archive root')
+req('SOURCE_PATH_STAGING_RECOVERED' in js, 'successful path recovery must remain diagnosable')
 policy = (HERE.parent / 'shared' / 'failure-policy.js').read_text(encoding='utf-8')
 req("'SOURCE_FILE_MISSING'" in policy, 'SOURCE_FILE_MISSING not retryable')
 
