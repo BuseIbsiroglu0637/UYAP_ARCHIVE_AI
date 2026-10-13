@@ -5376,6 +5376,7 @@ export async function handleDownloadChanged(delta) {
     } else if (agent.valid) {
       attemptOk = true;
       invalidateArchiveRegistryCache();
+      await resetSourcePathSystemicSignal(document.sessionId);
       if (agent.sourcePathRecovered) {
         await recordDiagnosticEvent(document.sessionId, "SOURCE_PATH_STAGING_RECOVERED", {
           documentId: document.documentId || null,
@@ -5599,7 +5600,12 @@ export async function handleDownloadChanged(delta) {
           return;
         }
       }
-      await handleFailure(document, effectiveErrorCode, effectiveErrorDetail);
+      const sourcePathCircuit = effectiveErrorCode === "SOURCE_FILE_MISSING"
+        ? await maybePauseForSystemicSourcePathMissing(document, item, agent)
+        : {tripped:false};
+      if (!sourcePathCircuit.tripped) {
+        await handleFailure(document, effectiveErrorCode, effectiveErrorDetail);
+      }
       if (effectiveErrorCode === "HTML_RESPONSE") await handleHtmlFailure(document.sessionId, document.key);
     }
     await applyAttemptPerformance(document.sessionId, {
