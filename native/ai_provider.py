@@ -434,8 +434,8 @@ def _validate_summary_v1(answer, source_text):
     })
     if unsupported_roles:
         return False, "AI_SUMMARY_UNSUPPORTED_ROLE", {"unsupportedRoles": unsupported_roles}
-    required = ("dosyanın konusu", "son durum", "öne çıkan gelişmeler", "önemli tarihler")
-    normalized = text.casefold()
+    normalized = text.casefold().replace("ı", "i").replace("i̇", "i")
+    required = ("dosyanin konusu", "son durum", "one cikan gelismeler", "onemli tarihler")
     missing_sections = [label for label in required if label not in normalized]
     if missing_sections:
         return False, "AI_SUMMARY_STRUCTURE_INVALID", {"missingSections": missing_sections}
