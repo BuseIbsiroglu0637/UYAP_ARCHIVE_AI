@@ -42,5 +42,9 @@ assert "$PackageDirName" in builder
 assert "RC15.9.37" not in builder
 assert "RC15.9.17" not in builder
 assert "RC15.9.37" not in launcher
+assert "Start-Process -FilePath $iexpress" in builder
+assert "$iexpressProcess.ExitCode" in builder
+assert "$LASTEXITCODE" not in builder
+assert "IExpress basarili sonlandi ancak Setup.exe hedefte bulunamadi." in builder
 
 print("Phase 1 release channel and packaging contract: PASS")
