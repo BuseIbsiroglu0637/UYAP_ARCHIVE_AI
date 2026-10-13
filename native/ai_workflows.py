@@ -95,7 +95,7 @@ def _date_events(text):
             # A UYAP header "Dava tarihi: 23/03/2026" is case metadata,
             # even when unrelated event wording appears nearby on the same line.
             preceding_label = line[max(0, match.start() - 48):match.start()].casefold()
-            if re.search(r"(?:dava|dosya)\\s+tarih[iî]?\\s*:\\s*$", preceding_label):
+            if re.search(r"(?:dava|dosya)\s+tarih[iî]?\s*:\s*$", preceding_label):
                 continue
             before = line[max(0, match.start() - 95):match.start()]
             after = line[match.end():min(len(line), match.end() + 95)]
