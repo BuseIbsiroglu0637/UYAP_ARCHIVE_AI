@@ -1,13 +1,15 @@
 UYAP Archive AI — RC15.9.38 ARCHIVE-SYNC-RACE-FIX
 
-KURULUM — YALNIZCA UZANTI GÜNCELLEMESİ
+KURULUM — UZANTI + YEREL AJAN GÜNCELLEMESİ
 1. UYAP Archive üzerinden çalışan işi duraklatın.
 2. ZIP içeriğini mevcut yüklü uzantının klasörüne çıkarıp aynı dosyaların üzerine yazın.
    manifest.json mevcut manifest.json ile aynı konumda olmalıdır.
-3. chrome://extensions sayfasından mevcut UYAP Archive uzantısını Yenile düğmesiyle yenileyin.
-4. Workspace ve UYAP sekmesini yenileyip mevcut dosyadan devam edin.
-Uzantıyı kaldırmayın, tarayıcı verilerini temizlemeyin, yeni iş oluşturmayın.
-Yerel Agent 2.7.64 kurulu kalmalıdır. Bu paket ajan veya kurulum BAT dosyası içermez.
+3. Chrome ve Edge'i tamamen kapatın.
+4. Bu paket içindeki YEREL_AJANI_KUR.bat dosyasını çalıştırarak Native Agent 2.7.68'i kurun.
+5. Chrome'u açın ve chrome://extensions sayfasından mevcut UYAP Archive uzantısını Yenile düğmesiyle yenileyin.
+6. Workspace ve UYAP sekmesini yenileyip mevcut dosyadan devam edin.
+Uzantıyı kaldırmayın ve tarayıcı verilerini temizlemeyin. Mevcut arşiv kayıtları korunur.
+Bu paket Native Agent 2.7.68 kaynaklarını ve kurulum BAT dosyalarını içerir.
 
 DÜZELTİLEN KOD HATALARI
 - UYAP DOM taramasının eski tam evrak kaydını geri yazması, tarama sırasında
@@ -34,6 +36,13 @@ PASS: Değişen JavaScript dosyalarında sözdizimi kontrolü.
 SINIRLAR
 Windows/UYAP üzerinde canlı hız ölçümü yapılmadı. Tanılama kaydındaki registry
 kanalı zaman aşımlarının tamamen giderildiği henüz doğrulanmış değildir.
-Native 2.7.64 kaynak kodu bu çalışma kopyasında bulunmadığından ajan değiştirilmedi.
+Native 2.7.68 bu paketle birlikte gelir; kaynak-yol kurtarma tanılaması ve sistemik SOURCE_FILE_MISSING devre kesicisi bu sürümle birlikte kullanılmalıdır.
 SHA-256 fiziksel doğrulama ve son bütünlük denetimleri korunmuştur.
 İlk grup kontrolü zaman alabilir; kesin süre veya indirme hızı taahhüt edilmez.
+
+
+EK DOĞRULAMA — SOURCE PATH
+PASS: Chrome complete sonrasında gecikmeli görünen staging dosyası 100/250/500/1000 ms sınırlı polling ile kurtarılır.
+PASS: sourcePathRecoveryChecks Native Agent yanıtında döner ve hangi kesin yolun görüldüğünü tanılamaya taşır.
+PASS: SOURCE_FILE_MISSING üç farklı evrakta sistemik tekrar ederse kuyruk duraklatılır; sınırsız yeniden indirme yapılmaz.
+PASS: Release contract, installer ve Native Agent sürümü 2.7.68 üzerinde uyumludur.
