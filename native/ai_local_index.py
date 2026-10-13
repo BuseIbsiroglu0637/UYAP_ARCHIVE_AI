@@ -1064,36 +1064,138 @@ def _summary_chunk_signal(text):
     return letters * 3 + words * 12 + min(len(value), 2400) - numeric_penalty
 
 
-def _select_summary_rows(rows, limit):
-    """Pick one meaningful chunk per document, spread across the case timeline."""
-    limit = max(1, min(int(limit or 4), MAX_RESULTS))
+SUMMARY_DOCUMENT_RULES = (
+    ("final_decision", "Sonuç / karar", 100, ("gerekçeli karar", "nihai karar", "kesin karar", "hüküm")),
+    ("opening", "Dosya başlangıcı", 90, ("dava dilek", "şikayet dilek", "başvuru dilek", "talep dilek", "takip talebi", "itiraz dilek")),
+    ("procedural", "Önemli süreç işlemi", 80, ("ara karar", "tensip", "duruşma zapt", "duruşma tutana", "ön inceleme")),
+    ("expert", "Uzman / bilirkişi incelemesi", 75, ("bilirkişi", "uzman rapor", "heyet rapor", "inceleme rapor")),
+    ("response", "Esaslı cevap / bilgi", 70, ("cevap dilek", "savunma", "müzekkere cev", "kurum cev", "cevabi yazı", "cevap yazı")),
+    ("enforcement", "Maddi işlem / tespit", 68, ("haciz", "istihkak", "tespit tutana", "haciz tutana", "keşif")),
+    ("deadline", "Tebligat / süre işlemi", 55, ("teblig", "tebliğ", "muhtıra", "kesin süre", "süre ver")),
+)
+
+
+def _summary_document_profile(row):
+    source_ref, text, title, document_type, document_date, chunk_no = row
+    haystack = _clean(f"{title or ''} {document_type or ''} {text or ''}").casefold()
+    role = "other"
+    reason = "Anlamlı dosya içeriği"
+    base_score = 35
+    for candidate_role, candidate_reason, candidate_score, patterns in SUMMARY_DOCUMENT_RULES:
+        if any(pattern in haystack for pattern in patterns):
+            role = candidate_role
+            reason = candidate_reason
+            base_score = candidate_score
+            break
+    signal = _summary_chunk_signal(text)
+    quality_bonus = max(0.0, min(18.0, signal / 350.0))
+    return {
+        "row": row,
+        "sourceRef": source_ref,
+        "role": role,
+        "reason": reason,
+        "baseScore": float(base_score),
+        "signal": float(signal),
+        "score": float(base_score) + quality_bonus,
+        "dateKey": _summary_date_key(document_date),
+        "chunkNo": int(chunk_no or 0),
+    }
+
+
+def _select_summary_documents(rows, limit):
+    """Deterministically select distinct, meaningful documents for case_summary_v1.
+
+    Selection is code-driven, not model-driven:
+    - one best chunk per Dxxxxxx source,
+    - prefer opening/final decision and high-value procedural evidence,
+    - include timeline edges when useful,
+    - cap repeated document roles so one category cannot crowd out the summary.
+    """
+    limit = max(1, min(int(limit or 5), 6, MAX_RESULTS))
     best_by_source = {}
     for row in rows:
-        source_ref, text, title, document_type, document_date, chunk_no = row
-        signal = _summary_chunk_signal(text)
-        current = best_by_source.get(source_ref)
-        candidate = (signal, -int(chunk_no or 0), row)
-        if current is None or candidate[:2] > current[:2]:
-            best_by_source[source_ref] = candidate
+        profile = _summary_document_profile(row)
+        current = best_by_source.get(profile["sourceRef"])
+        rank = (profile["signal"], -profile["chunkNo"])
+        if current is None or rank > (current["signal"], -current["chunkNo"]):
+            best_by_source[profile["sourceRef"]] = profile
 
-    documents = [item[2] for item in best_by_source.values()]
-    documents.sort(key=lambda row: (_summary_date_key(row[4]), str(row[0])))
+    documents = list(best_by_source.values())
+    if not documents:
+        return []
 
-    if len(documents) <= limit:
-        chosen = documents
-    elif limit == 1:
-        chosen = [documents[-1]]
-    else:
-        positions = []
-        last = len(documents) - 1
-        for index in range(limit):
-            position = round(index * last / (limit - 1))
-            if position not in positions:
-                positions.append(position)
-        chosen = [documents[position] for position in positions]
+    dated = [item for item in documents if item["dateKey"] != (0, 0, 0)]
+    if dated:
+        earliest = min(dated, key=lambda item: (item["dateKey"], item["sourceRef"]))
+        latest = max(dated, key=lambda item: (item["dateKey"], item["sourceRef"]))
+        earliest["score"] += 15
+        earliest["timelineReason"] = "Dosyanın erken dönemi"
+        latest["score"] += 20
+        latest["timelineReason"] = "En güncel anlamlı evrak"
 
-    chosen.sort(key=lambda row: (_summary_date_key(row[4]), str(row[0])), reverse=True)
-    return chosen
+    selected = []
+    selected_refs = set()
+    role_counts = {}
+
+    def add(item, forced_reason=None):
+        if item is None or item["sourceRef"] in selected_refs or len(selected) >= limit:
+            return False
+        if forced_reason:
+            item = dict(item)
+            item["selectionReason"] = forced_reason
+        else:
+            item = dict(item)
+            item["selectionReason"] = item.get("timelineReason") or item["reason"]
+        selected.append(item)
+        selected_refs.add(item["sourceRef"])
+        role_counts[item["role"]] = role_counts.get(item["role"], 0) + 1
+        return True
+
+    # The beginning and the final/decisive document are the strongest anchors.
+    for role in ("opening", "final_decision"):
+        candidates = [item for item in documents if item["role"] == role]
+        if candidates:
+            add(max(candidates, key=lambda item: (item["score"], item["dateKey"], item["sourceRef"])))
+
+    # Then cover materially different parts of the case.
+    for role in ("procedural", "expert", "response", "enforcement", "deadline"):
+        if len(selected) >= limit:
+            break
+        candidates = [item for item in documents if item["role"] == role and item["sourceRef"] not in selected_refs]
+        if candidates:
+            add(max(candidates, key=lambda item: (item["score"], item["dateKey"], item["sourceRef"])))
+
+    # Ensure the newest meaningful document represents the current state.
+    if dated and len(selected) < limit:
+        newest = max(dated, key=lambda item: (item["dateKey"], item["score"], item["sourceRef"]))
+        add(newest, "En güncel anlamlı evrak")
+
+    # Fill remaining slots by deterministic score, with at most two of one role.
+    ranked = sorted(
+        documents,
+        key=lambda item: (-item["score"], tuple(-x for x in item["dateKey"]), item["sourceRef"]),
+    )
+    for item in ranked:
+        if len(selected) >= limit:
+            break
+        if item["sourceRef"] in selected_refs:
+            continue
+        if role_counts.get(item["role"], 0) >= 2:
+            continue
+        add(item)
+
+    # If the role cap left room, fill it without the cap rather than inventing a quota.
+    for item in ranked:
+        if len(selected) >= limit:
+            break
+        add(item)
+
+    return selected
+
+
+def _select_summary_rows(rows, limit):
+    """Compatibility helper used by tests; returns only the chosen row tuples."""
+    return [item["row"] for item in _select_summary_documents(rows, limit)]
 
 
 def summary_context(downloads_root, session_id, limit=4):
@@ -1110,17 +1212,20 @@ def summary_context(downloads_root, session_id, limit=4):
                ORDER BY d.document_date, c.source_ref, c.chunk_no""",
             (session_id,),
         ).fetchall()
-        chosen = _select_summary_rows(rows, limit)
+        chosen = _select_summary_documents(rows, limit)
         results = []
-        for source_ref, text, title, document_type, document_date, chunk_no in chosen:
+        for item in chosen:
+            source_ref, text, title, document_type, document_date, chunk_no = item["row"]
             results.append({
                 "sourceRef": source_ref,
                 "title": title,
                 "documentType": document_type,
                 "documentDate": document_date,
                 "snippet": _clean(text)[:1800],
-                "score": float(_summary_chunk_signal(text)),
+                "score": float(item["score"]),
                 "chunkNo": int(chunk_no or 0),
+                "summaryRole": item["role"],
+                "selectionReason": item["selectionReason"],
             })
         return {
             "ok": True,
