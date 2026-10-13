@@ -13,7 +13,7 @@ const DEFAULT_SETTINGS={loginNotification:true,completionNotification:true,probl
 const PAGE_SIZE=100;
 
 const $=id=>document.getElementById(id);
-const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",aiContext:null,aiService:null,aiIndex:null,aiCases:[],aiSelectedCaseKey:null,aiSummaries:[],aiCurrentResult:null,timelineDocs:[],account:null,device:null};
+const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",aiWorkflowId:"ask",aiContext:null,aiService:null,aiIndex:null,aiCases:[],aiSelectedCaseKey:null,aiSummaries:[],aiCurrentResult:null,timelineDocs:[],account:null,device:null};
 let toastTimer=null;
 let archiveRegistryRefreshTask=null;
 let workspaceLiveRefreshTask=null;
@@ -270,9 +270,10 @@ function renderTimelineRows(){
   const list=$("timelineList");list.textContent="";$("timelineEmpty").hidden=filtered.length>0;
   let lastDay="";for(const {d,date} of filtered){const day=shortDate(date),row=document.createElement("div");row.className="timeline-item";row.innerHTML=`<div class="timeline-rail"><span></span></div><div class="timeline-date">${day!==lastDay?esc(day):""}</div><div class="timeline-content"><div class="timeline-title-row"><strong>${esc(documentTitle(d))}</strong><span>${esc(documentType(d))}</span></div><p>${esc(d.uyapPath||d.targetPath||d.localPath||"Arşiv kaydı")}</p><div class="timeline-meta"><span>${esc(archiveRowStatusLabel(d.status))}</span><span>${esc(d.sourceSystem==="UYAP_KURUM"?"UYAP Kurum":"UYAP")}</span></div></div>`;list.append(row);lastDay=day;}
 }
-function setAiPrompt(prompt,{navigate=true}={}){state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";if(navigate)showView("ai");}
+function setAiPrompt(prompt,{navigate=true,workflowId="ask"}={}){state.aiWorkflowId=workflowId;state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";if(navigate)showView("ai");}
 function selectedAiArchiveCase(){return state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;}
-function isCaseSummaryPrompt(value){const q=String(value||"").trim().toLocaleLowerCase("tr-TR");return q.includes("özet")||q.includes("ozet")||q==="bu dosya";}
+const AI_WORKFLOW_TITLES={case_summary:"Dosya Özeti",important_dates:"Önemli Tarihler",new_updates:"Yeni Ne Var?",parties:"Taraflar",classification:"Akıllı Sınıflandırma",chronology:"Kronoloji",ask:"Dosyada Sor"};
+function isCaseSummaryPrompt(){return state.aiWorkflowId==="case_summary";}
 function normalizeSummaryHeading(value){
   return String(value||"")
     .replace(/^#{1,6}\s*/,"")
@@ -326,7 +327,7 @@ function renderAiResult(result,selected,{fromHistory=false}={}){
   const summaryMode=result?.retrievalMode==="case_summary_v1"||Boolean(result?.summaryId);
   panel.hidden=false;
   state.aiCurrentResult={...result,archiveCase:result?.archiveCase||selected||null};
-  title.textContent=summaryMode?"Dosya Özeti":"Dosyada Sor Yanıtı";
+  title.textContent=summaryMode?"Dosya Özeti":(result?.workflowTitle||AI_WORKFLOW_TITLES[result?.workflowId]||"Dosyada Sor Yanıtı");
   const refs=Array.isArray(result?.sourceRefs)?result.sourceRefs:[],sources=Array.isArray(result?.sources)?result.sources:[];
   const created=result?.createdAt||result?.savedSummary?.createdAt||null;
   const parts=[result?.provider||"AI",result?.model||"",summaryMode&&sources.length?`${sources.length} seçili evrak`:refs.length?`${refs.length} kaynak`:"",created?formatDate(created):""].filter(Boolean);
@@ -342,7 +343,7 @@ function renderAiResultLoading(summaryMode){
   const panel=$("aiResultPanel"),content=$("aiResultContent"),title=$("aiResultTitle"),meta=$("aiResultMeta"),pdf=$("aiSummaryPdf"),saved=$("aiSummarySavedBadge");
   if(!panel||!content)return;
   panel.hidden=false;
-  if(title)title.textContent=summaryMode?"Dosya Özeti hazırlanıyor":"Dosyada Sor";
+  if(title)title.textContent=summaryMode?"Dosya Özeti hazırlanıyor":(AI_WORKFLOW_TITLES[state.aiWorkflowId]||"Dosyada Sor");
   if(meta)meta.textContent=summaryMode?"Önemli evraklar kurallarla seçiliyor…":"Yerel dava arşivinde kaynaklar seçiliyor…";
   if(pdf)pdf.hidden=true;if(saved)saved.hidden=true;
   content.innerHTML='<div class="ai-result-loading">✦ '+(summaryMode?"Kısa ve okunabilir dosya özeti hazırlanıyor…":"Kaynaklı yanıt hazırlanıyor…")+'</div>';
@@ -639,11 +640,11 @@ async function closeOnboarding(mark=true){$("onboarding").hidden=true;if(mark)aw
 document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
 document.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.goto)));
 document.querySelectorAll("[data-case-view]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.caseView)));
-document.querySelectorAll("[data-ai-prompt]").forEach(b=>b.addEventListener("click",()=>setAiPrompt(b.dataset.aiPrompt)));
+document.querySelectorAll("[data-ai-prompt]").forEach(b=>b.addEventListener("click",()=>setAiPrompt(b.dataset.aiPrompt,{workflowId:b.dataset.aiWorkflow||"ask"})));
 $("openAiWorkspace").addEventListener("click",()=>showView("ai"));
 $("timelineOpenArchive").addEventListener("click",()=>showView("archive"));$("timelineOpenAi").addEventListener("click",()=>showView("ai"));
 $("timelineSearch").addEventListener("input",renderTimelineRows);$("timelineType").addEventListener("change",renderTimelineRows);
-$("aiPrompt").addEventListener("input",()=>{state.aiPrompt=$("aiPrompt").value;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";});
+$("aiPrompt").addEventListener("input",()=>{state.aiWorkflowId="ask";state.aiPrompt=$("aiPrompt").value;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";});
 $("aiArchiveCasePicker")?.addEventListener("change",async()=>{state.aiSelectedCaseKey=$("aiArchiveCasePicker").value||null;state.aiIndex=null;state.aiCurrentResult=null;state.aiSummaries=[];if($("aiSearchResults"))$("aiSearchResults").textContent="";if($("aiAnswerBox")){$("aiAnswerBox").hidden=true;$("aiAnswerBox").textContent="";}if($("aiResultPanel"))$("aiResultPanel").hidden=true;renderAiSummaryHistory();await renderAiWorkspace();});
 $("aiSummaryPdf")?.addEventListener("click",async()=>{if(!state.aiCurrentResult)return showToast("PDF için önce bir dosya özeti oluşturun veya geçmişten açın.",true);try{await openSummaryPrint(state.aiCurrentResult);}catch(error){showToast(String(error).replace(/^Error:\s*/,""),true);}});
 $("aiSummaryHistory")?.addEventListener("click",async(event)=>{
@@ -708,7 +709,7 @@ $("aiSend").addEventListener("click",async()=>{
   button.disabled=true;button.textContent=summaryMode?"Dosya özeti hazırlanıyor…":"Kaynaklı yanıt hazırlanıyor…";
   renderAiResultLoading(summaryMode);
   try{
-    const result=await sendRuntime(MESSAGE.AI_ASK_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,query,limit:summaryMode?6:8});
+    const result=await sendRuntime(MESSAGE.AI_ASK_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,workflowId:state.aiWorkflowId,query,limit:summaryMode?6:8});
     const displayResult={
       ...result,
       createdAt:result?.savedSummary?.createdAt||new Date().toISOString(),
