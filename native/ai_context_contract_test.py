@@ -462,7 +462,7 @@ def test_provider_gateway_is_secret_safe_citation_gated_and_local_capable():
     assert 'http://127.0.0.1:1234/v1/responses' in source
     assert '"lmstudio"' in source
     assert "LMSTUDIO_TIMEOUT_SECONDS = 300" in source
-    assert "LMSTUDIO_MAX_SOURCES = 4" in source
+    assert "LMSTUDIO_MAX_SOURCES = 6" in source
     assert "LMSTUDIO_MAX_SOURCE_SNIPPET_CHARS = 1400" in source
     assert "LMSTUDIO_MAX_OUTPUT_TOKENS = 600" in source
     assert 'timeout=profile["timeoutSeconds"]' in source
