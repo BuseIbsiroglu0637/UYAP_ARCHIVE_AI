@@ -41,6 +41,33 @@ Context v1 şunları içerir:
 - token / cookie / URL sorguları,
 - ham hukuki belge içeriği.
 
+## Arşiv-dosya merkezli AI kapsamı
+
+Workspace içindeki ana AI deneyimi artık aktif indirme oturumuna bağlı değildir. AI kaynağı, yerel `UYAP_Arsiv` içindeki dava/iş dosyasıdır.
+
+Akış:
+
+1. Native Agent yerel arşivdeki dava dosyalarını `caseIndex` üzerinden listeler.
+2. Kullanıcı AI panelinde dava dosyasını seçer.
+3. Bir dava dosyası yalnız tüm mantıksal evrakları fiziksel olarak hazırsa AI'ya açılır.
+4. İndeks oluşturulurken Native Agent her evrak için dosya varlığı, beklenen boyut ve SHA-256 değerini yeniden doğrular.
+5. Seçilen dava dosyası için oturumdan bağımsız, izole bir yerel indeks oluşturulur.
+6. Arama ve AI soruları yalnız bu seçili dava dosyasının indeksini kullanır.
+
+Fail-closed hazır olma koşulu:
+
+- `documentCount > 0`
+- `physicalReadyCount == documentCount`
+- eksik kayıt yok,
+- problemli kayıt yok,
+- boyut uyuşmazlığı yok,
+- eski/stale metadata yok,
+- indeksleme anındaki SHA-256 doğrulaması başarılı.
+
+Tamamlanmamış dava dosyaları seçim listesinde görünür ancak AI sorgusu kapalı kalır. Böylece yarım bir indirme oturumu, `SWITCHED_TO_OTHER_JOB` durumu veya yeni bir tarayıcı oturumu dosyanın AI kapsamını daraltmaz.
+
+Her dava dosyası ayrı bir `_ai/case-<scope>-v1.sqlite` indeksinde tutulur; böylece `D000001` gibi kaynak referansları farklı dava dosyaları arasında çakışmaz.
+
 ## Provider katmanı
 
 Provider gateway Native Agent içinde çalışır. Chrome uzantısı API anahtarını hiçbir zaman almaz.
@@ -105,3 +132,6 @@ LM Studio Model Server portu `1234` üzerinde çalışmalı ve model `/v1/models
 6. Citation doğrulama ✅
 7. Workspace chat akışı ✅ (ilk tek-soru akışı)
 8. Çoklu provider seçimi ✅ (OpenAI + LM Studio)
+9. Aktif oturumdan bağımsız dava dosyası seçimi ✅
+10. Tam fiziksel arşiv + SHA-256 kapısı ✅
+11. Dava dosyası başına izole AI indeksi ✅
