@@ -68,6 +68,18 @@ export function isIsolatedContentError(errorCode) {
   return ISOLATED_CONTENT_ERRORS.has(String(errorCode || ''));
 }
 
+// The bytes arrived complete and valid, but the local archive target cannot be
+// written (Windows path budget, unreachable folder). Re-downloading from UYAP
+// produces the same bytes and the same failure, so these are terminal.
+const LOCAL_TARGET_ERRORS = new Set([
+  'TARGET_PATH_TOO_LONG',
+  'TARGET_PATH_UNAVAILABLE'
+]);
+
+export function isLocalTargetError(errorCode) {
+  return LOCAL_TARGET_ERRORS.has(String(errorCode || ''));
+}
+
 export function contentEndpointCooldownMs(cooldownCount = 0) {
   const count = Math.max(0, Math.trunc(Number(cooldownCount) || 0));
   return [10_000, 20_000, 30_000, 60_000][Math.min(count, 3)];
