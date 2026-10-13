@@ -469,6 +469,8 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert "AI_ASK_ARCHIVE_CASE" in constants
     native = (ROOT / "native" / "uyap_archive_agent.py").read_text(encoding="utf-8")
     native_bridge = (ROOT / "background" / "native-agent.js").read_text(encoding="utf-8")
+    installer = (ROOT / "native" / "install_host.py").read_text(encoding="utf-8")
+    self_test = (ROOT / "native" / "host_self_test.py").read_text(encoding="utf-8")
     local_index = (ROOT / "native" / "ai_local_index.py").read_text(encoding="utf-8")
     assert "ai_local_index_v1" in native
     assert "archive_case_ai_v1" in native
@@ -476,6 +478,9 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert "!result.capabilities?.includes(ARCHIVE_CASE_AI_CAPABILITY)" in native_bridge
     assert '"ai_build_archive_case_index"' in native_bridge
     assert 'if (action === "ai_answer") return 6 * 60_000;' in native_bridge
+    assert "REQUIRED_CAPABILITIES = {'archive_case_ai_v1'}" in installer
+    assert "check_host_details" in installer
+    assert "def check_host_details" in self_test
     assert 'action == "ai_build_index"' in native
     assert "rawDocumentsUploaded" in local_index
     assert "networkUsed" in local_index
