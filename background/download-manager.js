@@ -5555,6 +5555,14 @@ export async function handleDownloadChanged(delta) {
         pdfValidatorMode: Object.prototype.hasOwnProperty.call(agent, 'pdfTailWindow') ? 'v2' : (agent.errorCode === 'TRUNCATED_PDF' ? 'legacy' : null),
         completedAt: new Date().toISOString()
       });
+      if (effectiveErrorCode === "SOURCE_FILE_MISSING") {
+        await recordDiagnosticEvent(document.sessionId, "SOURCE_PATH_RECOVERY_PROBE_MISSED", {
+          documentId: document.documentId || null,
+          knownRootExists: sourcePathChecks["known-downloads-root-staging"]?.exists === true,
+          browserRootExists: sourcePathChecks["browser-reported-root-staging"]?.exists === true,
+          selectedRootExists: sourcePathChecks["selected-archive-root-staging"]?.exists === true
+        });
+      }
       if (effectiveErrorCode === "HTML_RESPONSE") {
         const sessionBeforeProbe = await sessionStore.get(document.sessionId);
         const htmlOrdinal = Math.max(1, Number(sessionBeforeProbe?.consecutiveHtmlFailures || 0) + 1);
