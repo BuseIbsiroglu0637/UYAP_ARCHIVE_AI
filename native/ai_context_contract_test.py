@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib
+import os
 import json
 import sqlite3
 import tempfile
@@ -453,47 +454,72 @@ def test_archive_registry_orphan_files_do_not_inflate_logical_case_completeness(
 def test_ai_summary_archive_persists_and_deduplicates_locally():
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
+        central = root / "central-history"
         (root / "UYAP_Arsiv").mkdir(parents=True)
-        message = {
-            "downloadsRoot": str(root),
-            "institutionName": "Kastamonu İcra Hukuk Mahkemesi",
-            "caseId": "2025/413",
-            "answer": (
-                "DOSYANIN KONUSU\nTakip dosyasındaki uyuşmazlık özetlenmiştir.\n\n"
-                "SON DURUM\nGerekçeli karar dosyada yer almaktadır.\n\n"
-                "ÖNE ÇIKAN GELİŞMELER\n- Dava dilekçesi sunulmuştur.\n\n"
-                "ÖNEMLİ TARİHLER\n- 22.04.2026 — Gerekçeli karar."
-            ),
-            "sources": [
-                {"sourceRef": "D000001", "title": "Dava Dilekçesi", "selectionReason": "Dosya başlangıcı"},
-                {"sourceRef": "D000078", "title": "Gerekçeli Karar", "selectionReason": "Sonuç / karar"},
-            ],
-            "sourceRefs": ["D000001", "D000078"],
-            "provider": "lmstudio",
-            "model": "qwen2.5-3b-instruct",
-            "retrievalMode": "case_summary_v1",
-            "selectionPolicy": "deterministic_case_summary_v1",
-        }
-        first = save_ai_summary(message)
-        second = save_ai_summary(message)
-        assert first["ok"] is True and first["deduplicated"] is False, first
-        assert second["ok"] is True and second["deduplicated"] is True, second
-        assert first["summary"]["summaryId"] == second["summary"]["summaryId"]
-        listing = list_ai_summaries({
-            "downloadsRoot": str(root),
-            "institutionName": message["institutionName"],
-            "caseId": message["caseId"],
-            "limit": 20,
-        })
-        assert listing["count"] == 1, listing
-        saved = listing["summaries"][0]
-        assert saved["answer"].startswith("DOSYANIN KONUSU")
-        assert len(saved["sources"]) == 2
-        assert Path(saved["path"]).is_file()
-        payload = json.loads(Path(saved["path"]).read_text(encoding="utf-8"))
-        assert payload["privacy"]["localOnly"] is True
-        assert payload["privacy"]["rawDocumentsStored"] is False
-        assert payload["privacy"]["rawSourceSnippetsStored"] is False
+        previous = os.environ.get("UYAP_AI_SUMMARY_STORE_ROOT")
+        os.environ["UYAP_AI_SUMMARY_STORE_ROOT"] = str(central)
+        try:
+            message = {
+                "downloadsRoot": str(root),
+                "institutionName": "Kastamonu İcra Hukuk Mahkemesi",
+                "caseId": "2025/413",
+                "answer": (
+                    "DOSYANIN KONUSU\nTakip dosyasındaki uyuşmazlık özetlenmiştir.\n\n"
+                    "SON DURUM\nGerekçeli karar dosyada yer almaktadır.\n\n"
+                    "ÖNE ÇIKAN GELİŞMELER\n- Dava dilekçesi sunulmuştur.\n\n"
+                    "ÖNEMLİ TARİHLER\n- 22.04.2026 — Gerekçeli karar."
+                ),
+                "sources": [
+                    {"sourceRef": "D000001", "title": "Dava Dilekçesi", "selectionReason": "Dosya başlangıcı"},
+                    {"sourceRef": "D000078", "title": "Gerekçeli Karar", "selectionReason": "Sonuç / karar"},
+                ],
+                "sourceRefs": ["D000001", "D000078"],
+                "provider": "lmstudio",
+                "model": "qwen2.5-3b-instruct",
+                "retrievalMode": "case_summary_v1",
+                "selectionPolicy": "deterministic_case_summary_v1",
+            }
+            first = save_ai_summary(message)
+            second = save_ai_summary(message)
+            assert first["ok"] is True and first["deduplicated"] is False, first
+            assert second["ok"] is True and second["deduplicated"] is True, second
+            assert first["summary"]["summaryId"] == second["summary"]["summaryId"]
+            assert str(first["summary"]["path"]).startswith(str(central.resolve()))
+            listing = list_ai_summaries({
+                "downloadsRoot": str(root),
+                "institutionName": message["institutionName"],
+                "caseId": message["caseId"],
+                "limit": 20,
+            })
+            assert listing["count"] == 1, listing
+            assert str(listing["historyRoot"]).startswith(str(central.resolve()))
+            saved = listing["summaries"][0]
+            assert saved["answer"].startswith("DOSYANIN KONUSU")
+            assert len(saved["sources"]) == 2
+            assert Path(saved["path"]).is_file()
+            payload = json.loads(Path(saved["path"]).read_text(encoding="utf-8"))
+            assert payload["privacy"]["localOnly"] is True
+            assert payload["privacy"]["rawDocumentsStored"] is False
+            assert payload["privacy"]["rawSourceSnippetsStored"] is False
+            assert payload["storage"] == "central_local"
+
+            # Simulate archive-root rediscovery: history must still survive even
+            # when the old archive mirror is no longer available.
+            moved_root = root / "moved"
+            (moved_root / "UYAP_Arsiv").mkdir(parents=True)
+            listing_after_move = list_ai_summaries({
+                "downloadsRoot": str(moved_root),
+                "institutionName": message["institutionName"],
+                "caseId": message["caseId"],
+                "limit": 20,
+            })
+            assert listing_after_move["count"] == 1, listing_after_move
+            assert listing_after_move["summaries"][0]["summaryId"] == first["summary"]["summaryId"]
+        finally:
+            if previous is None:
+                os.environ.pop("UYAP_AI_SUMMARY_STORE_ROOT", None)
+            else:
+                os.environ["UYAP_AI_SUMMARY_STORE_ROOT"] = previous
 
 
 def test_ai_workspace_has_readable_result_history_and_pdf_export_contract():
@@ -514,6 +540,7 @@ def test_ai_workspace_has_readable_result_history_and_pdf_export_contract():
     assert 'GET_AI_ARCHIVE_SUMMARIES:"get_ai_archive_summaries"' in workspace
     assert "renderCaseSummaryHtml" in workspace
     assert "openSummaryPrint" in workspace
+    assert "Özet geçmişi okunamadı:" in workspace
     assert "AI_PRINT_SUMMARY_KEY" in workspace
     assert 'GET_AI_ARCHIVE_SUMMARIES: "get_ai_archive_summaries"' in constants
     assert 'action:"ai_save_summary"' in worker
