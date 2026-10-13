@@ -13,7 +13,7 @@ CI sonucu tek başına satışa hazır installer kabulü değildir.
 
 `.github/workflows/windows-installer-smoke.yml` şu kontrolleri Windows runner üzerinde yapar:
 
-- RC15.9.38 / Native Agent 2.7.64 release identity,
+- RC15.9.38 / Native Agent 2.7.68 release identity,
 - Chrome + Edge Native Messaging registry contract,
 - `current / rollback` lifecycle ve kullanıcı verisini silmeme regresyonu,
 - portable installer sözleşmesi,
