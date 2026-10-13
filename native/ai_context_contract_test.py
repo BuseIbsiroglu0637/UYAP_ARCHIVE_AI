@@ -23,6 +23,7 @@ from ai_provider import (
     _task_instructions,
     _is_summary_query,
 )
+from uyap_archive_agent import list_archive_registry
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -317,6 +318,65 @@ def test_workspace_archive_case_ai_contract_is_independent_from_active_session()
     assert "Oturumdan bağımsız" in workspace or "oturumdan bağımsız" in workspace
 
 
+def test_archive_registry_orphan_files_do_not_inflate_logical_case_completeness():
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        archive = root / "UYAP_Arsiv"
+        case_folder = archive / "Kastamonu 1. Asliye Hukuk Mahkemesi" / "2025_281_Dosya" / "2025_281"
+        case_folder.mkdir(parents=True)
+
+        registered = []
+        for index in range(2):
+            path = case_folder / f"evrak-{index + 1}.txt"
+            path.write_text(f"Doğrulanmış evrak {index + 1}", encoding="utf-8")
+            registered.append(path)
+        orphan = case_folder / "eski-kayit-disi.txt"
+        orphan.write_text("Kayıt dışı fiziksel dosya", encoding="utf-8")
+
+        db = sqlite3.connect(archive / "_archive.db")
+        db.execute(
+            """CREATE TABLE documents(
+                session_id TEXT, document_id TEXT, case_id TEXT, display_name TEXT,
+                uyap_path TEXT, local_path TEXT, size INTEGER, sha256 TEXT, status TEXT,
+                updated_at TEXT, institution_name TEXT, target_path TEXT, source_system TEXT
+            )"""
+        )
+        for index, path in enumerate(registered, start=1):
+            data = path.read_bytes()
+            db.execute(
+                """INSERT INTO documents VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    f"session-{index}",
+                    f"doc-{index}",
+                    "2025/281",
+                    path.name,
+                    f"2025_281/{path.name}",
+                    str(path),
+                    len(data),
+                    hashlib.sha256(data).hexdigest(),
+                    "VERIFIED",
+                    f"2026-10-{10 + index:02d}T10:00:00Z",
+                    "Kastamonu 1. Asliye Hukuk Mahkemesi",
+                    str(path.relative_to(archive)).replace("\\", "/"),
+                    "UYAP",
+                ),
+            )
+        db.commit()
+        db.close()
+
+        registry = list_archive_registry({"downloadsRoot": str(root), "limit": 1})
+        case = next(
+            item for item in registry["caseIndex"]
+            if item["institutionName"] == "Kastamonu 1. Asliye Hukuk Mahkemesi"
+            and item["caseId"] == "2025/281"
+        )
+        assert case["documentCount"] == 2, case
+        assert case["physicalReadyCount"] == 2, case
+        assert case["problemCount"] == 0, case
+        assert case["unregisteredPhysicalCount"] == 1, case
+        assert registry["physicalDiscoveredFiles"] >= 1, registry
+
+
 def test_provider_gateway_is_secret_safe_citation_gated_and_local_capable():
     source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert 'OPENAI_API_KEY' in source
@@ -398,6 +458,7 @@ if __name__ == "__main__":
     test_summary_context_diversifies_sources_and_avoids_numeric_noise()
     test_grounding_rejects_uncited_claims_single_source_summary_and_invented_roles()
     test_archive_case_ai_requires_complete_physical_case_and_builds_isolated_index()
+    test_archive_registry_orphan_files_do_not_inflate_logical_case_completeness()
     test_workspace_archive_case_ai_contract_is_independent_from_active_session()
     test_provider_gateway_is_secret_safe_citation_gated_and_local_capable()
     test_workspace_message_contract_exposes_ai_context_and_status()
