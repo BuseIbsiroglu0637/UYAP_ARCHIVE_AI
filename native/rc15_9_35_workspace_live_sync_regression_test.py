@@ -52,7 +52,8 @@ with tempfile.TemporaryDirectory() as temporary:
     req(len(registry["caseIndex"]) == 1, registry["caseIndex"])
     case = registry["caseIndex"][0]
     req(case["caseId"] == "2026/221", case)
-    req(case["presentCount"] == 1 and case["problemCount"] == 1, case)
+    req(case["presentCount"] == 1 and case["problemCount"] == 0, case)
+    req(case["documentCount"] == 0 and case["unregisteredPhysicalCount"] == 1, case)
 
 # A copied DB row must resolve through target_path even when local_path points at the old PC.
 with tempfile.TemporaryDirectory() as temporary:
