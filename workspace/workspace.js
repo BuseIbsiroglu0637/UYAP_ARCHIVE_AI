@@ -333,7 +333,7 @@ async function renderAiWorkspace(){
     $("aiDateRange").textContent=selected.latestAt?`Son kayıt: ${formatDate(selected.latestAt)}`:"Tam arşiv";
     if(caseStatus){
       caseStatus.textContent=selected.readyForAi
-        ?`${n(selected.physicalReadyDocuments).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} evrak fiziksel olarak hazır. AI bu dava dosyasının tamamını indeksleyebilir.`
+        ?`${n(selected.physicalReadyDocuments).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} evrak fiziksel olarak hazır. Tam dava arşivi AI indekslemeye hazır; metin çıkarılabilen evraklar sorguya alınır.`
         :`${n(selected.physicalReadyDocuments).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} evrak hazır; ${n(selected.problemDocuments).toLocaleString("tr-TR")} kayıt kontrol gerektiriyor. Dosya tamamlanmadan AI sorgusu açılmaz.`;
     }
 
