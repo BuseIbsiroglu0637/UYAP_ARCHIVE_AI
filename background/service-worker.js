@@ -85,6 +85,60 @@ function scheduleRecovery() {
   return recoveryTask;
 }
 
+function normalizeAiArchiveCaseId(value) {
+  const raw=String(value||"").trim().replace(/\s+/g,"").replace(/[_-]/g,"/");
+  const match=raw.match(/^(20\d{2})\/(\d{1,10})$/);
+  return match?`${match[1]}/${Number(match[2])}`:raw;
+}
+function aiArchiveCaseKey(institutionName,caseId) {
+  return `${String(institutionName||"").trim().toLocaleLowerCase("tr-TR")}|${normalizeAiArchiveCaseId(caseId).toLocaleLowerCase("tr-TR")}`;
+}
+function aiArchiveCasePublic(item) {
+  const total=Number(item?.documentCount||0);
+  const physical=Number(item?.physicalReadyCount??item?.presentCount??0);
+  const problem=Number(item?.problemCount||0);
+  const missing=Number(item?.missingCount||0);
+  const sizeMismatch=Number(item?.sizeMismatchCount||0);
+  const staleMetadata=Number(item?.staleMetadataCount||0);
+  return {
+    institutionName:String(item?.institutionName||"").trim(),
+    caseId:normalizeAiArchiveCaseId(item?.caseId),
+    caseTitle:String(item?.caseTitle||"").trim()||null,
+    sourceSystem:Array.isArray(item?.sourceSystems)?item.sourceSystems[0]||null:item?.sourceSystem||null,
+    totalDocuments:total,
+    physicalReadyDocuments:physical,
+    problemDocuments:problem,
+    missingDocuments:missing,
+    sizeMismatchDocuments:sizeMismatch,
+    staleMetadataDocuments:staleMetadata,
+    totalBytes:Number(item?.totalBytes||0),
+    latestAt:item?.latestAt||null,
+    readyForAi:total>0&&physical===total&&problem===0&&missing===0&&sizeMismatch===0&&staleMetadata===0
+  };
+}
+async function getAiArchiveRegistry() {
+  const registry=await listArchiveRegistry({limit:20000});
+  if(!registry?.ok||!registry.archiveExists||!registry.downloadsRoot) throw new Error("AI için kullanılabilir yerel UYAP arşivi bulunamadı.");
+  return registry;
+}
+async function resolveAiArchiveCase(institutionName,caseId,{requireReady=true}={}) {
+  const registry=await getAiArchiveRegistry();
+  const wanted=aiArchiveCaseKey(institutionName,caseId);
+  const found=(Array.isArray(registry.caseIndex)?registry.caseIndex:[])
+    .map(aiArchiveCasePublic)
+    .find(item=>aiArchiveCaseKey(item.institutionName,item.caseId)===wanted);
+  if(!found) throw new Error("Seçilen dava dosyası yerel arşivde bulunamadı.");
+  if(requireReady&&!found.readyForAi) {
+    throw new Error(`Bu dava dosyası AI sorgusuna hazır değil: ${found.physicalReadyDocuments}/${found.totalDocuments} evrak fiziksel olarak hazır, ${found.problemDocuments} kayıt kontrol gerektiriyor.`);
+  }
+  return {registry,caseInfo:found};
+}
+async function resolveAiArchiveCaseScope(institutionName,caseId) {
+  const scope=await askNativeAgent({action:"ai_archive_case_scope",institutionName,caseId});
+  if(!scope?.ok||!scope.scopeId) throw new Error(scope?.error||"Dava dosyası AI kapsamı oluşturulamadı.");
+  return scope.scopeId;
+}
+
 chrome.runtime.onInstalled.addListener(() => { void syncSessionGuardUi(); void scheduleRecovery(); });
 chrome.runtime.onStartup.addListener(() => { void syncSessionGuardUi(); void listArchiveRegistry({limit:1}).catch(()=>{}); void scheduleRecovery(); });
 async function handleOperationalAlarmSafely(alarm) {
@@ -289,6 +343,56 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
         if (!result?.ok) throw new Error(result?.error || "AI sağlayıcısı yanıt veremedi.");
         return result;
+      }
+      case MESSAGE.GET_AI_ARCHIVE_CASES: {
+        const registry=await getAiArchiveRegistry();
+        const cases=(Array.isArray(registry.caseIndex)?registry.caseIndex:[])
+          .map(aiArchiveCasePublic)
+          .filter(item=>item.institutionName&&item.caseId)
+          .sort((a,b)=>Number(b.readyForAi)-Number(a.readyForAi)||(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)));
+        return {ok:true,kind:"UYAP_AI_ARCHIVE_CASES",schemaVersion:1,totalCases:cases.length,readyCases:cases.filter(item=>item.readyForAi).length,cases};
+      }
+      case MESSAGE.BUILD_AI_ARCHIVE_CASE_INDEX: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:true});
+        const result=await askNativeAgent({
+          action:"ai_build_archive_case_index",
+          downloadsRoot:registry.downloadsRoot,
+          institutionName:caseInfo.institutionName,
+          caseId:caseInfo.caseId
+        });
+        if(!result?.ok) throw new Error(result?.error||"Dava dosyası AI indeksi hazırlanamadı.");
+        if(result.readyForAi!==true) throw new Error(`Dava dosyası bütünlük kontrolünü geçemedi: ${Number(result.verifiedPhysicalDocuments||0)}/${Number(result.totalDocuments||0)} evrak doğrulandı.`);
+        return result;
+      }
+      case MESSAGE.GET_AI_ARCHIVE_CASE_INDEX_STATUS: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:false});
+        const scopeId=await resolveAiArchiveCaseScope(caseInfo.institutionName,caseInfo.caseId);
+        const status=await askNativeAgent({action:"ai_index_status",sessionId:scopeId,downloadsRoot:registry.downloadsRoot});
+        return {...status,scopeId,archiveCase:caseInfo,readyForAi:caseInfo.readyForAi===true&&status?.ready===true};
+      }
+      case MESSAGE.SEARCH_AI_ARCHIVE_CASE: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:true});
+        const scopeId=await resolveAiArchiveCaseScope(caseInfo.institutionName,caseInfo.caseId);
+        return askNativeAgent({
+          action:"ai_search",
+          sessionId:scopeId,
+          downloadsRoot:registry.downloadsRoot,
+          query:String(request.query||"").slice(0,500),
+          limit:Math.max(1,Math.min(Number(request.limit||8),20))
+        });
+      }
+      case MESSAGE.AI_ASK_ARCHIVE_CASE: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:true});
+        const scopeId=await resolveAiArchiveCaseScope(caseInfo.institutionName,caseInfo.caseId);
+        const result=await askNativeAgent({
+          action:"ai_answer",
+          sessionId:scopeId,
+          downloadsRoot:registry.downloadsRoot,
+          query:String(request.query||"").slice(0,1200),
+          limit:Math.max(1,Math.min(Number(request.limit||8),8))
+        });
+        if(!result?.ok) throw new Error(result?.error||"AI sağlayıcısı yanıt veremedi.");
+        return {...result,scopeId,archiveCase:{institutionName:caseInfo.institutionName,caseId:caseInfo.caseId,totalDocuments:caseInfo.totalDocuments}};
       }
       case MESSAGE.GET_ARCHIVE_REGISTRY:
         return listArchiveRegistry({sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,limit:request.limit,forceRefresh:request.forceRefresh===true});
