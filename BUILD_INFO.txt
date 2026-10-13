@@ -1,5 +1,5 @@
 UYAP Archive AI v2.9.0 RC15.9.38 ARCHIVE-SYNC-RACE-FIX
-Native Agent: 2.7.64
+Native Agent: 2.7.68
 
 Temel: RC15.9.22 PHYSICAL-PROOF.
 
@@ -40,7 +40,7 @@ RC15.9.37 QUEUE-RECOVERY:
 - Native registry önbelleği `sync_inventory`, başarılı doğrulama, HTML dışlama ve karantina yeniden doğrulaması sonrasında geçersiz kılınır.
 - Windows'ta başka bilgisayardan kopyalanmış `_archive.db` satırları, eski mutlak `local_path` yerine seçili köke rebased `target_path` ile caseIndex'e bağlanır.
 - DB satırı olmayan fiziksel arşiv dosyaları caseIndex'te görünür; mevcut fakat hash/DB kanıtı olmadığı için `problemCount` altında dürüstçe işaretlenir.
-- Native Agent 2.7.64 zorunludur.
+- Native Agent 2.7.68 zorunludur.
 
 Yeni fiziksel kanit modeli:
 - `_archive.db` kaydi tek basina arsiv kaniti DEGILDIR.
@@ -68,3 +68,10 @@ RC15.9.38 PHASE-1 PRODUCT CONTRACT:
 - `dev/stage/prod` güvenli varsayımları `config/environments.json` altında tanımlandı.
 - Runtime bileşenlerinin sürüm değerleri paketleme güvenliği için kendi doğal dosyalarında kalır; CI bu değerlerin release contract ile drift etmesini engeller.
 - Modül sınırları `docs/MODULE_BOUNDARIES.md` ve `native/phase1_product_contract_test.py` ile korunur.
+
+
+RC15.9.38 SOURCE-PATH RECOVERY HARDENING:
+- Chrome tamamlandı sinyali sonrasında kaynak dosya görünürlüğü 100/250/500/1000 ms aralıklarla, yalnız bilinen kesin yollar üzerinde kontrol edilir.
+- Kaynak yol kurtarma denemelerinin sonucu Native Agent yanıtında sourcePathRecoveryChecks olarak döner ve tanılamaya taşınır.
+- SOURCE_FILE_MISSING üç farklı evrakta sistemik biçimde tekrar ederse kuyruk devre kesici ile duraklatılır; aynı evrakların körlemesine yeniden indirilmesi önlenir.
+- Native Agent sürümü 2.7.68 ve protokol sürümü 2'dir.
