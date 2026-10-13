@@ -38,6 +38,7 @@ const ATTEMPT_OWNER_REPLAY_CAPABILITY = "attempt_owner_replay_v1";
 const AI_LOCAL_INDEX_CAPABILITY = "ai_local_index_v1";
 const AI_PROVIDER_GATEWAY_CAPABILITY = "ai_provider_gateway_v1";
 const ARCHIVE_CASE_AI_CAPABILITY = "archive_case_ai_v1";
+const AI_SUMMARY_ARCHIVE_CAPABILITY = "ai_summary_archive_v1";
 const MIN_AGENT_VERSION = "2.7.68";
 const IDLE_DISCONNECT_MS = 3 * 60_000;
 
@@ -45,7 +46,7 @@ const IDLE_DISCONNECT_MS = 3 * 60_000;
 // Chromium creates a separate native-host process per connectNative() port, so
 // dashboard registry scans can never sit in front of batch reconciliation or a
 // validate_download request. UYAP browser downloads remain strictly sequential.
-const BULK_ACTIONS = new Set(["sync_inventory", "finalize_archive", "format_audit", "ai_build_index", "ai_build_archive_case_index", "ai_inspect_archive_case", "ai_search", "ai_index_status", "ai_answer"]);
+const BULK_ACTIONS = new Set(["sync_inventory", "finalize_archive", "format_audit", "ai_build_index", "ai_build_archive_case_index", "ai_inspect_archive_case", "ai_search", "ai_index_status", "ai_answer", "ai_save_summary", "ai_list_summaries"]);
 const REGISTRY_ACTIONS = new Set(["list_archive_registry", "select_existing_archive"]);
 
 function createLane(name) {
@@ -316,7 +317,8 @@ export async function pingNativeAgent() {
     !result.capabilities?.includes(ATTEMPT_OWNER_REPLAY_CAPABILITY) ||
     !result.capabilities?.includes(AI_LOCAL_INDEX_CAPABILITY) ||
     !result.capabilities?.includes(AI_PROVIDER_GATEWAY_CAPABILITY) ||
-    !result.capabilities?.includes(ARCHIVE_CASE_AI_CAPABILITY)
+    !result.capabilities?.includes(ARCHIVE_CASE_AI_CAPABILITY) ||
+    !result.capabilities?.includes(AI_SUMMARY_ARCHIVE_CAPABILITY)
   )) {
     return {ok:false,error:'Yerel ajan bu UYAP AI sürümüyle uyumlu değil. Bu branch içindeki yerel ajanı yeniden kurun.',errorCode:'AGENT_CAPABILITY_MISMATCH'};
   }
