@@ -396,7 +396,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           query:String(request.query||"").slice(0,1200),
           limit:Math.max(1,Math.min(Number(request.limit||8),8))
         });
-        if(!result?.ok) throw new Error(result?.error||"AI sağlayıcısı yanıt veremedi.");
+        if(!result?.ok){
+          const code=result?.errorCode?` [${result.errorCode}]`:"";
+          const diagnostic=result?.diagnosticPath?` Tanı JSON: ${result.diagnosticPath}`:"";
+          throw new Error(`${result?.error||"AI sağlayıcısı yanıt veremedi."}${code}${diagnostic}`);
+        }
         return {...result,scopeId,archiveCase:{institutionName:caseInfo.institutionName,caseId:caseInfo.caseId,totalDocuments:caseInfo.totalDocuments}};
       }
       case MESSAGE.GET_ARCHIVE_REGISTRY:
