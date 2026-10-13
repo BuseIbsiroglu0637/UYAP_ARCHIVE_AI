@@ -5373,6 +5373,13 @@ export async function handleDownloadChanged(delta) {
     } else if (agent.valid) {
       attemptOk = true;
       invalidateArchiveRegistryCache();
+      if (agent.sourcePathRecovered) {
+        await recordDiagnosticEvent(document.sessionId, "SOURCE_PATH_STAGING_RECOVERED", {
+          documentId: document.documentId || null,
+          mode: agent.sourcePathRecoveryMode || "known-downloads-root-staging",
+          browserDownloadId: item?.id || null
+        });
+      }
       await documentStore.update(document.key, {
         status: STATUS.VERIFIED,
         warnings: Array.isArray(agent.warnings) ? agent.warnings : [],
