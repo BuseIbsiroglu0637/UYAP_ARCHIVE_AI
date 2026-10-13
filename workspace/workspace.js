@@ -269,8 +269,9 @@ function renderTimelineRows(){
   const list=$("timelineList");list.textContent="";$("timelineEmpty").hidden=filtered.length>0;
   let lastDay="";for(const {d,date} of filtered){const day=shortDate(date),row=document.createElement("div");row.className="timeline-item";row.innerHTML=`<div class="timeline-rail"><span></span></div><div class="timeline-date">${day!==lastDay?esc(day):""}</div><div class="timeline-content"><div class="timeline-title-row"><strong>${esc(documentTitle(d))}</strong><span>${esc(documentType(d))}</span></div><p>${esc(d.uyapPath||d.targetPath||d.localPath||"Arşiv kaydı")}</p><div class="timeline-meta"><span>${esc(archiveRowStatusLabel(d.status))}</span><span>${esc(d.sourceSystem==="UYAP_KURUM"?"UYAP Kurum":"UYAP")}</span></div></div>`;list.append(row);lastDay=day;}
 }
-function setAiPrompt(prompt,{navigate=true}={}){state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if(navigate)showView("ai");}
+function setAiPrompt(prompt,{navigate=true}={}){state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";if(navigate)showView("ai");}
 function selectedAiArchiveCase(){return state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;}
+function isCaseSummaryPrompt(value){const q=String(value||"").trim().toLocaleLowerCase("tr-TR");return q.includes("özet")||q.includes("ozet")||q==="bu dosya";}
 async function renderAiWorkspace(){
   const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex"),retrieveButton=$("aiRetrieve"),resultsBox=$("aiSearchResults"),answerBox=$("aiAnswerBox"),picker=$("aiArchiveCasePicker"),caseStatus=$("aiArchiveCaseStatus");
   try{
@@ -563,22 +564,25 @@ $("aiSend").addEventListener("click",async()=>{
   if(!selected)return showToast("Önce yerel arşivden bir dava dosyası seçin.",true);
   const query=String($("aiPrompt")?.value||"").trim();
   if(!query)return showToast("Önce AI’ya sorulacak metni yazın.",true);
-  const button=$("aiSend"),box=$("aiAnswerBox");
-  button.disabled=true;button.textContent="Kaynaklı yanıt hazırlanıyor…";
-  if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-loading">Tam dava arşivinden kaynaklar seçiliyor ve AI yanıtı hazırlanıyor…</div>';}
+  const summaryMode=isCaseSummaryPrompt(query),button=$("aiSend"),box=$("aiAnswerBox");
+  button.disabled=true;button.textContent=summaryMode?"Dosya özeti hazırlanıyor…":"Kaynaklı yanıt hazırlanıyor…";
+  if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-loading">'+(summaryMode?"Önemli evraklar kurallarla seçiliyor ve kısa dosya özeti hazırlanıyor…":"Tam dava arşivinden kaynaklar seçiliyor ve AI yanıtı hazırlanıyor…")+'</div>';}
   try{
-    const result=await sendRuntime(MESSAGE.AI_ASK_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,query,limit:8});
+    const result=await sendRuntime(MESSAGE.AI_ASK_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,query,limit:summaryMode?6:8});
     if(box){
-      const refs=Array.isArray(result?.sourceRefs)?result.sourceRefs:[];
-      const meta=[result?.provider||"AI",result?.model||"",refs.length?(refs.length+" kaynak"):"kaynak eşleşmedi",`${n(selected.totalDocuments)} evraklık dava arşivi`].filter(Boolean).join(" • ");
-      box.innerHTML='<div class="ai-answer-head"><strong>Kaynaklı yanıt</strong><span>'+esc(meta)+'</span></div><div class="ai-answer-text">'+esc(result?.answer||"Yanıt alınamadı.")+'</div>';
+      const refs=Array.isArray(result?.sourceRefs)?result.sourceRefs:[],sources=Array.isArray(result?.sources)?result.sources:[];
+      const meta=[result?.provider||"AI",result?.model||"",refs.length?(refs.length+" seçili evrak"):"kaynak eşleşmedi",`${n(selected.totalDocuments)} evraklık dava arşivi`].filter(Boolean).join(" • ");
+      const sourceList=summaryMode&&sources.length
+        ?'<div class="ai-summary-sources"><strong>Özet için seçilen evraklar</strong>'+sources.map(source=>'<div><span>'+esc(source.sourceRef||"-")+'</span><div><b>'+esc(source.title||"Adsız evrak")+'</b><small>'+esc(source.selectionReason||"Seçili doğrulanmış kaynak")+(source.documentDate?' • '+esc(shortDate(source.documentDate)):"")+'</small></div></div>').join("")+'</div>'
+        :"";
+      box.innerHTML='<div class="ai-answer-head"><strong>'+(summaryMode?"Dosya Özeti":"Kaynaklı yanıt")+'</strong><span>'+esc(meta)+'</span></div><div class="ai-answer-text">'+esc(result?.answer||"Yanıt alınamadı.")+'</div>'+sourceList;
     }
   }catch(error){
     if(box){box.hidden=false;box.innerHTML='<div class="ai-answer-error">'+esc(String(error).replace(/^Error:\s*/,""))+'</div>';}
     showToast(String(error).replace(/^Error:\s*/,""),true);
   }finally{
     const ready=state.aiService?.enabled===true&&state.aiService?.configured===true&&state.aiIndex?.ready===true&&selected.readyForAi===true;
-    button.disabled=!ready;button.textContent=ready?"Soruyu gönder":"AI bağlamı hazır değil";
+    button.disabled=!ready;button.textContent=ready?(summaryMode?"Dosya özetini oluştur":"Soruyu gönder"):"AI bağlamı hazır değil";
   }
 });
 $("globalSearch").addEventListener("keydown",event=>{if(event.key!=="Enter")return;const q=$("globalSearch").value.trim();$("jobSearch").value=q;showView("jobs");renderJobs();});
