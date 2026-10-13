@@ -214,6 +214,20 @@
               <article class="ai-context-card"><span>Tarih aralığı</span><strong id="aiDateRange">-</strong><small>arşiv metadatası</small></article>
               <article class="ai-context-card"><span>Kaynak</span><strong id="aiSource">-</strong><small>UYAP bağlamı</small></article>
             </div>
+            <article id="aiResultPanel" class="panel ai-result-panel" hidden>
+              <div class="ai-result-toolbar">
+                <div><p class="eyebrow">AI SONUCU</p><h2 id="aiResultTitle">Dosya Özeti</h2><p id="aiResultMeta" class="muted">Henüz sonuç yok.</p></div>
+                <div class="button-row">
+                  <span id="aiSummarySavedBadge" class="ai-saved-badge" hidden>✓ Yerel arşive kaydedildi</span>
+                  <button id="aiSummaryPdf" class="secondary" hidden>PDF olarak al</button>
+                </div>
+              </div>
+              <div id="aiResultContent" class="ai-result-content"></div>
+            </article>
+            <article class="panel ai-summary-history-panel">
+              <div class="panel-head"><div><p class="eyebrow">KAYDEDİLEN ÖZETLER</p><h2>Dosya özeti geçmişi</h2><p class="muted">Başarılı dosya özetleri yerel arşivde saklanır; istediğiniz sürümü yeniden açabilir veya PDF olarak alabilirsiniz.</p></div><span id="aiSummaryHistoryCount" class="muted">0 özet</span></div>
+              <div id="aiSummaryHistory" class="ai-summary-history"><div class="ai-history-empty">Bu dava dosyası için henüz kaydedilmiş özet yok.</div></div>
+            </article>
             <article class="panel ai-capabilities">
               <div class="panel-head"><div><p class="eyebrow">HAZIR AI İŞ AKIŞLARI</p><h2>Dosya üzerinde ne yapılabilecek?</h2></div><span class="future-badge">AI servisi bağlanınca</span></div>
               <div class="capability-grid">
@@ -237,7 +251,7 @@
             <button id="aiRetrieve" class="secondary full" disabled>Yerel kaynaklarda ara</button>
             <div id="aiSearchResults" class="ai-search-results"></div>
             <button id="aiSend" class="primary full" disabled>AI servisi bağlanınca kullanılabilir</button>
-            <div id="aiAnswerBox" class="ai-answer-box" hidden></div>
+            <div id="aiAnswerBox" hidden></div>
             <div class="ai-privacy-box"><strong>Gizlilik</strong><p>Ham evrak dosyası buluta gönderilmez. AI sağlayıcısı etkinleştirildiğinde yalnız yerelde bulunan, kalite kapısını geçmiş ilgili metin parçaları gönderilir; API anahtarı uzantıya verilmez.</p></div>
           </aside>
         </div>
