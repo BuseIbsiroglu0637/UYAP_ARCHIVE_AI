@@ -636,6 +636,42 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
 
 
 
+
+def test_important_dates_require_source_event_proximity_and_sane_dates():
+    from ai_workflows import _date_events, _normalize_event_date
+    from ai_provider import _validate_important_dates_answer
+
+    sample = (
+        "Dava tarihi: 23/03/2026\n"
+        "Evrak kaydedildi: 24/03/2026\n"
+        "Duruşma tarihi: 11/04/2026\n"
+        "Ara karar 12.04.2026 tarihinde verilmiştir.\n"
+        "Tebliğ tarihi 31/02/2026 hatalı kayıt\n"
+    )
+    found = _date_events(sample)
+    assert len(found) == 2, found
+    assert [x["eventDate"] for x in found] == ["2026-04-11", "2026-04-12"], found
+    assert _normalize_event_date("2026-04-11") == "2026-04-11"
+    assert _normalize_event_date("11/04/2026") == "2026-04-11"
+    assert _normalize_event_date("31/02/2026") is None
+    candidates = [
+        {"sourceRef": "D000001", "eventDate": "2026-04-11", "eventType": "Duruşma"},
+        {"sourceRef": "D000002", "eventDate": "2026-04-12", "eventType": "Ara karar"},
+    ]
+    good = "- 11.04.2026 — Duruşma: duruşma günü [D000001]\n- 12/04/2026 — Ara karar [D000002]"
+    valid, error, _ = _validate_important_dates_answer(good, candidates)
+    assert valid and error is None, (valid, error)
+    for bad in (
+        "- 23/03/2026 — Dava tarihi [D000001]",
+        "- 11/04/2026 — Dava tarihi [D000001]",
+        "- 12/04/2026 — Duruşma [D000001]",
+        "- 11/04/2026 — Duruşma [D999999]",
+        "- 31/02/2026 — Duruşma [D000001]",
+    ):
+        valid, error, _ = _validate_important_dates_answer(bad, candidates)
+        assert not valid, (bad, error)
+
+
 def test_six_ai_workflows_route_by_explicit_id_and_verified_case_scope():
     from ai_local_index import _index_db, archive_case_scope_id
     from ai_workflows import WORKFLOW_IDS, workflow_context
@@ -718,6 +754,7 @@ def test_six_ai_workflows_workspace_and_worker_contract():
     assert 'function isCaseSummaryPrompt(){return state.aiWorkflowId==="case_summary";}' in js
 
 if __name__ == "__main__":
+    test_important_dates_require_source_event_proximity_and_sane_dates()
     test_six_ai_workflows_route_by_explicit_id_and_verified_case_scope()
     test_six_ai_workflows_workspace_and_worker_contract()
     test_ai_policy_defaults_fail_closed()
