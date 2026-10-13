@@ -508,6 +508,7 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert "SEARCH_AI_ARCHIVE_CASE" in constants
     assert "AI_ASK_ARCHIVE_CASE" in constants
     native = (ROOT / "native" / "uyap_archive_agent.py").read_text(encoding="utf-8")
+    worker = (ROOT / "background" / "service-worker.js").read_text(encoding="utf-8")
     native_bridge = (ROOT / "background" / "native-agent.js").read_text(encoding="utf-8")
     installer = (ROOT / "native" / "install_host.py").read_text(encoding="utf-8")
     self_test = (ROOT / "native" / "host_self_test.py").read_text(encoding="utf-8")
@@ -521,6 +522,12 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert "REQUIRED_CAPABILITIES = {'archive_case_ai_v1'}" in installer
     assert "check_host_details" in installer
     assert "def check_host_details" in self_test
+    assert 'AI_DIAGNOSTIC_FILE = "ai-diagnostic-latest.json"' in native
+    assert '"queryStored": False' in native
+    assert '"rawSourceSnippetsStored": False' in native
+    assert '"providerOutputPreviewMaxChars": 1200' in native
+    assert "diagnosticPath" in native
+    assert "Tanı JSON:" in worker
     assert 'action == "ai_build_index"' in native
     assert "rawDocumentsUploaded" in local_index
     assert "networkUsed" in local_index
