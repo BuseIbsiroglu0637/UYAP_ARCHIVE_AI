@@ -31,6 +31,7 @@ $SiteCustomizeTemplate = Join-Path $PSScriptRoot 'portable_sitecustomize.py'
 $AgentSource = Join-Path $PSScriptRoot 'uyap_archive_agent.py'
 $AiIndexSource = Join-Path $PSScriptRoot 'ai_local_index.py'
 $AiProviderSource = Join-Path $PSScriptRoot 'ai_provider.py'
+$AiCaseFactsSource = Join-Path $PSScriptRoot 'ai_case_facts.py'
 $HostSelfTestSource = Join-Path $PSScriptRoot 'host_self_test.py'
 
 New-Item -ItemType Directory -Force -Path $AppRoot | Out-Null
@@ -255,6 +256,7 @@ function Configure-EmbeddedRuntime([string]$RuntimeDir) {
   Copy-Item -LiteralPath $AgentSource -Destination (Join-Path $RuntimeDir 'uyap_archive_agent.py') -Force
   Copy-Item -LiteralPath $AiIndexSource -Destination (Join-Path $RuntimeDir 'ai_local_index.py') -Force
   Copy-Item -LiteralPath $AiProviderSource -Destination (Join-Path $RuntimeDir 'ai_provider.py') -Force
+  Copy-Item -LiteralPath $AiCaseFactsSource -Destination (Join-Path $RuntimeDir 'ai_case_facts.py') -Force
   Copy-Item -LiteralPath $HostSelfTestSource -Destination (Join-Path $RuntimeDir 'host_self_test.py') -Force
   Copy-Item -LiteralPath $SiteCustomizeTemplate -Destination (Join-Path $RuntimeDir 'sitecustomize.py') -Force
 }
@@ -310,6 +312,7 @@ function Install-PortableAgent {
   if (-not (Test-Path $AgentSource)) { throw 'uyap_archive_agent.py paket içinde bulunamadı.' }
   if (-not (Test-Path $AiIndexSource)) { throw 'ai_local_index.py paket içinde bulunamadı.' }
   if (-not (Test-Path $AiProviderSource)) { throw 'ai_provider.py paket içinde bulunamadı.' }
+  if (-not (Test-Path $AiCaseFactsSource)) { throw 'ai_case_facts.py paket içinde bulunamadı.' }
   if (-not (Test-Path $SiteCustomizeTemplate)) { throw 'portable_sitecustomize.py paket içinde bulunamadı.' }
 
   $registryBefore = Read-RegistryState

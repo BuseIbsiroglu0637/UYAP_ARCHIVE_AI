@@ -15,7 +15,22 @@ import urllib.request
 import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
-from ai_local_index import search_index, summary_context
+from ai_case_facts import (
+    SECTION_COVERAGE,
+    SECTION_DEVELOPMENTS,
+    SECTION_KUNYE,
+    SECTION_LAST_HEARING,
+    SECTION_NEXT,
+    SECTION_OVERVIEW,
+    SECTION_TIMELINE,
+    find_dates,
+    format_date,
+    mask_identifiers,
+    render_coverage_lines,
+    render_fact_sections,
+    tr_fold,
+)
+from ai_local_index import case_summary_facts, fit_snippet, search_index, summary_context
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 LMSTUDIO_RESPONSES_URL = "http://127.0.0.1:1234/v1/responses"
@@ -349,7 +364,9 @@ def _source_prompt(results, max_sources=MAX_SOURCES, max_snippet_chars=MAX_SOURC
         title = str(row.get("title") or "Adsız evrak").strip()[:240]
         document_type = str(row.get("documentType") or "DOSYA").strip()[:32]
         document_date = str(row.get("documentDate") or "").strip()[:64]
-        snippet = str(row.get("snippet") or "").strip()[:max_snippet_chars]
+        # Decision-aware shortening: a hearing record's interim decisions and
+        # next hearing date sit at its end, so never cut from the start only.
+        snippet = fit_snippet(str(row.get("snippet") or ""), max_snippet_chars)
         blocks.append(
             f"[{source_ref}]\n"
             f"Başlık: {title}\n"
@@ -423,16 +440,25 @@ def _claim_units(answer):
     return units
 
 
+def _unsupported_roles(answer, source_text):
+    """Role words in the answer that no source uses.
+
+    Turkish-aware: "SANIK".casefold() is "sanik", never "sanık", so a plain
+    casefold rejected every answer whose source wrote the role in capitals.
+    """
+    folded_answer, folded_sources = tr_fold(answer), tr_fold(source_text)
+    return sorted({
+        term
+        for term in RISKY_ROLE_TERMS
+        if tr_fold(term) in folded_answer and tr_fold(term) not in folded_sources
+    })
+
+
 def _validate_summary_v1(answer, source_text):
     text = str(answer or "").strip()
     if not text:
         return False, "AI_SUMMARY_EMPTY", {}
-    folded_sources = str(source_text or "").casefold()
-    unsupported_roles = sorted({
-        term
-        for term in RISKY_ROLE_TERMS
-        if term in text.casefold() and term not in folded_sources
-    })
+    unsupported_roles = _unsupported_roles(text, source_text)
     if unsupported_roles:
         return False, "AI_SUMMARY_UNSUPPORTED_ROLE", {"unsupportedRoles": unsupported_roles}
     normalized = unicodedata.normalize("NFKD", text.casefold().replace("ı", "i").replace("i̇", "i"))
@@ -464,19 +490,449 @@ def _validate_grounding(answer, allowed_refs, source_text, summary_request=False
             "minimumDistinctSources": 2,
         }
 
-    folded_sources = str(source_text or "").casefold()
-    unsupported_roles = sorted({
-        term
-        for term in RISKY_ROLE_TERMS
-        if term in str(answer or "").casefold() and term not in folded_sources
-    })
+    unsupported_roles = _unsupported_roles(answer, source_text)
     if unsupported_roles:
         return False, "AI_RESPONSE_UNSUPPORTED_ROLE", {"unsupportedRoles": unsupported_roles}
 
     return True, None, {"citedSourceRefs": cited_refs}
 
 
-def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES):
+# --------------------------------------------------------------------------
+# Case summary v2: deterministic facts + a schema-bound, validated narrative.
+#
+# Künye, son celse ve ara kararlar, sonraki duruşma, süreler, akış ve kapsam
+# are read from the sources by ai_case_facts without any model. The model only
+# writes a short overview and up to five developments as JSON. Every narrative
+# item is checked against the exact source text it cites and dropped if it
+# fails; identifiers are masked before anything leaves this function.
+# --------------------------------------------------------------------------
+SUMMARY_SCHEMA_NAME = "case_summary_v2"
+SUMMARY_SELECTION_POLICY = "deterministic_case_summary_v2"
+SUMMARY_GROUNDING_MODE = "deterministic_facts_plus_validated_narrative_v1"
+MAX_NARRATIVE_ITEMS = 5
+MAX_NARRATIVE_ITEM_CHARS = 320
+
+_NARRATIVE_ITEM_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["metin", "kaynaklar"],
+    "properties": {
+        "metin": {"type": "string"},
+        "kaynaklar": {"type": "array", "items": {"type": "string"}},
+    },
+}
+NARRATIVE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["durum", "gelismeler"],
+    "properties": {
+        "durum": _NARRATIVE_ITEM_SCHEMA,
+        "gelismeler": {"type": "array", "items": _NARRATIVE_ITEM_SCHEMA},
+    },
+}
+
+_SUMMARY_V2_INSTRUCTIONS = """UYAP Archive AI için dava dosyası özetinin yalnız anlatım kısmını yazıyorsun.
+Künye, son celse kararları, sonraki duruşma, süreler ve akış uygulama tarafından kaynaktan kuralla çıkarıldı; bunları tekrar etme ve onlarla çelişme.
+Yalnız verilen VERIFIED kaynak parçalarını kullan. Kaynakta açıkça yazmayan hiçbir olgu, tarih, kişi, rol veya sonuç yazma.
+Kişi adı yazma; kişilerden yalnız kaynaktaki sıfatıyla bahset (örneğin "sanık müdafii", "müşteki vekili").
+"Belirtilmemiştir", "bilinmiyor" gibi bilgi yokluğu cümleleri kurma; bilgi yoksa o maddeyi hiç yazma.
+Hukuki değerlendirme veya tavsiye yapma. Aynı gelişmeyi farklı sözcüklerle ikinci kez yazma.
+Her maddenin "kaynaklar" alanına yalnız o maddeyi doğrudan destekleyen [Dxxxxxx] referanslarını yaz (köşeli parantez olmadan, örn. "D000075").
+Yanıt yalnız şu JSON nesnesi olsun:
+- durum: dosyanın genel durumunu anlatan en fazla 2 kısa cümle (metin + kaynaklar).
+- gelismeler: en fazla 5 madde; her madde tek somut gelişme ve tarihini içersin (metin + kaynaklar)."""
+
+
+def _chat_completions_url(responses_url):
+    parsed = urlsplit(responses_url)
+    path = parsed.path or ""
+    path = path[: -len("responses")] + "chat/completions" if path.endswith("/responses") else "/v1/chat/completions"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def _post_json(url, body, headers, timeout):
+    request = urllib.request.Request(
+        url, data=json.dumps(body, ensure_ascii=False).encode("utf-8"), headers=headers, method="POST")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _parse_json_object(text):
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", str(text or "").strip())
+    for candidate in (raw, raw[raw.find("{"): raw.rfind("}") + 1] if "{" in raw else ""):
+        if not candidate:
+            continue
+        try:
+            value = json.loads(candidate)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _structured_narrative(status, config, headers, profile, instructions, user_input):
+    """Request the narrative as schema-bound JSON, retrying once without the schema.
+
+    LM Studio enforces json_schema on /v1/chat/completions (its /v1/responses
+    endpoint ignores text.format); OpenAI enforces text.format on Responses.
+    """
+    schema_format = {"name": "uyap_case_summary_narrative", "strict": True, "schema": NARRATIVE_SCHEMA}
+    if status["provider"] == "lmstudio":
+        url = _chat_completions_url(config["endpoint"])
+        if not _is_local_http_url(url):
+            return {"parsed": None, "text": "", "errorCode": "AI_PROVIDER_LOCAL_ENDPOINT_REQUIRED"}
+        base = {
+            "model": status["model"],
+            "temperature": 0.1,
+            "max_tokens": profile["maxOutputTokens"],
+            "messages": [{"role": "system", "content": instructions}, {"role": "user", "content": user_input}],
+        }
+        attempts = [(url, {**base, "response_format": {"type": "json_schema", "json_schema": schema_format}}, "chat"),
+                    (url, base, "chat")]
+    else:
+        base = {
+            "model": status["model"],
+            "store": False,
+            "max_output_tokens": profile["maxOutputTokens"],
+            "instructions": instructions,
+            "input": user_input,
+        }
+        attempts = [(config["endpoint"], {**base, "text": {"format": {"type": "json_schema", **schema_format}}}, "responses"),
+                    (config["endpoint"], base, "responses")]
+
+    last_error = ("AI_PROVIDER_EMPTY_RESPONSE", None)
+    for index, (url, body, kind) in enumerate(attempts):
+        try:
+            payload = _post_json(url, body, headers, profile["timeoutSeconds"])
+        except urllib.error.HTTPError as error:
+            last_error = ("AI_PROVIDER_HTTP_ERROR", f"HTTP {getattr(error, 'code', '')}")
+            if index == 0 and int(getattr(error, "code", 0) or 0) in (400, 404, 422):
+                continue
+            break
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+            last_error = ("AI_PROVIDER_NETWORK_ERROR", str(error)[:200])
+            break
+        if kind == "chat":
+            choices = payload.get("choices") if isinstance(payload.get("choices"), list) else []
+            message = choices[0].get("message") if choices and isinstance(choices[0], dict) else {}
+            text = str((message or {}).get("content") or "")
+        else:
+            text = _extract_output_text(payload)
+        parsed = _parse_json_object(text)
+        return {
+            "parsed": parsed,
+            "text": text,
+            "responseId": payload.get("id"),
+            "usage": payload.get("usage") if isinstance(payload.get("usage"), dict) else None,
+            "schemaEnforced": index == 0,
+            "errorCode": None if parsed else "AI_NARRATIVE_INVALID_JSON",
+        }
+    return {"parsed": None, "text": "", "errorCode": last_error[0], "error": last_error[1]}
+
+
+_NO_INFORMATION = re.compile(
+    r"(?i)(belirtilme(?:miş|mektedir)|bilinme(?:mekte|miş|yen)|bilinmiyor|emin olunma|tespit edileme|anlaşılama|yer almamakta)")
+_HEARING_DENIAL = re.compile(
+    r"(?i)duruşma\w*\s+(?:\w+\s+){0,3}?(?:yapılmadı|yapılmamış|gerçekleşmedi|gerçekleşmemiş|gerçekleştirilmemiş|açılmadı)")
+# Sentences about the sources or the app ("bilgiler kaynaktan alınmıştır",
+# "VERIFIED kaynaklar bulunmuştur") say nothing about the case. Kept narrow:
+# "gelir kaynağı" or "HAGB uygulaması" are case content, not meta statements.
+_META_STATEMENT = re.compile(
+    r"(?i)\bverified\b|\bözet\w*|\bkaynak(?:tan|lar|lardan|larda|larına)\b|\bkuralla\b|\buygulaman[ıi]n\b"
+    r"|\bbilgi\w*\s+(?:\w+\s+){0,4}?(?:alınmıştır|çıkarılmıştır|elde edilmiştir)")
+# Last hearing / next hearing are rendered from the record itself; a model
+# sentence repeating them adds nothing and can only drift from the source.
+_RESTATES_RULE_SECTION = re.compile(r"(?i)\bson celse|sonraki duruşma|celse tarihi|duruşma (?:tarihi|günü) ve saat")
+_ROLE_TOKENS = ("musteki", "sanik", "davaci", "davali", "supheli", "katilan", "magdur", "sikayetci",
+                "alacakli", "borclu", "vekil", "mudafi")
+_STOPWORDS = {"olarak", "ancak", "ayrıca", "üzere", "tarafından", "itibaren", "kadar", "sonra", "önce", "dosya",
+              "dosyanın", "dosyada", "edilmiştir", "edildi", "olduğu", "bulunmaktadır", "yapılmıştır", "ilgili"}
+
+
+def _content_prefixes(text):
+    words = re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû]{5,}", str(text or ""))
+    return {tr_fold(word)[:5] for word in words if tr_fold(word) not in {tr_fold(s) for s in _STOPWORDS}}
+
+
+def _people_from_facts(facts):
+    """(folded name, expected role tokens, label) for every person in the künye."""
+    people = []
+    for party in (facts or {}).get("parties") or []:
+        role = tr_fold(party["role"])
+        if party.get("name"):
+            people.append((tr_fold(party["name"]), {role}, party["role"]))
+        for counsel in party.get("counsel") or []:
+            name = re.sub(r"^av\.?\s+", "", tr_fold(counsel["name"]))
+            counsel_token = "mudafi" if "mudafi" in tr_fold(counsel["label"]) else "vekil"
+            people.append((name, {role, counsel_token}, f"{party['role']} {counsel['label']}"))
+    return people
+
+
+def _role_mismatch(text, people):
+    """Name mentioned with a role word that contradicts the künye (e.g. defence counsel as complainant's lawyer)."""
+    folded = tr_fold(text)
+    for name, expected, label in people:
+        if len(name) < 5:
+            continue
+        for match in re.finditer(re.escape(name), folded):
+            window = folded[max(0, match.start() - 45): match.start()]
+            observed = {token for token in _ROLE_TOKENS if token in window}
+            if observed and not observed <= expected:
+                return label
+    return None
+
+def _validate_narrative_item(item, allowed_refs, snippets, facts, people, development=False):
+    """Return (clean_item, None) or (None, reason)."""
+    if not isinstance(item, dict):
+        return None, "invalid_shape"
+    text = re.sub(r"\s+", " ", str(item.get("metin") or "")).strip()
+    refs = [str(ref).strip().strip("[]") for ref in (item.get("kaynaklar") or []) if str(ref).strip()]
+    refs += SOURCE_REF_RE.findall(text)
+    text = SOURCE_REF_RE.sub("", text).strip(" .;,") + "."
+    refs = [ref for ref in dict.fromkeys(refs)]
+    if len(text) < 12:
+        return None, "too_short"
+    if len(text) > MAX_NARRATIVE_ITEM_CHARS:
+        text = text[: MAX_NARRATIVE_ITEM_CHARS - 1].rstrip() + "…"
+    if not refs:
+        return None, "missing_citation"
+    if any(ref not in allowed_refs for ref in refs):
+        return None, "unknown_citation"
+    cited = "\n".join(snippets.get(ref, "") for ref in refs)
+    if _NO_INFORMATION.search(text):
+        return None, "no_information_claim"
+    if _META_STATEMENT.search(text):
+        return None, "meta_statement"
+    if facts.get("lastHearing") and _HEARING_DENIAL.search(text):
+        return None, "contradicts_hearing_record"
+    missing_dates = find_dates(text) - find_dates(cited)
+    if missing_dates:
+        return None, "date_not_in_cited_source"
+    if _unsupported_roles(text, cited):
+        return None, "role_not_in_cited_source"
+    if _role_mismatch(text, people):
+        return None, "person_role_mismatch"
+    if development and _RESTATES_RULE_SECTION.search(text):
+        return None, "duplicates_rule_based_section"
+    prefixes = _content_prefixes(text)
+    if len(prefixes) >= 3:
+        grounded = len(prefixes & _content_prefixes(cited)) / len(prefixes)
+        if grounded < 0.5:
+            return None, "weak_grounding"
+        # Keep only references that support the item on their own. Procedural
+        # records share a lot of vocabulary, so a reference must be close to the
+        # best-supporting one; one carrying a date the item states always stays.
+        item_dates = find_dates(text)
+        support = {ref: len(prefixes & _content_prefixes(snippets.get(ref, ""))) / len(prefixes) for ref in refs}
+        floor = max(0.25, 0.8 * max(support.values()))
+        supporting = [
+            ref for ref in refs
+            if support[ref] >= floor or (item_dates & find_dates(snippets.get(ref, "")))
+        ]
+        kept_dates = set()
+        for ref in supporting:
+            kept_dates |= find_dates(snippets.get(ref, ""))
+        if supporting and item_dates <= kept_dates:
+            refs = supporting
+    return {"text": text, "refs": refs, "prefixes": prefixes}, None
+
+
+def _validate_narrative(parsed, allowed_refs, snippets, facts):
+    people = _people_from_facts(facts)
+    dropped = {}
+    overview, developments = None, []
+    if isinstance(parsed, dict):
+        candidate, reason = _validate_narrative_item(parsed.get("durum"), allowed_refs, snippets, facts, people)
+        if candidate:
+            overview = candidate
+        elif parsed.get("durum"):
+            dropped[reason] = dropped.get(reason, 0) + 1
+        for raw in (parsed.get("gelismeler") or [])[: MAX_NARRATIVE_ITEMS * 2]:
+            candidate, reason = _validate_narrative_item(raw, allowed_refs, snippets, facts, people, development=True)
+            if candidate is None:
+                dropped[reason] = dropped.get(reason, 0) + 1
+                continue
+            if any(_near_duplicate(candidate, kept) for kept in developments + ([overview] if overview else [])):
+                dropped["near_duplicate"] = dropped.get("near_duplicate", 0) + 1
+                continue
+            developments.append(candidate)
+            if len(developments) >= MAX_NARRATIVE_ITEMS:
+                break
+    for item in developments + ([overview] if overview else []):
+        item.pop("prefixes", None)
+    return overview, developments, dropped
+
+
+def _near_duplicate(first, second):
+    a, b = first.get("prefixes") or set(), second.get("prefixes") or set()
+    if not a or not b:
+        return tr_fold(first["text"]) == tr_fold(second["text"])
+    return len(a & b) / len(a | b) >= 0.6
+
+
+def _known_facts_prompt(facts):
+    lines = []
+    if facts.get("court") or facts.get("caseNo"):
+        lines.append("Mahkeme / dosya: " + " · ".join(p for p in (facts.get("court"), facts.get("caseNo")) if p))
+    if facts.get("subject"):
+        lines.append(f"{facts['subject']['label']}: {facts['subject']['text']}")
+    if facts.get("lastHearing") and facts["lastHearing"].get("date"):
+        lines.append("Son celse tarihi: " + format_date(facts["lastHearing"]["date"]))
+    if facts.get("nextHearing"):
+        time_text = f" saat {facts['nextHearing']['time']}" if facts["nextHearing"].get("time") else ""
+        lines.append("Sonraki duruşma: " + format_date(facts["nextHearing"]["date"]) + time_text)
+    return "\n".join(f"- {line}" for line in lines) or "- (kuralla çıkarılabilen olgu yok)"
+
+
+def _compose_case_summary(fact_sections, overview, developments, coverage_lines):
+    def tagged(item):
+        return item["text"].rstrip(".") + "." + "".join(f" [{ref}]" for ref in item["refs"])
+
+    order = (
+        (SECTION_KUNYE, fact_sections.get(SECTION_KUNYE)),
+        (SECTION_LAST_HEARING, fact_sections.get(SECTION_LAST_HEARING)),
+        (SECTION_NEXT, fact_sections.get(SECTION_NEXT)),
+        (SECTION_OVERVIEW, [tagged(overview)] if overview else None),
+        (SECTION_DEVELOPMENTS, [tagged(item) for item in developments] or None),
+        (SECTION_TIMELINE, fact_sections.get(SECTION_TIMELINE)),
+        (SECTION_COVERAGE, coverage_lines),
+    )
+    blocks = []
+    for heading, lines in order:
+        if not lines:
+            continue
+        if heading == SECTION_OVERVIEW:
+            blocks.append(heading + "\n" + "\n".join(lines))
+        else:
+            blocks.append(heading + "\n" + "\n".join(f"- {line}" for line in lines))
+    return "\n\n".join(blocks)
+
+
+def _answer_case_summary(status, profile, downloads_root, session_id, limit, case_context):
+    context = case_context or {}
+    facts_payload = case_summary_facts(
+        downloads_root, session_id, context.get("institutionName"), context.get("caseId"))
+    facts = facts_payload["facts"]
+    coverage = dict(facts_payload["coverage"])
+    if coverage.get("totalDocuments") is None and isinstance(context.get("totalDocuments"), int):
+        coverage["totalDocuments"] = context["totalDocuments"]
+
+    retrieval = summary_context(downloads_root, session_id, limit, snippet_chars=profile["maxSourceSnippetChars"])
+    results = list(retrieval.get("results") or [])
+    coverage["sentToAi"] = len(results)
+    if not results and not facts.get("hearings"):
+        return {
+            "ok": True, "kind": "UYAP_AI_ANSWER", "schemaVersion": 1,
+            "answer": "Doğrulanmış yerel kaynaklarda özetlenecek okunabilir içerik bulunamadı.",
+            "sourceRefs": [], "sources": [], "model": status["model"], "provider": status["provider"],
+            "providerCalled": False, "rawDocumentsUploaded": False, "store": False,
+        }
+
+    allowed_refs = {str(row.get("sourceRef")) for row in results if row.get("sourceRef")}
+    snippets = {str(row.get("sourceRef")): fit_snippet(row.get("snippet"), profile["maxSourceSnippetChars"]) for row in results}
+    user_input = (
+        "Uygulamanın kaynaktan kuralla çıkardığı olgular (doğru kabul et, tekrar etme, çelişme):\n"
+        + _known_facts_prompt(facts)
+        + "\n\nUygulama tarafından seçilmiş VERIFIED yerel kaynaklar:\n\n"
+        + _source_prompt(results, max_sources=profile["maxSources"], max_snippet_chars=profile["maxSourceSnippetChars"])
+    )
+    config = _provider_config()
+    headers = {"Content-Type": "application/json", "User-Agent": "UYAP-Archive-AI-Native/2.7"}
+    if status["provider"] == "openai":
+        api_key, _ = _read_user_setting("OPENAI_API_KEY")
+        headers["Authorization"] = "Bearer " + api_key
+
+    narrative = {"parsed": None, "text": "", "errorCode": "AI_PROVIDER_NOT_CALLED"}
+    if results:
+        narrative = _structured_narrative(status, config, headers, profile, _SUMMARY_V2_INSTRUCTIONS, user_input)
+    overview, developments, dropped = _validate_narrative(narrative.get("parsed"), allowed_refs, snippets, facts)
+
+    coverage_lines = render_coverage_lines(coverage)
+    kept = (1 if overview else 0) + len(developments)
+    removed = sum(dropped.values())
+    if narrative.get("errorCode") and not narrative.get("parsed"):
+        coverage_lines.append(
+            "AI anlatımı alınamadı (" + str(narrative["errorCode"]) + "); yukarıdaki bölümler kaynaktan kuralla çıkarıldı.")
+    elif removed:
+        coverage_lines.append(
+            f"AI anlatımı: {kept} madde kaynakla doğrulandı, {removed} madde doğrulanamadığı için çıkarıldı.")
+    fact_sections = render_fact_sections(facts)
+    answer, masked_count = mask_identifiers(_compose_case_summary(fact_sections, overview, developments, coverage_lines))
+    if masked_count:
+        answer += f"\n- Gizlilik: {masked_count} kimlik / tebligat numarası maskelendi."
+
+    cited = list(dict.fromkeys(SOURCE_REF_RE.findall(answer)))
+    by_ref = {str(row.get("sourceRef")): row for row in results}
+    titles = facts_payload.get("documents") or {}
+    sources = []
+    for ref in sorted(cited, key=lambda ref: (ref not in by_ref, ref)):
+        row = by_ref.get(ref) or {}
+        meta = titles.get(ref) or {}
+        sources.append({
+            "sourceRef": ref,
+            "title": row.get("title") or meta.get("title"),
+            "documentType": row.get("documentType") or meta.get("documentType"),
+            "documentDate": row.get("documentDate") or meta.get("documentDate"),
+            "selectionReason": row.get("selectionReason") or "Kural tabanlı künye / akış",
+            "summaryRole": row.get("summaryRole") or "rule_based_fact",
+        })
+
+    result = {
+        "ok": True,
+        "kind": "UYAP_AI_ANSWER",
+        "schemaVersion": 1,
+        "answer": answer,
+        "sourceRefs": cited,
+        "sources": sources,
+        "model": status["model"],
+        "provider": status["provider"],
+        "providerResponseId": narrative.get("responseId"),
+        "providerCalled": bool(results),
+        "rawDocumentsUploaded": False,
+        "retrievedSnippetsOnly": True,
+        "retrievalMode": "case_summary_v1",
+        "summarySchema": SUMMARY_SCHEMA_NAME,
+        "groundingMode": SUMMARY_GROUNDING_MODE,
+        "selectionPolicy": SUMMARY_SELECTION_POLICY,
+        "store": False,
+        "usage": narrative.get("usage"),
+        "narrative": {
+            "status": "ok" if kept and not removed else ("partial" if kept else "unavailable"),
+            "errorCode": narrative.get("errorCode"),
+            "schemaEnforced": narrative.get("schemaEnforced"),
+            "kept": kept,
+            "dropped": removed,
+            "droppedReasons": dropped,
+        },
+        "coverage": {key: coverage.get(key) for key in ("totalDocuments", "indexedDocuments", "sentToAi", "metaAvailable")},
+        "maskedIdentifiers": masked_count,
+    }
+    if removed or narrative.get("errorCode"):
+        preview, _ = mask_identifiers(str(narrative.get("text") or "")[:1200])
+        result["diagnostic"] = {
+            "provider": status["provider"],
+            "model": status["model"],
+            "summaryRequest": True,
+            "retrievalMode": "case_summary_v1",
+            "groundingMode": SUMMARY_GROUNDING_MODE,
+            "selectionPolicy": SUMMARY_SELECTION_POLICY,
+            "selectedSources": [
+                {key: row.get(key) for key in ("sourceRef", "title", "documentType", "documentDate", "selectionReason", "summaryRole")}
+                for row in results
+            ],
+            "droppedReasons": dropped,
+            "narrativeErrorCode": narrative.get("errorCode"),
+            "providerOutputPreview": preview,
+            "providerResponseId": narrative.get("responseId"),
+            "usage": narrative.get("usage"),
+            "rawSourceSnippetsStored": False,
+            "rawDocumentsStored": False,
+        }
+    return result
+
+
+def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES, case_context=None):
     status = provider_status()
     if not status["configured"]:
         provider = status.get("provider")
@@ -506,6 +962,8 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
     requested_limit = max(1, int(limit or profile["maxSources"]))
     effective_limit = min(profile["maxSources"], requested_limit)
     summary_request = _is_summary_query(query)
+    if summary_request:
+        return _answer_case_summary(status, profile, downloads_root, session_id, effective_limit, case_context)
     retrieval = (
         summary_context(downloads_root, session_id, effective_limit)
         if summary_request

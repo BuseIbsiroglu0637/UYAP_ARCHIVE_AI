@@ -394,7 +394,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           sessionId:scopeId,
           downloadsRoot:registry.downloadsRoot,
           query:String(request.query||"").slice(0,1200),
-          limit:Math.max(1,Math.min(Number(request.limit||8),8))
+          limit:Math.max(1,Math.min(Number(request.limit||8),8)),
+          // Case identity and size for the rule-based künye and coverage line.
+          institutionName:caseInfo.institutionName,
+          caseId:caseInfo.caseId,
+          totalDocuments:Number.isInteger(caseInfo.totalDocuments)?caseInfo.totalDocuments:null
         });
         if(!result?.ok){
           const code=result?.errorCode?` [${result.errorCode}]`:"";
