@@ -401,7 +401,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           const diagnostic=result?.diagnosticPath?` Tanı JSON: ${result.diagnosticPath}`:"";
           throw new Error(`${result?.error||"AI sağlayıcısı yanıt veremedi."}${code}${diagnostic}`);
         }
-        return {...result,scopeId,archiveCase:{institutionName:caseInfo.institutionName,caseId:caseInfo.caseId,totalDocuments:caseInfo.totalDocuments}};
+        let savedSummary=null,summarySaveError=null;
+        if(result?.retrievalMode==="case_summary_v1"){
+          try{
+            const saved=await askNativeAgent({
+              action:"ai_save_summary",
+              downloadsRoot:registry.downloadsRoot,
+              institutionName:caseInfo.institutionName,
+              caseId:caseInfo.caseId,
+              answer:result.answer,
+              sources:Array.isArray(result.sources)?result.sources:[],
+              sourceRefs:Array.isArray(result.sourceRefs)?result.sourceRefs:[],
+              provider:result.provider,
+              model:result.model,
+              retrievalMode:result.retrievalMode,
+              selectionPolicy:result.selectionPolicy
+            });
+            savedSummary=saved?.summary||null;
+          }catch(error){
+            summarySaveError=String(error).replace(/^(?:Error:\s*)+/,"");
+            logOperationalError("AI_SUMMARY_SAVE_FAILED",error,{metadata:{caseId:String(caseInfo.caseId||"").slice(0,80)}});
+          }
+        }
+        return {...result,scopeId,savedSummary,summarySaveError,archiveCase:{institutionName:caseInfo.institutionName,caseId:caseInfo.caseId,totalDocuments:caseInfo.totalDocuments}};
+      }
+      case MESSAGE.GET_AI_ARCHIVE_SUMMARIES: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:false});
+        return askNativeAgent({
+          action:"ai_list_summaries",
+          downloadsRoot:registry.downloadsRoot,
+          institutionName:caseInfo.institutionName,
+          caseId:caseInfo.caseId,
+          limit:Math.max(1,Math.min(Number(request.limit||20),100))
+        });
       }
       case MESSAGE.GET_ARCHIVE_REGISTRY:
         return listArchiveRegistry({sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,limit:request.limit,forceRefresh:request.forceRefresh===true});
