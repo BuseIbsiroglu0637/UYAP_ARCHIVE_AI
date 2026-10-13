@@ -1140,12 +1140,13 @@ def _select_summary_documents(rows, limit):
     def add(item, forced_reason=None):
         if item is None or item["sourceRef"] in selected_refs or len(selected) >= limit:
             return False
+        item = dict(item)
         if forced_reason:
-            item = dict(item)
             item["selectionReason"] = forced_reason
+        elif item.get("timelineReason"):
+            item["selectionReason"] = item["reason"] + " · " + item["timelineReason"]
         else:
-            item = dict(item)
-            item["selectionReason"] = item.get("timelineReason") or item["reason"]
+            item["selectionReason"] = item["reason"]
         selected.append(item)
         selected_refs.add(item["sourceRef"])
         role_counts[item["role"]] = role_counts.get(item["role"], 0) + 1
