@@ -1,6 +1,6 @@
 const MESSAGE=Object.freeze({
   GET_ACTIVE_SESSION:"get_active_session",GET_SESSIONS:"get_sessions",GET_REPORT_DATA:"get_report_data",GET_AI_CONTEXT:"get_ai_context",GET_AI_SERVICE_STATUS:"get_ai_service_status",BUILD_AI_INDEX:"build_ai_index",GET_AI_INDEX_STATUS:"get_ai_index_status",SEARCH_AI_INDEX:"search_ai_index",AI_ASK:"ai_ask",
-  GET_AI_ARCHIVE_CASES:"get_ai_archive_cases",BUILD_AI_ARCHIVE_CASE_INDEX:"build_ai_archive_case_index",GET_AI_ARCHIVE_CASE_INDEX_STATUS:"get_ai_archive_case_index_status",SEARCH_AI_ARCHIVE_CASE:"search_ai_archive_case",AI_ASK_ARCHIVE_CASE:"ai_ask_archive_case",
+  GET_AI_ARCHIVE_CASES:"get_ai_archive_cases",BUILD_AI_ARCHIVE_CASE_INDEX:"build_ai_archive_case_index",GET_AI_ARCHIVE_CASE_INDEX_STATUS:"get_ai_archive_case_index_status",SEARCH_AI_ARCHIVE_CASE:"search_ai_archive_case",AI_ASK_ARCHIVE_CASE:"ai_ask_archive_case",GET_AI_ARCHIVE_SUMMARIES:"get_ai_archive_summaries",
   GET_DIAGNOSTIC_DATA:"get_diagnostic_data",GET_PROBLEM_ITEMS:"get_problem_items",RETRY_SELECTED_PROBLEMS:"retry_selected_problems",
   RESET_RUNTIME:"reset_runtime",REPACKAGE_ARCHIVE:"repackage_archive",NEW_JOB:"new_job",SOURCE_DIAGNOSTIC:"source_diagnostic",
   TEST_NOTIFICATION:"test_notification",OPEN_ARCHIVE_FOLDER:"open_archive_folder",GET_ARCHIVE_REGISTRY:"get_archive_registry",CONFIRM_HTML_EXCLUSION:"confirm_html_exclusion",OPEN_FINAL_PACKAGE_FOLDER:"open_final_package_folder"
@@ -8,11 +8,12 @@ const MESSAGE=Object.freeze({
 const MANIFEST=chrome.runtime?.getManifest?.()||{};const VERSION=MANIFEST.version_name||MANIFEST.version||"2.9.0 RC15.9.38 ARCHIVE-SYNC-RACE-FIX";
 const SETTINGS_KEY="uyapUiSettingsV1";
 const ONBOARDING_KEY="uyapUiOnboardingCompletedV1";
+const AI_PRINT_SUMMARY_KEY="uyapAiPrintSummaryV1";
 const DEFAULT_SETTINGS={loginNotification:true,completionNotification:true,problemNotification:true,showTechnical:true};
 const PAGE_SIZE=100;
 
 const $=id=>document.getElementById(id);
-const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",aiContext:null,aiService:null,aiIndex:null,aiCases:[],aiSelectedCaseKey:null,timelineDocs:[],account:null,device:null};
+const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",aiContext:null,aiService:null,aiIndex:null,aiCases:[],aiSelectedCaseKey:null,aiSummaries:[],aiCurrentResult:null,timelineDocs:[],account:null,device:null};
 let toastTimer=null;
 let archiveRegistryRefreshTask=null;
 let workspaceLiveRefreshTask=null;
