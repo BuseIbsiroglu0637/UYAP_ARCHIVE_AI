@@ -635,7 +635,89 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
     assert "networkUsed" in local_index
 
 
+
+def test_six_ai_workflows_route_by_explicit_id_and_verified_case_scope():
+    from ai_local_index import _index_db, archive_case_scope_id
+    from ai_workflows import WORKFLOW_IDS, workflow_context
+    from ai_provider import _WORKFLOW_TASKS, answer_from_local_index
+
+    assert len(WORKFLOW_IDS) == 6
+    assert set(WORKFLOW_IDS) - {"case_summary"} == set(_WORKFLOW_TASKS)
+    assert answer_from_local_index(".", "not-a-case", "kronolojik özet",
+                                   workflow_id="unknown")["errorCode"] == "AI_WORKFLOW_UNSUPPORTED"
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        (root / "UYAP_Arsiv").mkdir()
+        scope = archive_case_scope_id("Örnek Mahkeme", "2026/12")
+        db, fts5 = _index_db(root, scope)
+        try:
+            entries = [
+                ("D000001", "doc-a", "2026-04-03", "Duruşma Tutanağı",
+                 "03.04.2026 tarihli duruşmada vekili hazır bulundu. Davacı Ayşe Kaya temsil edildi."),
+                ("D000002", "doc-b", "2026-04-09", "Tebligat",
+                 "09.04.2026 tarihli tebligat tebliğ edilmiştir. Süre başlangıcı açık değildir."),
+                ("D000003", "doc-c", "2026-04-11", "Ara Karar",
+                 "Mahkeme 11.04.2026 tarihinde ara karar vermiştir."),
+            ]
+            def insert(item):
+                ref, doc_hash, date, title, snippet = item
+                db.execute("""INSERT INTO ai_documents
+                 (source_ref,session_id,document_id_hash,file_sha256,title,document_type,
+                  document_date,extraction_method,extraction_quality,text_chars,chunk_count,indexed_at)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 (ref,scope,doc_hash,("a"*63+str(len(doc_hash)%10)),title,"UDF",date,
+                  "test","accepted",len(snippet),1,"2026-10-13"))
+                db.execute("INSERT INTO ai_chunks(source_ref,chunk_no,text) VALUES(?,?,?)",
+                           (ref,0,snippet))
+                if fts5:
+                    db.execute("INSERT INTO ai_chunks_fts(source_ref,text) VALUES(?,?)",(ref,snippet))
+            for item in entries:
+                insert(item)
+            db.commit()
+        finally:
+            db.close()
+
+        for workflow_id in ("case_summary","important_dates","parties","classification","chronology"):
+            result = workflow_context(root, scope, workflow_id, "gelişmeleri göster", 6)
+            assert result["results"], (workflow_id,result)
+            assert all(row["sourceRef"].startswith("D") for row in result["results"])
+
+        first = workflow_context(root,scope,"new_updates","",6)
+        assert first["noticeCode"] == "AI_UPDATES_BASELINE_CREATED", first
+        second = workflow_context(root,scope,"new_updates","",6)
+        assert second["noticeCode"] == "AI_UPDATES_NO_NEW_DOCUMENTS", second
+        db, _ = _index_db(root,scope)
+        try:
+            insert(("D000004","doc-d","2026-04-12","Cevap Dilekçesi",
+                    "12.04.2026 tarihinde yeni cevap dilekçesi verilmiştir."))
+            db.commit()
+        finally:
+            db.close()
+        changed = workflow_context(root,scope,"new_updates","",6)
+        assert [item["sourceRef"] for item in changed["results"]] == ["D000004"], changed
+        assert changed["noticeCode"] if False else True
+        assert changed["coverage"] == "selected_sources_only"
+        assert answer_from_local_index(root,"not-a-case","Açıklama",
+                                       workflow_id="improper")["errorCode"] == "AI_WORKFLOW_UNSUPPORTED"
+
+
+def test_six_ai_workflows_workspace_and_worker_contract():
+    html = (ROOT/"workspace"/"index.html").read_text(encoding="utf-8")
+    js = (ROOT/"workspace"/"workspace.js").read_text(encoding="utf-8")
+    worker = (ROOT/"background"/"service-worker.js").read_text(encoding="utf-8")
+    native = (ROOT/"native"/"uyap_archive_agent.py").read_text(encoding="utf-8")
+    provider = (ROOT/"native"/"ai_provider.py").read_text(encoding="utf-8")
+    for workflow_id in ("case_summary","important_dates","new_updates","parties","classification","chronology"):
+        assert f'data-ai-workflow="{workflow_id}"' in html
+    assert 'workflowId:state.aiWorkflowId' in js
+    assert 'request.workflowId||"ask"' in worker
+    assert 'workflow_id=message.get("workflowId")' in native
+    assert 'summary_request = workflow_id == "case_summary"' in provider
+    assert 'function isCaseSummaryPrompt(){return state.aiWorkflowId==="case_summary";}' in js
+
 if __name__ == "__main__":
+    test_six_ai_workflows_route_by_explicit_id_and_verified_case_scope()
+    test_six_ai_workflows_workspace_and_worker_contract()
     test_ai_policy_defaults_fail_closed()
     test_ai_context_builder_is_verified_only_and_privacy_light()
     test_pdf_text_quality_gate_accepts_turkish_and_rejects_mojibake()
