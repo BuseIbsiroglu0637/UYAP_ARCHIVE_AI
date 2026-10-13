@@ -1,5 +1,7 @@
 from pathlib import Path
+import hashlib
 import json
+import sqlite3
 import tempfile
 import zipfile
 from ai_local_index import (
@@ -9,6 +11,10 @@ from ai_local_index import (
     _quality_gate_pdf_chunks,
     _xlsx_text,
     _select_summary_rows,
+    archive_case_scope_id,
+    build_archive_case_index,
+    index_status,
+    inspect_archive_case,
 )
 from ai_provider import (
     _validate_citations,
@@ -225,6 +231,91 @@ def test_grounding_rejects_uncited_claims_single_source_summary_and_invented_rol
     assert set(detail["citedSourceRefs"]) == allowed
 
 
+def test_archive_case_ai_requires_complete_physical_case_and_builds_isolated_index():
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        archive = root / "UYAP_Arsiv"
+        case_folder = archive / "Kastamonu 2. İş Mahkemesi" / "2026_529_Dosya"
+        case_folder.mkdir(parents=True)
+
+        first = case_folder / "evrak1.txt"
+        second = case_folder / "evrak2.txt"
+        first.write_text("Mahkeme 10 Ekim 2026 tarihli duruşma gününü bildirmiştir.", encoding="utf-8")
+        second.write_text("Taraflara bilirkişi raporuna karşı beyanda bulunmaları için süre verilmiştir.", encoding="utf-8")
+
+        db = sqlite3.connect(archive / "_archive.db")
+        db.execute(
+            """CREATE TABLE documents(
+                session_id TEXT, document_id TEXT, case_id TEXT, display_name TEXT,
+                uyap_path TEXT, local_path TEXT, size INTEGER, sha256 TEXT, status TEXT,
+                updated_at TEXT, institution_name TEXT, target_path TEXT, document_date TEXT,
+                source_system TEXT
+            )"""
+        )
+        for index, path in enumerate((first, second), start=1):
+            data = path.read_bytes()
+            db.execute(
+                """INSERT INTO documents VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    f"session-{index}",
+                    f"doc-{index}",
+                    "2026/529",
+                    path.name,
+                    f"Klasör/{path.name}",
+                    str(path),
+                    len(data),
+                    hashlib.sha256(data).hexdigest(),
+                    "VERIFIED",
+                    f"2026-10-{10 + index:02d}T10:00:00Z",
+                    "Kastamonu 2. İş Mahkemesi",
+                    str(path.relative_to(archive)).replace("\\", "/"),
+                    f"2026-10-{10 + index:02d}",
+                    "UYAP",
+                ),
+            )
+        db.commit()
+        db.close()
+
+        inspection = inspect_archive_case(root, "Kastamonu 2. İş Mahkemesi", "2026/529")
+        assert inspection["readyForAi"] is True, inspection
+        assert inspection["totalDocuments"] == 2, inspection
+        assert inspection["verifiedPhysicalDocuments"] == 2, inspection
+        assert inspection["scopeId"] == archive_case_scope_id("Kastamonu 2. İş Mahkemesi", "2026_529")
+
+        built = build_archive_case_index(root, "Kastamonu 2. İş Mahkemesi", "2026/529")
+        assert built["readyForAi"] is True, built
+        assert built["availableDocuments"] == 2, built
+        assert built["availableChunks"] >= 2, built
+        status = index_status(root, built["scopeId"])
+        assert status["ready"] is True, status
+        assert status["documents"] == 2, status
+
+        second.write_text("değiştirildi", encoding="utf-8")
+        incomplete = inspect_archive_case(root, "Kastamonu 2. İş Mahkemesi", "2026/529")
+        assert incomplete["readyForAi"] is False, incomplete
+        assert incomplete["problemDocuments"] == 1, incomplete
+        assert incomplete["issues"][0]["reason"] in {"size_mismatch", "sha256_mismatch"}, incomplete
+
+
+def test_workspace_archive_case_ai_contract_is_independent_from_active_session():
+    constants = (ROOT / "shared" / "constants.js").read_text(encoding="utf-8")
+    worker = (ROOT / "background" / "service-worker.js").read_text(encoding="utf-8")
+    workspace = (ROOT / "workspace" / "workspace.js").read_text(encoding="utf-8")
+    html = (ROOT / "workspace" / "index.html").read_text(encoding="utf-8")
+    assert 'GET_AI_ARCHIVE_CASES: "get_ai_archive_cases"' in constants
+    assert 'BUILD_AI_ARCHIVE_CASE_INDEX: "build_ai_archive_case_index"' in constants
+    assert 'AI_ASK_ARCHIVE_CASE: "ai_ask_archive_case"' in constants
+    assert "case MESSAGE.GET_AI_ARCHIVE_CASES:" in worker
+    assert 'action:"ai_build_archive_case_index"' in worker
+    assert "resolveAiArchiveCase" in worker
+    assert "MESSAGE.GET_AI_ARCHIVE_CASES" in workspace
+    assert "MESSAGE.BUILD_AI_ARCHIVE_CASE_INDEX" in workspace
+    assert "MESSAGE.AI_ASK_ARCHIVE_CASE" in workspace
+    assert 'id="aiArchiveCasePicker"' in html
+    assert "Tam dava indeksini hazırla" in workspace
+    assert "Oturumdan bağımsız" in workspace or "oturumdan bağımsız" in workspace
+
+
 def test_provider_gateway_is_secret_safe_citation_gated_and_local_capable():
     source = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
     assert 'OPENAI_API_KEY' in source
@@ -293,6 +384,8 @@ if __name__ == "__main__":
     test_summary_prompt_forbids_invented_roles_and_detects_summary_request()
     test_summary_context_diversifies_sources_and_avoids_numeric_noise()
     test_grounding_rejects_uncited_claims_single_source_summary_and_invented_roles()
+    test_archive_case_ai_requires_complete_physical_case_and_builds_isolated_index()
+    test_workspace_archive_case_ai_contract_is_independent_from_active_session()
     test_provider_gateway_is_secret_safe_citation_gated_and_local_capable()
     test_workspace_message_contract_exposes_ai_context_and_status()
     print("AI context contract: PASS")
