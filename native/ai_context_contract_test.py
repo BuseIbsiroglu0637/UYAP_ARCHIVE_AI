@@ -306,6 +306,7 @@ def test_workspace_archive_case_ai_contract_is_independent_from_active_session()
     assert 'BUILD_AI_ARCHIVE_CASE_INDEX: "build_ai_archive_case_index"' in constants
     assert 'AI_ASK_ARCHIVE_CASE: "ai_ask_archive_case"' in constants
     assert "case MESSAGE.GET_AI_ARCHIVE_CASES:" in worker
+    assert "listArchiveRegistry({limit:1})" in worker
     assert 'action:"ai_build_archive_case_index"' in worker
     assert "resolveAiArchiveCase" in worker
     assert "MESSAGE.GET_AI_ARCHIVE_CASES" in workspace
