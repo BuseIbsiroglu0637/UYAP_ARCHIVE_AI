@@ -273,6 +273,122 @@ function renderTimelineRows(){
 function setAiPrompt(prompt,{navigate=true}={}){state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";if(navigate)showView("ai");}
 function selectedAiArchiveCase(){return state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;}
 function isCaseSummaryPrompt(value){const q=String(value||"").trim().toLocaleLowerCase("tr-TR");return q.includes("özet")||q.includes("ozet")||q==="bu dosya";}
+function normalizeSummaryHeading(value){
+  return String(value||"")
+    .replace(/^#{1,6}\s*/,"")
+    .replace(/^\*\*(.*?)\*\*:?$/,"$1")
+    .replace(/^__(.*?)__:?$/,"$1")
+    .replace(/:$/,"")
+    .trim()
+    .toLocaleLowerCase("tr-TR");
+}
+function parseCaseSummary(answer){
+  const aliases=new Map([
+    ["dosyanın konusu","topic"],["dosyanin konusu","topic"],
+    ["son durum","status"],
+    ["öne çıkan gelişmeler","developments"],["one cikan gelismeler","developments"],
+    ["önemli tarihler","dates"],["onemli tarihler","dates"]
+  ]);
+  const sections={topic:[],status:[],developments:[],dates:[],other:[]};
+  let current="other";
+  for(const raw of String(answer||"").split(/\r?\n/)){
+    const line=raw.trim();
+    if(!line)continue;
+    const heading=normalizeSummaryHeading(line);
+    if(aliases.has(heading)){current=aliases.get(heading);continue;}
+    const cleaned=line.replace(/^[-•*]\s*/,"").replace(/^\d+[.)]\s*/,"").replace(/^\*\*(.*?)\*\*$/,"$1").trim();
+    if(cleaned)sections[current].push(cleaned);
+  }
+  return sections;
+}
+function renderCaseSummaryHtml(answer){
+  const sections=parseCaseSummary(answer);
+  const block=(title,items,list=false)=>{
+    if(!items?.length)return "";
+    const content=list
+      ?`<ul>${items.slice(0,8).map(item=>`<li>${esc(item)}</li>`).join("")}</ul>`
+      :items.slice(0,4).map(item=>`<p>${esc(item)}</p>`).join("");
+    return `<section class="ai-summary-section"><h3>${esc(title)}</h3>${content}</section>`;
+  };
+  const known=block("Dosyanın konusu",sections.topic)+block("Son durum",sections.status)+block("Öne çıkan gelişmeler",sections.developments,true)+block("Önemli tarihler",sections.dates,true);
+  return `<div class="ai-summary-document">${known||`<section class="ai-summary-section"><p>${esc(answer||"Yanıt alınamadı.")}</p></section>`}</div>`;
+}
+function renderSummarySourcesHtml(sources){
+  const rows=Array.isArray(sources)?sources:[];
+  if(!rows.length)return "";
+  return '<div class="ai-summary-source-grid"><strong>Özet için seçilen evraklar</strong>'+rows.map(source=>
+    '<div class="ai-summary-source-card"><span>'+esc(source.sourceRef||"-")+'</span><div><b>'+esc(source.title||"Adsız evrak")+'</b><small>'+esc(source.selectionReason||"Seçili doğrulanmış kaynak")+(source.documentDate?' • '+esc(shortDate(source.documentDate)):"")+'</small></div></div>'
+  ).join("")+'</div>';
+}
+function renderAiResult(result,selected,{fromHistory=false}={}){
+  const panel=$("aiResultPanel"),content=$("aiResultContent"),title=$("aiResultTitle"),meta=$("aiResultMeta"),pdf=$("aiSummaryPdf"),saved=$("aiSummarySavedBadge");
+  if(!panel||!content)return;
+  const summaryMode=result?.retrievalMode==="case_summary_v1"||Boolean(result?.summaryId);
+  panel.hidden=false;
+  state.aiCurrentResult={...result,archiveCase:result?.archiveCase||selected||null};
+  title.textContent=summaryMode?"Dosya Özeti":"Dosyada Sor Yanıtı";
+  const refs=Array.isArray(result?.sourceRefs)?result.sourceRefs:[],sources=Array.isArray(result?.sources)?result.sources:[];
+  const created=result?.createdAt||result?.savedSummary?.createdAt||null;
+  const parts=[result?.provider||"AI",result?.model||"",summaryMode&&sources.length?`${sources.length} seçili evrak`:refs.length?`${refs.length} kaynak`:"",created?formatDate(created):""].filter(Boolean);
+  meta.textContent=parts.join(" • ")||"Yerel AI sonucu";
+  content.innerHTML=summaryMode
+    ?renderCaseSummaryHtml(result?.answer||"")+renderSummarySourcesHtml(sources)
+    :`<div class="ai-freeform-answer">${esc(result?.answer||"Yanıt alınamadı.")}</div>`;
+  if(pdf)pdf.hidden=!summaryMode;
+  if(saved){const locallySaved=summaryMode&&(fromHistory||Boolean(result?.savedSummary)||Boolean(result?.summaryId));saved.hidden=!locallySaved;saved.textContent=locallySaved?"✓ Yerel arşive kaydedildi":"";}
+  panel.scrollIntoView({behavior:"smooth",block:"start"});
+}
+function renderAiResultLoading(summaryMode){
+  const panel=$("aiResultPanel"),content=$("aiResultContent"),title=$("aiResultTitle"),meta=$("aiResultMeta"),pdf=$("aiSummaryPdf"),saved=$("aiSummarySavedBadge");
+  if(!panel||!content)return;
+  panel.hidden=false;
+  if(title)title.textContent=summaryMode?"Dosya Özeti hazırlanıyor":"Dosyada Sor";
+  if(meta)meta.textContent=summaryMode?"Önemli evraklar kurallarla seçiliyor…":"Yerel dava arşivinde kaynaklar seçiliyor…";
+  if(pdf)pdf.hidden=true;if(saved)saved.hidden=true;
+  content.innerHTML='<div class="ai-result-loading">✦ '+(summaryMode?"Kısa ve okunabilir dosya özeti hazırlanıyor…":"Kaynaklı yanıt hazırlanıyor…")+'</div>';
+}
+function renderAiResultError(error){
+  const panel=$("aiResultPanel"),content=$("aiResultContent"),title=$("aiResultTitle"),meta=$("aiResultMeta"),pdf=$("aiSummaryPdf"),saved=$("aiSummarySavedBadge");
+  if(!panel||!content)return;
+  panel.hidden=false;if(title)title.textContent="AI işlemi tamamlanamadı";if(meta)meta.textContent="Tanı bilgisi hata mesajında korunur.";if(pdf)pdf.hidden=true;if(saved)saved.hidden=true;
+  content.innerHTML='<div class="ai-result-error">'+esc(String(error).replace(/^Error:\s*/,""))+'</div>';
+}
+function renderAiSummaryHistory(){
+  const box=$("aiSummaryHistory"),count=$("aiSummaryHistoryCount");
+  if(!box)return;
+  const rows=Array.isArray(state.aiSummaries)?state.aiSummaries:[];
+  if(count)count.textContent=`${rows.length.toLocaleString("tr-TR")} özet`;
+  if(!rows.length){box.innerHTML='<div class="ai-history-empty">Bu dava dosyası için henüz kaydedilmiş özet yok.</div>';return;}
+  box.innerHTML=rows.map((item,index)=>{
+    const sourceCount=Array.isArray(item.sources)?item.sources.length:0;
+    return `<div class="ai-history-item"><div><strong>${esc(formatDate(item.createdAt))}</strong><small>${esc(item.model||"Yerel AI")} • ${sourceCount} kaynak • ${esc(item.summaryId||"")}</small></div><div class="ai-history-actions"><button data-ai-summary-open="${index}">Aç</button><button data-ai-summary-pdf="${index}">PDF</button></div></div>`;
+  }).join("");
+}
+async function loadAiSummaryHistory(selected){
+  if(!selected){state.aiSummaries=[];renderAiSummaryHistory();return;}
+  try{
+    const payload=await sendRuntime(MESSAGE.GET_AI_ARCHIVE_SUMMARIES,{institutionName:selected.institutionName,caseId:selected.caseId,limit:20});
+    if(archiveCaseKey(selected)!==state.aiSelectedCaseKey)return;
+    state.aiSummaries=Array.isArray(payload?.summaries)?payload.summaries:[];
+  }catch{state.aiSummaries=[];}
+  renderAiSummaryHistory();
+}
+async function openSummaryPrint(summary){
+  const selected=summary?.archiveCase||selectedAiArchiveCase()||{};
+  const payload={
+    schemaVersion:1,
+    title:"UYAP Archive AI - Dosya Özeti",
+    institutionName:summary?.institutionName||selected.institutionName||"",
+    caseId:summary?.caseId||selected.caseId||"",
+    createdAt:summary?.createdAt||summary?.savedSummary?.createdAt||new Date().toISOString(),
+    answer:summary?.answer||"",
+    sources:Array.isArray(summary?.sources)?summary.sources:[],
+    model:summary?.model||"",
+    provider:summary?.provider||""
+  };
+  await chrome.storage.local.set({[AI_PRINT_SUMMARY_KEY]:payload});
+  await chrome.tabs.create({url:chrome.runtime.getURL("workspace/summary-print.html")});
+}
 async function renderAiWorkspace(){
   const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex"),retrieveButton=$("aiRetrieve"),resultsBox=$("aiSearchResults"),answerBox=$("aiAnswerBox"),picker=$("aiArchiveCasePicker"),caseStatus=$("aiArchiveCaseStatus");
   try{
