@@ -2912,30 +2912,56 @@ def validate_download(message):
     original_source = source
     staging_path = message["stagingPath"]
 
-    # Chrome can report a completed DownloadItem whose filename still reflects
-    # the pre-onDeterminingFilename path for a short race window. When the
-    # extension already knows the downloads root and the attempt-specific
-    # staging path, recover only that exact safe candidate. Browser completion
-    # and size evidence remain mandatory; arbitrary path probing is forbidden.
     if (
         not source.is_file()
         and message.get("browserState") == "complete"
         and message.get("browserExists") is not False
-        and message.get("downloadsRoot")
     ):
         try:
             staging_parts = _staging_parts(staging_path)
-            supplied_root = _lexical_abs(Path(str(message.get("downloadsRoot"))))
-            candidate = _lexical_abs(supplied_root.joinpath(*staging_parts))
-            candidate.relative_to(supplied_root)
+        except ValueError:
+            staging_parts = None
+        if staging_parts:
             expected_size = _positive_size(message.get("browserFileSize"))
-            observed_size = _settled_source_size(candidate, expected_size) if candidate.is_file() else None
-            size_ok = expected_size is None or observed_size == expected_size
-            if observed_size is not None and size_ok:
-                source = candidate
-                source_path_recovery_mode = "known-downloads-root-staging"
-        except (OSError, ValueError, TypeError):
-            pass
+            roots = []
+            if message.get("downloadsRoot"):
+                roots.append(("known-downloads-root-staging", _lexical_abs(Path(str(message.get("downloadsRoot"))))))
+            roots.append(("browser-reported-root-staging", _lexical_abs(original_source.parent)))
+            try:
+                selected_root = load_selected_archive_root()
+                if selected_root is not None:
+                    roots.append(("selected-archive-root-staging", _lexical_abs(selected_root)))
+            except (OSError, ValueError):
+                pass
+            seen = set()
+            for mode, candidate_root in roots:
+                try:
+                    candidate = _lexical_abs(candidate_root.joinpath(*staging_parts))
+                    candidate.relative_to(candidate_root)
+                    key = os.path.normcase(str(candidate))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    exists = candidate.is_file()
+                    observed_size = _settled_source_size(candidate, expected_size) if exists else None
+                    size_ok = observed_size is not None and (expected_size is None or observed_size == expected_size)
+                    source_path_recovery_checks[mode] = {
+                        "exists": bool(exists),
+                        "observedSize": observed_size,
+                        "expectedSize": expected_size,
+                        "sizeMatches": bool(size_ok),
+                    }
+                    if size_ok:
+                        source = candidate
+                        source_path_recovery_mode = mode
+                        break
+                except (OSError, ValueError, TypeError):
+                    source_path_recovery_checks[mode] = {
+                        "exists": False,
+                        "observedSize": None,
+                        "expectedSize": expected_size,
+                        "sizeMatches": False,
+                    }
 
     # RC15.9.17: canonical/lease adoption can legitimately start from a browser
     # path outside _incoming, but it must never override Chrome's completion/size proof.
