@@ -366,12 +366,19 @@ function renderAiSummaryHistory(){
 }
 async function loadAiSummaryHistory(selected){
   if(!selected){state.aiSummaries=[];renderAiSummaryHistory();return;}
+  const box=$("aiSummaryHistory"),count=$("aiSummaryHistoryCount");
+  if(box)box.innerHTML='<div class="ai-history-empty">Kaydedilen özetler yükleniyor…</div>';
   try{
     const payload=await sendRuntime(MESSAGE.GET_AI_ARCHIVE_SUMMARIES,{institutionName:selected.institutionName,caseId:selected.caseId,limit:20});
     if(archiveCaseKey(selected)!==state.aiSelectedCaseKey)return;
     state.aiSummaries=Array.isArray(payload?.summaries)?payload.summaries:[];
-  }catch{state.aiSummaries=[];}
-  renderAiSummaryHistory();
+    renderAiSummaryHistory();
+  }catch(error){
+    if(archiveCaseKey(selected)!==state.aiSelectedCaseKey)return;
+    state.aiSummaries=[];
+    if(count)count.textContent="Yüklenemedi";
+    if(box)box.innerHTML='<div class="ai-history-empty">Özet geçmişi okunamadı: '+esc(String(error).replace(/^Error:\s*/,""))+'</div>';
+  }
 }
 async function openSummaryPrint(summary){
   const selected=summary?.archiveCase||selectedAiArchiveCase()||{};
