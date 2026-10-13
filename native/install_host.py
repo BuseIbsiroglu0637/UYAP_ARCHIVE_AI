@@ -14,10 +14,11 @@ import sys
 import tempfile
 import uuid
 
-from host_self_test import check_host
+from host_self_test import check_host, check_host_details
 
 VERSION = '2.7.68'
 MIN_REUSABLE_VERSION = '2.7.68'
+REQUIRED_CAPABILITIES = {'archive_case_ai_v1'}
 HOST_NAME = 'tr.gov.uyap.archive_agent'
 STANDARD_EXTENSION_ID = 'mkcemhoekaohggeebgkifcmjbilincfl'
 EXTENSION_ID = 'fppnhbkemmbocmicplkfidcbggeininh'
@@ -90,7 +91,13 @@ def validate_existing_manifest(manifest_data, manifest_path, check_fn=check_host
     if not executable.is_file():
         return {'ok': False, 'reason': 'Kayitli ajan EXE dosyasi artik mevcut degil.', 'path': str(executable)}
     try:
-        version = check_fn([str(executable)], timeout=15)
+        if check_fn is check_host:
+            details = check_host_details([str(executable)], timeout=15)
+            version = str(details.get('version') or '')
+            capabilities = set(details.get('capabilities') or [])
+        else:
+            version = check_fn([str(executable)], timeout=15)
+            capabilities = set()
     except Exception as error:
         return {'ok': False, 'reason': 'Mevcut ajan baglanti testini gecemedi: ' + str(error), 'path': str(executable)}
     if not is_reusable_agent_version(version):
@@ -100,6 +107,15 @@ def validate_existing_manifest(manifest_data, manifest_path, check_fn=check_host
             'version': version,
             'path': str(executable)
         }
+    if check_fn is check_host:
+        missing = sorted(REQUIRED_CAPABILITIES - capabilities)
+        if missing:
+            return {
+                'ok': False,
+                'reason': 'Mevcut ajan gerekli capability bilgisini tasimiyor: ' + ', '.join(missing),
+                'version': version,
+                'path': str(executable)
+            }
     return {'ok': True, 'version': version, 'path': str(executable), 'manifestPath': str(manifest_path)}
 
 
@@ -212,7 +228,8 @@ def require_trusted_signature(executable):
 
 def verify_host(executable):
     try:
-        version = check_host([str(executable)], timeout=30)
+        reply = check_host_details([str(executable)], timeout=30)
+        version = str(reply.get('version') or '')
     except OSError as error:
         if getattr(error, 'winerror', None) == 4551 or '4551' in str(error):
             raise RuntimeError(
@@ -222,7 +239,11 @@ def verify_host(executable):
         raise
     if version != VERSION:
         raise RuntimeError(f'Ajan surumu uyumsuz: {version}; beklenen {VERSION}')
-    print(f'BAGLANTI TESTI BASARILI - Ajan {version} - 2/2 ping')
+    capabilities = set(reply.get('capabilities') or [])
+    missing = sorted(REQUIRED_CAPABILITIES - capabilities)
+    if missing:
+        raise RuntimeError('Ajan capability uyumsuz: eksik ' + ', '.join(missing))
+    print(f'BAGLANTI TESTI BASARILI - Ajan {version} - 2/2 ping - archive-case AI hazir')
 
 
 def build_host(yes=False):
@@ -525,8 +546,21 @@ def write_install_diagnostic(base, layout, allowed_id, registration, previous, c
 
 def _validate_current(layout):
     host = layout['current'] / 'uyap_archive_agent.exe'
-    version = _direct_agent_version(host)
-    return {'ok': bool(version and is_reusable_agent_version(version)), 'version': version, 'path': str(host)}
+    if not host.is_file():
+        return {'ok': False, 'version': None, 'path': str(host)}
+    try:
+        details = check_host_details([str(host)], timeout=15)
+        version = str(details.get('version') or '')
+        capabilities = set(details.get('capabilities') or [])
+    except Exception:
+        return {'ok': False, 'version': None, 'path': str(host)}
+    missing = sorted(REQUIRED_CAPABILITIES - capabilities)
+    return {
+        'ok': bool(version and is_reusable_agent_version(version) and not missing),
+        'version': version,
+        'path': str(host),
+        'missingCapabilities': missing,
+    }
 
 
 def install(executable):
