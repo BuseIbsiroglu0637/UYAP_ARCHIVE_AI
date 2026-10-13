@@ -2285,6 +2285,115 @@ def safe_target(root: Path, relative_path: str):
     return target
 
 
+# Archive target path budget. Windows long-path support is opt-in (registry
+# LongPathsEnabled plus an app manifest) and is off on typical user PCs. Even
+# when the agent could write a longer path, Explorer, the UYAP document editor
+# and ZIP extraction commonly cannot open it. Every archive file therefore
+# stays inside the classic MAX_PATH budget, measured in UTF-16 code units.
+TARGET_PATH_MAX_CHARS = 259  # MAX_PATH (260) minus the terminating NUL
+TARGET_DIR_MAX_CHARS = 247   # CreateDirectoryW limit: MAX_PATH - 12, minus NUL
+TARGET_TITLE_MIN_CHARS = 12
+_TARGET_ID_SUFFIX = re.compile(r"_(?:d-[a-f0-9]{12,128}|\d{4,30})$", re.IGNORECASE)
+
+
+class TargetPathTooLong(Exception):
+    def __init__(self, diagnostics):
+        super().__init__("TARGET_PATH_TOO_LONG")
+        self.diagnostics = diagnostics
+
+
+def _win_path_len(value) -> int:
+    return len(str(value).encode("utf-16-le")) // 2
+
+
+def _fit_target_path_budget(target: Path, reserve: int = 0):
+    """Keep an absolute archive target inside the Windows path budget.
+
+    A target that already fits is returned unchanged, so every previously
+    archived document keeps its exact name. Only an over-budget target is
+    shortened, and only in its descriptive title: the trailing UYAP/internal id
+    and the extension carry identity and are never cut. The result is
+    deterministic for a given archive root, so a retry lands on the same name.
+    """
+    limit = TARGET_PATH_MAX_CHARS - max(0, int(reserve))
+    directory_len = _win_path_len(target.parent)
+    original_len = _win_path_len(target)
+
+    def diagnostics(part):
+        return {
+            "targetPathLength": original_len,
+            "targetDirLength": directory_len,
+            "targetPathLimit": limit,
+            "targetPathOverflowPart": part,
+        }
+
+    if directory_len > TARGET_DIR_MAX_CHARS:
+        raise TargetPathTooLong(diagnostics("directory"))
+    if original_len <= limit:
+        return target, None
+
+    stem, suffix = target.stem, target.suffix
+    match = _TARGET_ID_SUFFIX.search(stem)
+    identity_tail = match.group(0) if match else ""
+    title = stem[: len(stem) - len(identity_tail)] if identity_tail else stem
+    fitted = target
+    while _win_path_len(fitted) > limit:
+        overflow = _win_path_len(fitted) - limit
+        title = title[: max(0, len(title) - overflow)].rstrip(" ._-")
+        if len(title) < TARGET_TITLE_MIN_CHARS:
+            raise TargetPathTooLong(diagnostics("filename"))
+        fitted = target.with_name(f"{title}{identity_tail}{suffix}")
+    return fitted, {
+        "targetPathShortened": True,
+        "targetPathOriginalLength": original_len,
+        "targetPathLength": _win_path_len(fitted),
+        "targetDirLength": directory_len,
+        "targetPathLimit": limit,
+    }
+
+
+def _versioned_target(target: Path):
+    """Collision-safe sibling name that still fits the path budget."""
+    marker = f"__v{uuid.uuid4().hex}"
+    base, _ = _fit_target_path_budget(target, reserve=len(marker))
+    return base.with_name(f"{base.stem}{marker}{base.suffix}")
+
+
+def _target_path_too_long_payload(diagnostics):
+    return {
+        "ok": True, "valid": False, "errorCode": "TARGET_PATH_TOO_LONG",
+        "detail": ("Evrak eksiksiz indirildi ancak arşiv klasörünün yolu Windows'un 260 karakter "
+                   "sınırını aşıyor; yeniden indirmek sorunu çözmez. Daha kısa bir arşiv konumu seçin."),
+        "retryHint": None, "sourcePreserved": True, **(diagnostics or {}),
+    }
+
+
+def _file_error_diagnostics(error):
+    names = [getattr(error, "filename", None), getattr(error, "filename2", None)]
+    lengths = [_win_path_len(name) for name in names if name]
+    return {
+        "fileErrorWinError": getattr(error, "winerror", None),
+        "fileErrorErrno": getattr(error, "errno", None),
+        "fileErrorPathLength": max(lengths) if lengths else None,
+    }
+
+
+def _target_unavailable_payload(error, source: Path, target: Path):
+    target_len = _win_path_len(target)
+    too_long = target_len > TARGET_PATH_MAX_CHARS or _win_path_len(target.parent) > TARGET_DIR_MAX_CHARS
+    return {
+        "ok": True, "valid": False,
+        "errorCode": "TARGET_PATH_TOO_LONG" if too_long else "TARGET_PATH_UNAVAILABLE",
+        "detail": ("Evrak eksiksiz indirildi ancak arşiv hedef klasörüne yazılamadı; "
+                   "yeniden indirmek sorunu çözmez. Arşiv konumunu ve klasör erişimini kontrol edin."),
+        "retryHint": None, "sourcePreserved": source.is_file(),
+        "targetPathLength": target_len,
+        "targetDirLength": _win_path_len(target.parent),
+        "targetPathLimit": TARGET_PATH_MAX_CHARS,
+        **_file_error_diagnostics(error),
+    }
+
+
 
 def _identity_text(value):
     value = html.unescape(str(value or ""))
@@ -3103,6 +3212,17 @@ def validate_download(message):
         if learned_source_id:
             document["sourceDocumentId"] = learned_source_id
         target = canonical_target(target, document, expected_extension, learned_source_id)
+        # Fit the absolute path into the Windows budget before any hashing or
+        # journaling. An over-long target used to fail at os.replace with
+        # FileNotFoundError and was reported as SOURCE_FILE_MISSING, which
+        # triggered endless fresh re-downloads of perfectly good files.
+        try:
+            target, target_budget = _fit_target_path_budget(target)
+        except TargetPathTooLong as error:
+            target_budget = None
+            # An incomplete download keeps its own, more precise error below.
+            if completion_ok:
+                return finish(_target_path_too_long_payload(error.diagnostics))
 
         html_context = {
             "sourceDocumentId": learned_source_id or document.get("sourceDocumentId"),
@@ -3203,7 +3323,12 @@ def validate_download(message):
         hash_candidate = _verified_content_hash_candidate(connection, root, document, digest, size)
         perf["contentHashReconcileMs"] = _perf_ms(hash_reconcile_started)
 
-        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except FileNotFoundError as error:
+            # The bytes are complete and validated; only the archive folder is
+            # unreachable. A fresh re-download cannot fix that.
+            return finish(_target_unavailable_payload(error, source, target))
         final_target = target
         reuse = False
         content_hash_reconciled = False
@@ -3215,7 +3340,10 @@ def validate_download(message):
                 content_hash_reconciled = bool(hash_candidate)
                 content_hash_reuse_mode = "existing-target" if hash_candidate else None
             else:
-                final_target = target.with_name(f"{target.stem}__v{uuid.uuid4().hex}{target.suffix}")
+                try:
+                    final_target = _versioned_target(target)
+                except TargetPathTooLong as error:
+                    return finish(_target_path_too_long_payload(error.diagnostics))
             perf["existingTargetHashMs"] = _perf_ms(existing_hash_started)
 
         if not reuse and hash_candidate and hash_candidate.resolve() != final_target.resolve():
@@ -3294,6 +3422,13 @@ def validate_download(message):
             notes.append("UYAP kaynağı ve tarayıcı byte kanıtı birebir doğrulandı; dosya biçimi tanınmadığı için baytları değiştirilmeden opak ikili evrak olarak korundu.")
             result["validationNotes"] = notes
 
+        if target_budget:
+            result.update(target_budget)
+            result["targetPathLength"] = _win_path_len(final_target)
+            notes = list(result.get("validationNotes") or [])
+            notes.append("Dosya adı Windows'un 260 karakterlik yol sınırına sığması için kısaltıldı; evrak numarası ve uzantı korundu.")
+            result["validationNotes"] = notes
+
         prepare_started = time.perf_counter()
         connection.execute('INSERT INTO transfer_journal(attempt_id,request_key,result_json) VALUES(?,?,?)',
                            (attempt_id, request_key, json.dumps(result, ensure_ascii=False)))
@@ -3302,7 +3437,16 @@ def validate_download(message):
 
         move_started = time.perf_counter()
         if not reuse:
-            os.replace(source, final_target)
+            try:
+                os.replace(source, final_target)
+            except FileNotFoundError as error:
+                if not source.is_file():
+                    raise
+                # Source is intact, so the target side failed. Drop the
+                # uncommitted journal row instead of leaving it behind.
+                connection.execute('DELETE FROM transfer_journal WHERE attempt_id=? AND committed=0', (attempt_id,))
+                connection.commit()
+                return finish(_target_unavailable_payload(error, source, final_target))
         perf["moveMs"] = _perf_ms(move_started)
 
         commit_started = time.perf_counter()
@@ -5431,7 +5575,7 @@ def dispatch(message):
     action = message.get("action")
     if action == "ping":
         return {"ok": True, "version": AGENT_VERSION, "protocolVersion":PROTOCOL_VERSION, "echo":message.get('probe'),
-                "capabilities": ["sqlite", "sha256", "magic_bytes", "atomic_move", "quarantine", "attempt_journal", "attempt_owner_replay_v1", "validation_perf_v1", "persistent_session_v1", "final_integrity_v1", "source_adapter_v1", "chunked_archive_v1", "download_completion_guard_v1", "pdf_structure_v2", "uyap_pdf_control_suffix_1a04_v1", "bulk_reliability_v1", "legitimate_html_document_v1", "legitimate_html_document_v2", "image_document_v1", "uyap_streaming_udf_v1", "quarantine_revalidation_v1", "uyap_pdf_belgenet_suffix_v1", "uyap_pdf_avision_suffix_v1", "pdf_producer_comment_suffix_v1", "unified_document_sniffer_v1", "uyap_raw_xml_udf_v1", "format_lab_v1", "office_container_detection_v1", "bigtiff_detection_v1", "archive_registry_v1", "user_html_exclusion_v1", "visible_final_package_v1", "archive_root_rediscovery_v1", "sqlite_wal_dual_lane_v1", "sqlite_scandir_hotpath_v1", "jpeg_uyap_compatible_v1", "jpeg_windows_decoder_fallback_v1", "jpeg_windows_wic_decoder_v1", "document_type_truth_v1", "uyap_exact_content_truth_v1", "jpeg_uyap_trailing_preserve_v1", "html_circuit_deadline_v1", "source_path_self_heal_v1", "content_hash_reconciliation_v1", "verified_root_orphan_cleanup_v1", "opaque_binary_archive_v1", "finalization_validation_proof_v2", "duplicate_path_fresh_owner_v1", "portable_archive_resume_v1", "legacy_loose_archive_import_v2", "ai_local_index_v1", "ai_provider_gateway_v1", "archive_case_ai_v1", "ai_summary_archive_v1"]}
+                "capabilities": ["sqlite", "sha256", "magic_bytes", "atomic_move", "quarantine", "attempt_journal", "attempt_owner_replay_v1", "validation_perf_v1", "persistent_session_v1", "final_integrity_v1", "source_adapter_v1", "chunked_archive_v1", "download_completion_guard_v1", "pdf_structure_v2", "uyap_pdf_control_suffix_1a04_v1", "bulk_reliability_v1", "legitimate_html_document_v1", "legitimate_html_document_v2", "image_document_v1", "uyap_streaming_udf_v1", "quarantine_revalidation_v1", "uyap_pdf_belgenet_suffix_v1", "uyap_pdf_avision_suffix_v1", "pdf_producer_comment_suffix_v1", "unified_document_sniffer_v1", "uyap_raw_xml_udf_v1", "format_lab_v1", "office_container_detection_v1", "bigtiff_detection_v1", "archive_registry_v1", "user_html_exclusion_v1", "visible_final_package_v1", "archive_root_rediscovery_v1", "sqlite_wal_dual_lane_v1", "sqlite_scandir_hotpath_v1", "jpeg_uyap_compatible_v1", "jpeg_windows_decoder_fallback_v1", "jpeg_windows_wic_decoder_v1", "document_type_truth_v1", "uyap_exact_content_truth_v1", "jpeg_uyap_trailing_preserve_v1", "html_circuit_deadline_v1", "source_path_self_heal_v1", "content_hash_reconciliation_v1", "verified_root_orphan_cleanup_v1", "opaque_binary_archive_v1", "finalization_validation_proof_v2", "duplicate_path_fresh_owner_v1", "portable_archive_resume_v1", "legacy_loose_archive_import_v2", "ai_local_index_v1", "ai_provider_gateway_v1", "archive_case_ai_v1", "ai_summary_archive_v1", "target_path_budget_v1"]}
     if action == "ai_build_index":
         return ai_build_index(message["downloadsRoot"], message["sessionId"], message.get("bindings") or [])
     if action == "ai_archive_case_scope":
@@ -5475,10 +5619,16 @@ def dispatch(message):
     if action == "validate_download":
         try:
             return validate_download(message)
-        except FileNotFoundError:
+        except TargetPathTooLong as error:
+            return _target_path_too_long_payload(error.diagnostics)
+        except FileNotFoundError as error:
+            # Last-resort net. Target-side failures are classified inside
+            # validate_download; what reaches here is reported with privacy-light
+            # evidence (WinError, path length) so a mislabel is visible next time.
             return {"ok": True, "valid": False, "errorCode": "SOURCE_FILE_MISSING",
                     "detail": "Yerel geçici dosya yolu doğrulama sırasında kayboldu; evrak taze indirme ile otomatik kurtarılacak.",
-                    "retryHint": "fresh_redownload", "sourcePathRecovery": True}
+                    "retryHint": "fresh_redownload", "sourcePathRecovery": True,
+                    "fileErrorStage": "unclassified", **_file_error_diagnostics(error)}
     if action == "revalidate_quarantined":
         return revalidate_quarantined(message)
     if action == "finalize_archive":
