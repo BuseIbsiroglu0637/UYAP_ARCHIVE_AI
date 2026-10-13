@@ -228,6 +228,8 @@
           </div>
           <aside class="ai-chat-panel">
             <div class="ai-chat-head"><div><span class="ai-spark">✦</span><strong>Dosyada Sor</strong></div><span id="aiServiceStatus" class="ai-service-status">Bağlantı bekleniyor</span></div>
+            <label class="ai-case-picker"><span>AI için yerel dava dosyası</span><select id="aiArchiveCasePicker"><option value="">Yerel arşiv taranıyor…</option></select></label>
+            <div id="aiArchiveCaseStatus" class="ai-prompt-preview">Yalnız tamamı fiziksel olarak hazır dava dosyaları AI sorgusuna açılır.</div>
             <div id="aiPromptPreview" class="ai-prompt-preview">Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.</div>
             <textarea id="aiPrompt" rows="6" placeholder="Örn. Son duruşmadan sonra hangi önemli evraklar eklendi?"></textarea>
             <button id="aiBuildIndex" class="secondary full">Yerel AI indeksini hazırla</button>
