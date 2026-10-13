@@ -440,10 +440,13 @@ async function renderAiWorkspace(){
       if(send){send.disabled=true;send.textContent="Önce yerel dava dosyası seçin";}
       if(resultsBox)resultsBox.textContent="";
       if(answerBox){answerBox.hidden=true;answerBox.textContent="";}
+      state.aiSummaries=[];state.aiCurrentResult=null;renderAiSummaryHistory();
+      if($("aiResultPanel"))$("aiResultPanel").hidden=true;
       return;
     }
 
     state.aiContext={kind:"UYAP_AI_ARCHIVE_CASE_CONTEXT",archiveCase:selected};
+    void loadAiSummaryHistory(selected);
     $("aiCaseTitle").textContent=`${selected.institutionName} • ${selected.caseId}`;
     $("aiCaseSubtitle").textContent=`Yerel UYAP arşivi • ${selected.readyForAi?"tam fiziksel dosya":"eksik/kontrollü dosya"} • oturumdan bağımsız AI bağlamı`;
     $("aiSource").textContent="Yerel UYAP Arşiv";
@@ -470,9 +473,9 @@ async function renderAiWorkspace(){
       :selected.readyForAi?"Tam arşivden yerel metin indeksi henüz oluşturulmadı.":"Dosya tamamlanmadan indeks oluşturulamaz.";
     if(buildButton){buildButton.disabled=!selected.readyForAi;buildButton.textContent=indexReady?"Tam dava indeksini güncelle":"Tam dava indeksini hazırla";}
     if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel dava kaynaklarında ara":"Önce tam dava indeksini hazırla";}
-    if(send){send.disabled=!providerReady||!indexReady;send.textContent=providerReady?(indexReady?"Soruyu gönder":"Önce tam dava indeksini hazırla"):"AI sağlayıcısı bağlanınca kullanılabilir";}
+    if(send){send.disabled=!providerReady||!indexReady;send.textContent=providerReady?(indexReady?(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder"):"Önce tam dava indeksini hazırla"):"AI sağlayıcısı bağlanınca kullanılabilir";}
   }catch(error){
-    state.aiCases=[];state.aiContext=null;state.aiIndex=null;
+    state.aiCases=[];state.aiContext=null;state.aiIndex=null;state.aiSummaries=[];state.aiCurrentResult=null;renderAiSummaryHistory();
     $("aiCaseTitle").textContent="Yerel arşiv okunamadı";
     $("aiCaseSubtitle").textContent="AI için tamamlanmış dava dosyaları yüklenemedi.";
     $("aiSource").textContent="Yerel arşiv";
