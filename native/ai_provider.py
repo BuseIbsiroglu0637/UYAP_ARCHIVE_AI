@@ -363,7 +363,9 @@ def _validate_citations(answer, allowed_refs):
 def _markdown_plain_line(value):
     line = str(value or "").strip()
     line = re.sub(r"^#{1,6}\s*", "", line)
-    line = re.sub(r"^[>*]\s*", "", line)
+    line = re.sub(r"^>\s*", "", line)
+    # Strip full-line bold after heading/blockquote markers. Do not consume a
+    # leading '*' here because that would turn '**Heading**' into '*Heading**'.
     line = re.sub(r"^(?:\*\*|__)(.*?)(?:\*\*|__)$", r"\1", line)
     return line.strip()
 
