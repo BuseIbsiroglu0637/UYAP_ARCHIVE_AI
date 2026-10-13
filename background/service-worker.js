@@ -393,6 +393,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           action:"ai_answer",
           sessionId:scopeId,
           downloadsRoot:registry.downloadsRoot,
+          workflowId:String(request.workflowId||"ask").slice(0,64),
           query:String(request.query||"").slice(0,1200),
           limit:Math.max(1,Math.min(Number(request.limit||8),8))
         });
