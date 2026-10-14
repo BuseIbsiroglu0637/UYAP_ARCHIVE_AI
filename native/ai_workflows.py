@@ -18,6 +18,7 @@ WORKFLOW_IDS = (
     "important_dates",
     "court_orders",
     "parties",
+    "tebligat",
 )
 # Retired cards whose ids stay callable for older Workspace builds:
 # "new_updates" (Yeni Ne Var?) repeated Önemli Tarihler; "classification" and
@@ -31,6 +32,7 @@ WORKFLOW_LABELS = {
     "court_orders": "Ara Kararlar ve Yapılacaklar",
     "new_updates": "Yeni Ne Var?",
     "parties": "Taraflar",
+    "tebligat": "Tebligatlar",
     "classification": "Akıllı Sınıflandırma",
     "chronology": "Kronoloji",
     "ask": "Dosyada Sor",
@@ -41,6 +43,7 @@ HINTS = {
                         "süre", "son gün", "müddet", "itiraz", "istinaf"),
     "parties": ("davacı", "davalı", "vekili", "vekil", "şüpheli", "sanık",
                 "müşteki", "katılan", "taraf", "müdafi", "kurum"),
+    "tebligat": ("tebliğ", "tebligat", "mazbata", "uets", "okundu", "zarfta"),
     "classification": ("dilekçe", "karar", "rapor", "tutanak", "tebligat",
                        "müzekkere", "bilirkişi", "talep", "cevap", "itiraz"),
     "chronology": ("tarihli", "duruşma", "tebliğ", "başvuru", "karar",

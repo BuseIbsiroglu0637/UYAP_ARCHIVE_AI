@@ -25,7 +25,7 @@ import time
 from datetime import date as Date, timedelta
 from pathlib import Path
 
-from ai_case_facts import mask_identifiers, find_dates, parse_date, parse_hearing, tr_lower, tr_title
+from ai_case_facts import mask_identifiers, find_dates, parse_date, parse_decisions, parse_hearing, tr_lower, tr_title
 from ai_local_index import DEFAULT_OVERLAP_CHARS, _index_db
 
 DATES_SCHEMA = "important_dates_v2"
@@ -39,8 +39,9 @@ MAX_REFS_PER_LINE = 4
 SEEN_KEY = "dates_seen"
 
 NOTICE = (
-    "Tarihler kaynaktan kurallarla çıkarıldı; AI modeli kullanılmadı. Süreler hukuki hesap değildir: "
-    "\"en erken bitiş\" yalnız karar tarihinden sayılır; tebliğ, tatil ve adli tatile göre zaptı kontrol edin."
+    "Tarihler kaynaktan kurallarla çıkarıldı; AI modeli kullanılmadı. Süreler hukuki hesap değildir: e-tebliğ "
+    "mazbatası okunabilen sürelerde son gün tebliğden, diğerlerinde \"en erken bitiş\" karar tarihinden sayılır; "
+    "tatil ve adli tatile göre kontrol edin."
 )
 
 # (kind, label, milestone, title patterns). The first match wins, so order
@@ -195,7 +196,9 @@ def time_limits(text, decided_on):
         unit = match.group(2)
         # The clause that grants the limit, not the whole decision paragraph.
         before = lowered[: match.start()]
-        start = max(before.rfind(","), before.rfind(";"), before.rfind("\n"), before.rfind(". ")) + 1
+        # "HMK 139. madde" is not a sentence end.
+        dot = max((m.start() for m in re.finditer(r"(?<!\d)\.\s", before)), default=-1)
+        start = max(before.rfind(","), before.rfind(";"), before.rfind("\n"), dot) + 1
         end_candidates = [pos for pos in (lowered.find(",", match.end()), lowered.find(";", match.end()),
                                           lowered.find("\n", match.end())) if pos >= 0]
         end = min(end_candidates) if end_candidates else len(lowered)
@@ -247,6 +250,9 @@ def record_info(text, title):
     lowered = tr_lower(raw)
     remedy = _REMEDY_OPEN.search(lowered)
     decisions = hearing.get("decisions") or []
+    # Same items, not shortened: a limit is often stated past 260 characters.
+    full = parse_decisions(raw, limit=6000)[0] if decisions else []
+    full = full if len(full) == len(decisions) else decisions
     return {
         "recordDate": record_date,
         "davaDate": _as_date(dava.group(1)) if dava else None,
@@ -254,12 +260,13 @@ def record_info(text, title):
         "isTalimat": bool(hearing.get("isTalimat")),
         "court": hearing.get("court"),
         "decisions": decisions,
+        "decisionsFull": full,
         "nextHearing": hearing.get("nextHearing"),
         "nextHearingType": _hearing_type(raw, (hearing.get("nextHearing") or {}).get("date")),
         "upperCourt": court_label,
         "final": bool(_FINAL.search(lowered)),
         "remedyOpen": remedy.group(1) if remedy else None,
-        "limits": time_limits("\n".join(decisions) or raw[-3000:], record_date),
+        "limits": time_limits("\n".join(full) or raw[-3000:], record_date),
     }
 
 
@@ -319,15 +326,19 @@ def _event_text(event):
 
 
 def build_important_dates(catalog, text_documents, today=None, total_documents=None, catalog_available=True,
-                          new_refs=None, tracking=None):
+                          new_refs=None, tracking=None, tebligat_deadlines=None):
     """Sections for one case.
 
     catalog: [{"ref", "title", "date", "indexed"}] for every case document.
     text_documents: {ref: {"title", "date", "text"}} for readable documents.
     new_refs: refs that arrived since the previous index state; lines resting
     on them get "isNew". tracking: "first" | "tracked" | "unavailable" | None.
+    tebligat_deadlines: last days counted from a readable tebliğ
+    (ai_tebligat.case_deadlines); they replace the decision's earliest end.
     """
     today = _today(today)
+    tebligat_deadlines = list(tebligat_deadlines or [])
+    served_limits = {(ref, d["amount"], d["unit"]) for d in tebligat_deadlines for ref in d.get("basisRefs") or []}
     new_refs = set(new_refs or ())
     marked = set()
 
@@ -409,7 +420,7 @@ def build_important_dates(catalog, text_documents, today=None, total_documents=N
             continue
         for limit in record["info"]["limits"]:
             end = limit["earliestEnd"]
-            if not end or end < today:
+            if not end or end < today or (record["ref"], limit["amount"], limit["unit"]) in served_limits:
                 continue
             what = {"istinaf": "İstinaf süresi", "temyiz": "Temyiz süresi", "itiraz": "İtiraz süresi"}.get(
                 limit["remedy"], "Süre")
@@ -421,6 +432,11 @@ def build_important_dates(catalog, text_documents, today=None, total_documents=N
                 clause = next((d for d in record["info"]["decisions"] if found in find_dates(d)), "")
                 upcoming.append(_line(day, "Kararda geçen ileri tarih — " + _short(tr_title(clause), 120),
                                       [record["ref"]], "future"))
+    for deadline in tebligat_deadlines:
+        if deadline["last"] >= today:
+            upcoming.append(_line(deadline["last"], f"{deadline['label']} son günü — {deadline['muhatap']} "
+                                                    f"(tebliğ {_fmt(deadline['served'])})",
+                                  list(deadline.get("basisRefs") or []) + deadline["refs"][:1], "limit"))
     upcoming.sort(key=lambda item: item["date"] or "")
 
     # ---- Son işlemler / kilometre taşları -------------------------------
@@ -629,8 +645,15 @@ def important_dates_answer(downloads_root, scope_id, today=None):
         except (OSError, ValueError, sqlite3.Error):
             tracking = None
     new_refs = {row["ref"] for row in rows if row.get("idHash") in fresh}
+    try:
+        from ai_tebligat import case_deadlines  # ai_tebligat imports this module
+
+        deadlines = case_deadlines(rows, documents)
+    except Exception:  # the dates stand without tebliğ days
+        deadlines = []
     built = build_important_dates(rows, documents, today=today, total_documents=total,
-                                  catalog_available=catalog_available, new_refs=new_refs, tracking=tracking)
+                                  catalog_available=catalog_available, new_refs=new_refs, tracking=tracking,
+                                  tebligat_deadlines=deadlines)
     if seen_state:
         try:
             _store_seen(downloads_root, scope_id, seen_state)

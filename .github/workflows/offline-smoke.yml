@@ -54,6 +54,8 @@ jobs:
         run: python native/saved_results_regression_test.py
       - name: PDF reader (vendored pypdf + stream fallback) regression
         run: python native/pdf_reader_regression_test.py
+      - name: Tebligatlar (UETS mazbata, tebliğ-based last days) regression
+        run: python native/tebligat_regression_test.py
       - name: Offline targeted regression tests
         run: |
           python native/rc15_9_8_source_path_self_heal_regression_test.py

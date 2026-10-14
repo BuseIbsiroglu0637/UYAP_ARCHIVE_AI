@@ -50,7 +50,8 @@ import {
 const RULE_RESULT_SECTIONS=Object.freeze({
   important_dates:["datesSchema","dateSections"],
   court_orders:["ordersSchema","orderSections"],
-  parties:["partiesSchema","partySections"]
+  parties:["partiesSchema","partySections"],
+  tebligat:["tebligatSchema","tebligatSections"]
 });
 
 let recoveryTask = null;

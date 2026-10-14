@@ -66,7 +66,7 @@ function ruleSectionHtml(section){
 function renderRuleDocument(payload){
   document.getElementById("summary").innerHTML=payload.sections.map(ruleSectionHtml).join("");
   if(payload.workflowNotice){const notice=document.getElementById("notice");notice.textContent=payload.workflowNotice;notice.hidden=false;}
-  document.getElementById("footerNote").textContent="Bu belge yerel arşivdeki evraklardan kurallarla çıkarılmıştır; AI modeli kullanılmamıştır ve hukuki görüş yerine geçmez. Süreler yalnız en erken bitiş tarihidir; tebliğ tarihine göre kontrol edin.";
+  document.getElementById("footerNote").textContent="Bu belge yerel arşivdeki evraklardan kurallarla çıkarılmıştır; AI modeli kullanılmamıştır ve hukuki görüş yerine geçmez. Süreleri karar metni ve tebliğ mazbatasından; tatil ve adli tatile göre kontrol edin.";
   // On paper a code like D000075 says nothing; list which document each one is.
   const refs=new Set(Array.isArray(payload.sourceRefs)?payload.sourceRefs:[]);
   const sources=(Array.isArray(payload.sources)?payload.sources:[]).filter(source=>!refs.size||refs.has(source.sourceRef));

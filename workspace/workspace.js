@@ -271,14 +271,14 @@ function renderTimelineRows(){
   let lastDay="";for(const {d,date} of filtered){const day=shortDate(date),row=document.createElement("div");row.className="timeline-item";row.innerHTML=`<div class="timeline-rail"><span></span></div><div class="timeline-date">${day!==lastDay?esc(day):""}</div><div class="timeline-content"><div class="timeline-title-row"><strong>${esc(documentTitle(d))}</strong><span>${esc(documentType(d))}</span></div><p>${esc(d.uyapPath||d.targetPath||d.localPath||"Arşiv kaydı")}</p><div class="timeline-meta"><span>${esc(archiveRowStatusLabel(d.status))}</span><span>${esc(d.sourceSystem==="UYAP_KURUM"?"UYAP Kurum":"UYAP")}</span></div></div>`;list.append(row);lastDay=day;}
 }
 function setAiPrompt(prompt,{navigate=true,workflowId="ask"}={}){state.aiWorkflowId=workflowId;state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;updateAiSendButton();if(navigate)showView("ai");}
-// "Önemli Tarihler", "Ara Kararlar ve Yapılacaklar" and "Taraflar" are read from
-// the records by rules on the agent; they need the case index but no AI provider.
-const AI_RULE_WORKFLOWS={important_dates:"Önemli tarihleri çıkar",court_orders:"Ara kararları göster",parties:"Tarafları göster"};
+// "Önemli Tarihler", "Ara Kararlar ve Yapılacaklar", "Taraflar" and "Tebligatlar" are
+// read from the records by rules on the agent; they need the case index but no AI provider.
+const AI_RULE_WORKFLOWS={important_dates:"Önemli tarihleri çıkar",court_orders:"Ara kararları göster",parties:"Tarafları göster",tebligat:"Tebligatları göster"};
 function aiWorkflowNeedsProvider(){return !AI_RULE_WORKFLOWS[state.aiWorkflowId];}
 function aiSendLabel(){return AI_RULE_WORKFLOWS[state.aiWorkflowId]||(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder");}
 function updateAiSendButton(){const send=$("aiSend"),gate=state.aiSendGate;if(!send||!gate)return;const providerOk=gate.providerReady||!aiWorkflowNeedsProvider();send.disabled=!providerOk||!gate.indexReady;send.textContent=!providerOk?"AI sağlayıcısı bağlanınca kullanılabilir":(gate.indexReady?aiSendLabel():"Önce tam dava indeksini hazırla");}
 function selectedAiArchiveCase(){return state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;}
-const AI_WORKFLOW_TITLES={case_summary:"Dosya Özeti",important_dates:"Önemli Tarihler",court_orders:"Ara Kararlar ve Yapılacaklar",new_updates:"Yeni Ne Var?",parties:"Taraflar",classification:"Akıllı Sınıflandırma",chronology:"Kronoloji",ask:"Dosyada Sor"};
+const AI_WORKFLOW_TITLES={case_summary:"Dosya Özeti",important_dates:"Önemli Tarihler",court_orders:"Ara Kararlar ve Yapılacaklar",new_updates:"Yeni Ne Var?",parties:"Taraflar",tebligat:"Tebligatlar",classification:"Akıllı Sınıflandırma",chronology:"Kronoloji",ask:"Dosyada Sor"};
 function isCaseSummaryPrompt(){return state.aiWorkflowId==="case_summary";}
 function normalizeSummaryHeading(value){
   return String(value||"")
@@ -359,6 +359,7 @@ function ruleSectionsOf(result){
   if(result?.datesSchema==="important_dates_v2"&&Array.isArray(result?.dateSections))return result.dateSections;
   if(result?.ordersSchema==="court_orders_v1"&&Array.isArray(result?.orderSections))return result.orderSections;
   if(result?.partiesSchema==="parties_v1"&&Array.isArray(result?.partySections))return result.partySections;
+  if(result?.tebligatSchema==="tebligat_v1"&&Array.isArray(result?.tebligatSections))return result.tebligatSections;
   return null;
 }
 function renderSummarySourcesHtml(sources){
@@ -408,10 +409,10 @@ function renderAiResultError(error){
   content.innerHTML='<div class="ai-result-error">'+esc(String(error).replace(/^Error:\s*/,""))+'</div>';
 }
 // Saved results: Dosya Özeti and the rule views share one local history.
-// PDF is offered for the summary, Önemli Tarihler and Ara Kararlar.
-const SAVED_PDF_WORKFLOWS=new Set(["case_summary","important_dates","court_orders"]);
-const SAVED_FILTERS=[["all","Tümü"],["case_summary","Dosya Özeti"],["important_dates","Önemli Tarihler"],["court_orders","Ara Kararlar"],["parties","Taraflar"]];
-const RULE_SCHEMA_KEYS={important_dates:["datesSchema","dateSections"],court_orders:["ordersSchema","orderSections"],parties:["partiesSchema","partySections"]};
+// PDF is offered for the summary, Önemli Tarihler, Ara Kararlar and Tebligatlar.
+const SAVED_PDF_WORKFLOWS=new Set(["case_summary","important_dates","court_orders","tebligat"]);
+const SAVED_FILTERS=[["all","Tümü"],["case_summary","Dosya Özeti"],["important_dates","Önemli Tarihler"],["court_orders","Ara Kararlar"],["parties","Taraflar"],["tebligat","Tebligatlar"]];
+const RULE_SCHEMA_KEYS={important_dates:["datesSchema","dateSections"],court_orders:["ordersSchema","orderSections"],parties:["partiesSchema","partySections"],tebligat:["tebligatSchema","tebligatSections"]};
 const AI_UNDO_MS=10000;
 const savedWorkflow=item=>item?.workflowId||"case_summary";
 function renderAiSummaryHistory(){
