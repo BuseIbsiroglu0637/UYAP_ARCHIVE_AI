@@ -332,9 +332,11 @@ function renderAiResult(result,selected,{fromHistory=false}={}){
   const created=result?.createdAt||result?.savedSummary?.createdAt||null;
   const parts=[result?.provider||"AI",result?.model||"",summaryMode&&sources.length?`${sources.length} seçili evrak`:refs.length?`${refs.length} kaynak`:"",created?formatDate(created):""].filter(Boolean);
   meta.textContent=parts.join(" • ")||"Yerel AI sonucu";
-  content.innerHTML=summaryMode
+  const workflowNote=result?.workflowNotice
+    ?`<div class="ai-prompt-preview">${esc(result.workflowNotice)}</div>`:"";
+  content.innerHTML=workflowNote+(summaryMode
     ?renderCaseSummaryHtml(result?.answer||"")+renderSummarySourcesHtml(sources)
-    :`<div class="ai-freeform-answer">${esc(result?.answer||"Yanıt alınamadı.")}</div>`;
+    :`<div class="ai-freeform-answer">${esc(result?.answer||"Yanıt alınamadı.")}</div>`);
   if(pdf)pdf.hidden=!summaryMode;
   if(saved){const locallySaved=summaryMode&&(fromHistory||Boolean(result?.savedSummary)||Boolean(result?.summaryId));saved.hidden=!locallySaved;saved.textContent=locallySaved?"✓ Yerel arşive kaydedildi":"";}
   panel.scrollIntoView({behavior:"smooth",block:"start"});
