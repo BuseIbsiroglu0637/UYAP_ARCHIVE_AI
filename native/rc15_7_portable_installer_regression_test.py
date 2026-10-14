@@ -39,6 +39,7 @@ for token in [
     'ai_case_facts.py',
     'ai_important_dates.py',
     'ai_court_orders.py',
+    'ai_parties.py',
 ]:
     require(token.lower() in installer.lower(), f'portable installer token eksik: {token}')
 
