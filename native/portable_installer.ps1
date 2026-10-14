@@ -32,7 +32,7 @@ $AgentSource = Join-Path $PSScriptRoot 'uyap_archive_agent.py'
 $AiIndexSource = Join-Path $PSScriptRoot 'ai_local_index.py'
 $AiProviderSource = Join-Path $PSScriptRoot 'ai_provider.py'
 # ai_provider imports these; the runtime has no package discovery, so each is copied.
-$AiModuleSources = @('ai_workflows.py', 'ai_case_facts.py', 'ai_important_dates.py', 'ai_court_orders.py', 'ai_parties.py') | ForEach-Object { Join-Path $PSScriptRoot $_ }
+$AiModuleSources = @('ai_workflows.py', 'ai_case_facts.py', 'ai_important_dates.py', 'ai_court_orders.py', 'ai_parties.py', 'ai_tebligat.py') | ForEach-Object { Join-Path $PSScriptRoot $_ }
 # Vendored pure-Python libraries (pypdf); ai_local_index adds runtime\vendor to sys.path.
 $AiVendorSource = Join-Path $PSScriptRoot 'vendor'
 $HostSelfTestSource = Join-Path $PSScriptRoot 'host_self_test.py'

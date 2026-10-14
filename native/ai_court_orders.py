@@ -15,8 +15,8 @@ import re
 
 from ai_case_facts import find_dates, mask_identifiers, tr_lower, tr_title
 from ai_important_dates import (
-    RECORD_KINDS, _as_date, _fmt, _short, _today, _tr_upper, classify_title, clean_title, load_case, record_info,
-    time_limits,
+    RECORD_KINDS, _add_duration, _as_date, _fmt, _short, _today, _tr_upper, classify_title, clean_title, load_case,
+    record_info, time_limits,
 )
 
 ORDERS_SCHEMA = "court_orders_v1"
@@ -28,8 +28,9 @@ MAX_REFS = 3
 
 NOTICE = (
     "Ara kararlar kaynaktan kurallarla çıkarıldı; AI modeli kullanılmadı. \"İlgili evrak\", kararın ardından dosyaya "
-    "giren ve başlığına göre ilişkili görünen kayıttır; işin yapıldığını göstermez. Süreler yalnız karar tarihinden "
-    "sayılan en erken bitiştir; tebliğ tarihine göre kontrol edin."
+    "giren ve başlığına göre ilişkili görünen kayıttır; işin yapıldığını göstermez. Kararın e-tebliğ mazbatası "
+    "okunabildiğinde süre o tarafın tebliğinden sayılır; okunamadığında karar tarihinden sayılan en erken bitiş "
+    "gösterilir. Tatil ve adli tatil uzatmalarını kontrol edin."
 )
 
 _ROLES = "davacı|davalı|sanık|müşteki|katılan|şüpheli|alacaklı|borçlu|müdahil|mağdur"
@@ -217,7 +218,11 @@ def _evidence(action, text, decided, catalog, own_ref, today, until=None):
     return None, lines
 
 
-def build_court_orders(catalog, text_documents, today=None, catalog_available=True):
+def build_court_orders(catalog, text_documents, today=None, catalog_available=True, served=None):
+    """`served`: the case's tebligat notices (ai_tebligat.collect_notices); a time limit is then also counted
+    from the tebliğ day of each matching side."""
+    from ai_tebligat import served_for_record, who_matches  # ai_tebligat imports this module
+
     today = _today(today)
     entries = []
     for document in catalog:
@@ -246,7 +251,8 @@ def build_court_orders(catalog, text_documents, today=None, catalog_available=Tr
             label = info["upperCourt"]
         if info.get("celse"):
             label += f" — {info['celse']}. celse"
-        records.append({"ref": entry["ref"], "day": day, "label": label, "info": info, "kind": entry["kind"]})
+        records.append({"ref": entry["ref"], "day": day, "label": label, "info": info, "kind": entry["kind"],
+                        "title": entry.get("title")})
     newest_first = lambda r: (r["day"] or _as_date((1900, 1, 1)), r["ref"])
     records.sort(key=newest_first, reverse=True)
     # This court's own records first; a talimat court's record only fills up.
@@ -261,20 +267,45 @@ def build_court_orders(catalog, text_documents, today=None, catalog_available=Tr
         until = next((day for day in own_days if decided and day > decided), None)
         items = []
         decisions = [_CLOSING.sub("", d).strip() for d in info["decisions"]]
+        # Long forms, item for item: limits are read from these.
+        fulls = [_CLOSING.sub("", d).strip() for d in info.get("decisionsFull") or info["decisions"]]
         hearing = info.get("nextHearing")
         if hearing and not any(classify_action(d) == "hearing" for d in decisions):
             when = _fmt(_as_date(hearing["date"])) + (f" saat {hearing['time']}" if hearing.get("time") else "")
             decisions.append(f"{info.get('nextHearingType') or 'Duruşma'}: {when} (duruşmanın bu güne bırakılmasına)")
+        record_served = served_for_record(served, decided, record["title"], record["kind"]) if served else []
         for number, decision in enumerate(decisions, start=1):
+            full = fulls[number - 1] if number - 1 < len(fulls) else decision
             action = classify_action(decision)
-            status, lines = _evidence(action, decision, decided, entries, record["ref"], today, until)
-            limit = next(iter(time_limits(decision, decided)), None) if decided and action != "hearing" else None
+            status, lines = _evidence(action, full, decided, entries, record["ref"], today, until)
+            limit = next(iter(time_limits(full, decided)), None) if decided and action != "hearing" else None
+            last_days = []
             if limit and limit["earliestEnd"]:
                 what = {"istinaf": "İstinaf süresi", "temyiz": "Temyiz süresi", "itiraz": "İtiraz süresi"}.get(
                     limit["remedy"], "Süre")
-                lines.insert(0, {"text": f"{what}: {limit['amount']} {limit['unit']}{' kesin' if limit['kesin'] else ''}"
-                                         f" — en erken bitiş {_fmt(limit['earliestEnd'])}", "refs": [], "moreRefs": 0,
-                                 "tone": WARN if limit["earliestEnd"] >= today else MUTED})
+                # Counted from each matching side's tebliğ when its mazbata is readable.
+                side = addressee(full, "party_task")
+                tebligat_lines = []
+                for notice in record_served:
+                    if not limit["remedy"] and not who_matches(side, notice["person"]):
+                        continue
+                    last = _add_duration(notice["served"], limit["amount"], limit["unit"])
+                    if not last:
+                        continue
+                    last_days.append(last)
+                    tebligat_lines.append({
+                        "text": f"Tebliğ {_fmt(notice['served'])} — {notice['muhatap']} → son gün {_fmt(last)}",
+                        "refs": notice["refs"][:MAX_REFS], "moreRefs": max(0, len(notice["refs"]) - MAX_REFS),
+                        "tone": WARN if last >= today else MUTED})
+                basis = (f" — en erken bitiş {_fmt(limit['earliestEnd'])}" if not last_days
+                         else " — tebliğden sayıldı")
+                lines[:0] = [{"text": f"{what}: {limit['amount']} {limit['unit']}{' kesin' if limit['kesin'] else ''}"
+                                      f"{basis}", "refs": [], "moreRefs": 0,
+                              "tone": WARN if max(last_days or [limit["earliestEnd"]]) >= today else MUTED}
+                             ] + tebligat_lines
+                if last_days and status and status["label"] in ("Süre işliyor", "Kontrol edin"):
+                    status = ({"label": "Süre işliyor", "tone": WARN} if max(last_days) >= today
+                              else {"label": "Kontrol edin", "tone": BAD})
             if action != "party_task":
                 limit = None
             text, _ = mask_identifiers(_short(tr_title(decision), 240))
@@ -287,6 +318,8 @@ def build_court_orders(catalog, text_documents, today=None, catalog_available=Tr
             if (status and status["tone"] in (WARN, BAD) and action not in ("ruling", "hearing", "notice")
                     and not info["isTalimat"] and (recent or record is shown[0])):
                 due = limit["earliestEnd"] if limit and limit["earliestEnd"] else None
+                if last_days:
+                    due = min((d for d in last_days if d >= today), default=max(last_days))
                 summary, _ = mask_identifiers(_short(tr_title(decision), 130))
                 open_items.append({"dateText": _fmt(due or decided), "text": f"{who or 'Mahkeme kalemi'} — {summary}",
                                    "who": None, "status": status, "lines": [], "refs": [record["ref"]], "moreRefs": 0,
@@ -354,7 +387,13 @@ def court_orders_answer(downloads_root, scope_id, today=None):
         rows, documents, _, catalog_available = load_case(downloads_root, scope_id)
     except (OSError, ValueError) as error:
         return {"ok": False, "errorCode": "AI_INDEX_UNAVAILABLE", "error": f"Dava indeksi okunamadı: {error}"}
-    built = build_court_orders(rows, documents, today=today, catalog_available=catalog_available)
+    from ai_tebligat import collect_notices
+
+    try:
+        served, _ = collect_notices(rows, documents)
+    except Exception:  # the orders stand without tebliğ days
+        served = []
+    built = build_court_orders(rows, documents, today=today, catalog_available=catalog_available, served=served)
     titles = {row["ref"]: row for row in rows}
     return {
         "ok": True,

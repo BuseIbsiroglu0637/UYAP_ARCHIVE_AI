@@ -40,6 +40,7 @@ for token in [
     'ai_important_dates.py',
     'ai_court_orders.py',
     'ai_parties.py',
+    'ai_tebligat.py',
     "$AiVendorSource = Join-Path $PSScriptRoot 'vendor'",
     'pypdf\\__init__.py',
 ]:

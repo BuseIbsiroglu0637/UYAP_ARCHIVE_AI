@@ -449,8 +449,13 @@ def next_hearing_in(text):
     return chosen[1] if chosen else None
 
 
-def parse_decisions(text):
-    """Numbered interim decisions and the closing next-hearing clause."""
+def parse_decisions(text, limit=260):
+    """Numbered interim decisions and the closing next-hearing clause.
+
+    Items are shortened to `limit` characters for display; time limits are read
+    from the long form, since "… tebliğinden itibaren iki hafta kesin süre"
+    often comes after the first 260 characters.
+    """
     raw = str(text or "")
     marker = None
     for match in _DECISION_MARKER.finditer(raw):
@@ -470,11 +475,11 @@ def parse_decisions(text):
     items = []
     if len(parts) > 1:
         for index in range(1, len(parts) - 1, 2):
-            item = _short(parts[index + 1])
+            item = _short(parts[index + 1], limit)
             if len(item) >= 8:
                 items.append(item)
     elif len(body) >= 8:
-        items.append(_short(body))
+        items.append(_short(body, limit))
     return items, (_short(clause, 200) if clause else None)
 
 

@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 from ai_court_orders import court_orders_answer
 from ai_important_dates import important_dates_answer
 from ai_parties import parties_answer
+from ai_tebligat import tebligat_answer
 from ai_workflows import (
     ALL_WORKFLOW_IDS, WORKFLOW_LABELS, workflow_context, EVENT_HINTS,
     DATE_IN_TEXT, _normalize_event_date,
@@ -313,6 +314,9 @@ verilen süreyi listele. Yapıldı/yapılmadı hükmü kurma. Her olguyu [Dxxxxx
     "parties": """Yalnız kaynakta açıkça yazan kişi/kurum ve rolünü çıkar.
 Davacı/davalı/vekil/sanık gibi rolleri yalnız belge açıkça destekliyorsa yaz.
 Sırf benzer isimlerden aynı kişi sonucu çıkarma. Her olguyu [Dxxxxxx] ile bitir.""",
+    # Answered by rules (ai_tebligat) before any model call.
+    "tebligat": """Yalnız kaynakta yazan tebligatları, muhatabı, tebliğ edilen evrakı ve
+mazbatadaki tebliğ tarihini listele. Tarih uydurma. Her olguyu [Dxxxxxx] ile bitir.""",
 }
 # Workflows no longer shown as a card but still accepted from older builds.
 # Akıllı Sınıflandırma and Kronoloji saw at most a handful of snippets: UYAP
@@ -1075,6 +1079,9 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
     if workflow_id == "parties":
         # Sides and counsel come from the record headers; no model needed.
         return parties_answer(downloads_root, session_id, case_context)
+    if workflow_id == "tebligat":
+        # Served days come from the UETS mazbatas; no model needed.
+        return tebligat_answer(downloads_root, session_id)
     status = provider_status()
     if not status["configured"]:
         provider = status.get("provider")

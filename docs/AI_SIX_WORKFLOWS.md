@@ -30,6 +30,19 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
   takibi ve soruşturmalardaki rolleri (kişi başına özet). Adres, kimlik,
   telefon ve UETS bilgisi gösterilmez; diğer dosya eşleşmeleri ad-soyad
   aynılığına dayanır.
+- `tebligat` ("Tebligatlar"): AI sağlayıcısı çağırmadan tebligat zarflarını
+  ("Kapalı / Açık Tebligat") ve UETS sonuçlarını ("E-Tebliğ Mazbatası")
+  eşleştirir: kime, hangi evrakın, ne zaman tebliğ edildiği. E-tebligatta
+  tebliğ günü mazbatadaki "okundu sayıldı" günüdür (hesaba konulduğu günü
+  izleyen 5. gün; Tebligat K. 7/a, erken açılması değiştirmez). Son günler bu
+  günden sayılır (HMK 92): zarftaki ihtar ("iki hafta içinde cevaba cevap"),
+  tebliğ edilen hükümdeki kanun yolu ve tebliğ edilen tensip / ara kararın o
+  tarafa verdiği süre. Hafta sonu, resmi tatil (2026–2027 bayramları dahil),
+  arife ve adli tatil yalnız işaretlenir, uzatma uygulanmaz. Kesin hüküm "kanun
+  yolu süresi yok" olarak not edilir. Fiziki (PTT) tebligatın taranmış
+  mazbatası okunamadığı için tebliğ günü bilinmez. Ara Kararlar ve Önemli
+  Tarihler de mazbatası okunabilen sürelerde son günü tebliğden gösterir.
+  Adres, kimlik ve UETS adresi gösterilmez.
 - `classification` ("Akıllı Sınıflandırma") ve `chronology` ("Kronoloji"):
   arayüzden kaldırıldı. En fazla birkaç kaynak parçası görüyorlardı; evrak
   türünü UYAP zaten veriyor, tüm evrakların tarih sırası "Zaman Çizelgesi"
@@ -55,12 +68,12 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
   kopyalar (bkz. `native/vendor/README.md`).
 
 ## Kaydedilen sonuçlar
-- Dosya Özeti, Önemli Tarihler, Ara Kararlar ve Yapılacaklar ve Taraflar
-  sonuçları her çalıştırmada yerel arşive kaydedilir
+- Dosya Özeti, Önemli Tarihler, Ara Kararlar ve Yapılacaklar, Taraflar ve
+  Tebligatlar sonuçları her çalıştırmada yerel arşive kaydedilir
   (`%LOCALAPPDATA%\UYAPArsiv\AI_Summaries\<dava>` ve
   `UYAP_Arsiv/_ai/summaries/<dava>` aynası). Aynı içerik tekrar kaydedilmez.
 - Kayıt geçmişi türe göre süzülebilir; her kayıt yeniden açılabilir.
-  Dosya Özeti, Önemli Tarihler ve Ara Kararlar için PDF alınabilir;
+  Dosya Özeti, Önemli Tarihler, Ara Kararlar ve Tebligatlar için PDF alınabilir;
   Taraflar için PDF yoktur (`SAVED_PDF_WORKFLOWS`).
 - Liste yanıtı bölüm içeriği taşımaz (native mesaj sınırı); kural
   görünümü açılırken tek kayıt `ai_get_summary` ile tam okunur.
@@ -77,7 +90,7 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
 - Sağlayıcıya yalnız seçilmiş kısa metin parçaları gider; ham evrak dosyası
   veya kimlik belirleyen dosya yolu aktarılmaz.
 - Dosya özeti dışındaki olgusal yanıtlarda `[Dxxxxxx]` kaynak atfı zorunludur.
-- Önemli Tarihler, Ara Kararlar ve Yapılacaklar ve Taraflar LM Studio
+- Önemli Tarihler, Ara Kararlar ve Yapılacaklar, Taraflar ve Tebligatlar LM Studio
   kapalıyken de çalışır; yalnız tam dava indeksi gerekir. Evrak kataloğu için indeksin bu
   sürümle bir kez yenilenmesi gerekir.
 - LM Studio yalnız localhost üzerinden çağrılır.
@@ -87,12 +100,13 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
 py -3 native/ai_context_contract_test.py
 py -3 native/saved_results_regression_test.py
 py -3 native/pdf_reader_regression_test.py
+py -3 native/tebligat_regression_test.py
 ```
 
 ## Canlı kabul testi (henüz yapılmadı)
 1. LM Studio Model Server açık; model `/v1/models` içinde görünür.
 2. Tam fiziksel doğrulanmış test dava dosyasını seçip indeks oluştur.
-3. Dört iş akışını ve Dosyada Sor'u ayrı ayrı çalıştır. Her yanıtın doğru
+3. Beş iş akışını ve Dosyada Sor'u ayrı ayrı çalıştır. Her yanıtın doğru
    başlık ve işlem kimliğiyle gösterildiğini, kaynakların ilgili dava dosyasına
    ait olduğunu kontrol et.
 4. İndeksi PDF okuyucu sürümüyle yeniden oluşturunca indekslenen evrak

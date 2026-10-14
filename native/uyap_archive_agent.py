@@ -156,9 +156,10 @@ AI_SAVED_WORKFLOWS = {
     "important_dates": ("dates", "Önemli Tarihler"),
     "court_orders": ("orders", "Ara Kararlar ve Yapılacaklar"),
     "parties": ("parties", "Taraflar"),
+    "tebligat": ("tebligat", "Tebligatlar"),
 }
 AI_RULE_SECTION_SCHEMAS = {"important_dates": "important_dates_v2", "court_orders": "court_orders_v1",
-                           "parties": "parties_v1"}
+                           "parties": "parties_v1", "tebligat": "tebligat_v1"}
 AI_RESULT_MAX_SECTIONS_CHARS = 400_000
 AI_RESULT_MAX_SOURCES = 200
 AI_SAVED_TRASH_DAYS = 7
