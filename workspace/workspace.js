@@ -271,9 +271,9 @@ function renderTimelineRows(){
   let lastDay="";for(const {d,date} of filtered){const day=shortDate(date),row=document.createElement("div");row.className="timeline-item";row.innerHTML=`<div class="timeline-rail"><span></span></div><div class="timeline-date">${day!==lastDay?esc(day):""}</div><div class="timeline-content"><div class="timeline-title-row"><strong>${esc(documentTitle(d))}</strong><span>${esc(documentType(d))}</span></div><p>${esc(d.uyapPath||d.targetPath||d.localPath||"Arşiv kaydı")}</p><div class="timeline-meta"><span>${esc(archiveRowStatusLabel(d.status))}</span><span>${esc(d.sourceSystem==="UYAP_KURUM"?"UYAP Kurum":"UYAP")}</span></div></div>`;list.append(row);lastDay=day;}
 }
 function setAiPrompt(prompt,{navigate=true,workflowId="ask"}={}){state.aiWorkflowId=workflowId;state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;updateAiSendButton();if(navigate)showView("ai");}
-// "Önemli Tarihler" and "Ara Kararlar ve Yapılacaklar" are read from the records
-// by rules on the agent; they need the case index but no AI provider.
-const AI_RULE_WORKFLOWS={important_dates:"Önemli tarihleri çıkar",court_orders:"Ara kararları göster"};
+// "Önemli Tarihler", "Ara Kararlar ve Yapılacaklar" and "Taraflar" are read from
+// the records by rules on the agent; they need the case index but no AI provider.
+const AI_RULE_WORKFLOWS={important_dates:"Önemli tarihleri çıkar",court_orders:"Ara kararları göster",parties:"Tarafları göster"};
 function aiWorkflowNeedsProvider(){return !AI_RULE_WORKFLOWS[state.aiWorkflowId];}
 function aiSendLabel(){return AI_RULE_WORKFLOWS[state.aiWorkflowId]||(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder");}
 function updateAiSendButton(){const send=$("aiSend"),gate=state.aiSendGate;if(!send||!gate)return;const providerOk=gate.providerReady||!aiWorkflowNeedsProvider();send.disabled=!providerOk||!gate.indexReady;send.textContent=!providerOk?"AI sağlayıcısı bağlanınca kullanılabilir":(gate.indexReady?aiSendLabel():"Önce tam dava indeksini hazırla");}
@@ -345,7 +345,8 @@ function renderRuleSectionsHtml(sections){
         const who=item.who?`<b class="ai-order-who">${esc(item.who)}</b> — `:"";
         const status=item.status?.label?`<span class="ai-order-status tone-${tone(item.status.tone)}">${esc(item.status.label)}</span>`:"";
         const lines=(Array.isArray(item.lines)?item.lines:[]).map(line=>`<li class="tone-${tone(line.tone)}">${esc(line.text||"")}${renderDateRefsHtml(line)}</li>`).join("");
-        return `<li class="ai-date-row kind-${esc(item.kind||"event")}${item.isNew?" is-new":""}"><span class="ai-date">${esc(item.dateText||"")}</span><span class="ai-date-text">${item.isNew?'<span class="ai-new-badge">YENİ</span>':""}${who}${esc(item.text||"")}${status}${renderDateRefsHtml(item)}${lines?`<ul class="ai-order-lines">${lines}</ul>`:""}</span></li>`;
+        const main=item.kind==="party"?`<b class="ai-party-name">${esc(item.text||"")}</b>`:esc(item.text||"");
+        return `<li class="ai-date-row kind-${esc(item.kind||"event")}${item.isNew?" is-new":""}"><span class="ai-date">${esc(item.dateText||"")}</span><span class="ai-date-text">${item.isNew?'<span class="ai-new-badge">YENİ</span>':""}${who}${main}${status}${renderDateRefsHtml(item)}${lines?`<ul class="ai-order-lines">${lines}</ul>`:""}</span></li>`;
       }).join("")
       :`<li class="ai-date-row empty"><span class="ai-date"></span><span class="ai-date-text">${esc(section?.empty||"Kayıt yok.")}</span></li>`;
     const refs=Array.isArray(section?.refs)&&section.refs.length?renderDateRefsHtml({refs:section.refs}):"";
@@ -357,6 +358,7 @@ function renderImportantDatesHtml(sections){return renderRuleSectionsHtml(sectio
 function ruleSectionsOf(result){
   if(result?.datesSchema==="important_dates_v2"&&Array.isArray(result?.dateSections))return result.dateSections;
   if(result?.ordersSchema==="court_orders_v1"&&Array.isArray(result?.orderSections))return result.orderSections;
+  if(result?.partiesSchema==="parties_v1"&&Array.isArray(result?.partySections))return result.partySections;
   return null;
 }
 function renderSummarySourcesHtml(sources){

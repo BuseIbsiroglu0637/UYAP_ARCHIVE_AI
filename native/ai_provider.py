@@ -17,6 +17,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from ai_court_orders import court_orders_answer
 from ai_important_dates import important_dates_answer
+from ai_parties import parties_answer
 from ai_workflows import (
     ALL_WORKFLOW_IDS, WORKFLOW_LABELS, workflow_context, EVENT_HINTS,
     DATE_IN_TEXT, _normalize_event_date,
@@ -1068,6 +1069,9 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         return important_dates_answer(downloads_root, session_id)
     if workflow_id == "court_orders":
         return court_orders_answer(downloads_root, session_id)
+    if workflow_id == "parties":
+        # Sides and counsel come from the record headers; no model needed.
+        return parties_answer(downloads_root, session_id, case_context)
     status = provider_status()
     if not status["configured"]:
         provider = status.get("provider")

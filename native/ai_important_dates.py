@@ -546,17 +546,26 @@ def _load(downloads_root, scope_id):
     return documents, catalog
 
 
-def load_case(downloads_root, scope_id):
-    """(catalog rows, readable documents, total documents, catalog available) for a case scope."""
+def load_case_full(downloads_root, scope_id):
+    """Catalog rows, readable documents and the case identity recorded at index build."""
     documents, catalog = _load(downloads_root, scope_id)
-    catalog_rows = (catalog or {}).get("documents") if isinstance(catalog, dict) else None
+    catalog = catalog if isinstance(catalog, dict) else {}
+    catalog_rows = catalog.get("documents")
     if catalog_rows:
         rows = [{"ref": str(d.get("ref")), "title": d.get("title"), "date": d.get("date"),
                  "indexed": bool(d.get("indexed")), "idHash": d.get("idHash")} for d in catalog_rows if d.get("ref")]
-        return rows, documents, catalog.get("totalDocuments"), True
-    rows = [{"ref": ref, "title": d["title"], "date": d["date"], "indexed": True, "idHash": None}
-            for ref, d in sorted(documents.items())]
-    return rows, documents, None, False
+    else:
+        rows = [{"ref": ref, "title": d["title"], "date": d["date"], "indexed": True, "idHash": None}
+                for ref, d in sorted(documents.items())]
+    return {"rows": rows, "documents": documents, "total": catalog.get("totalDocuments") if catalog_rows else None,
+            "catalogAvailable": bool(catalog_rows), "institutionName": catalog.get("institutionName"),
+            "caseId": catalog.get("caseId")}
+
+
+def load_case(downloads_root, scope_id):
+    """(catalog rows, readable documents, total documents, catalog available) for a case scope."""
+    case = load_case_full(downloads_root, scope_id)
+    return case["rows"], case["documents"], case["total"], case["catalogAvailable"]
 
 
 def next_seen_state(rows, stored):

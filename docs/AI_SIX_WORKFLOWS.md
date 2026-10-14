@@ -20,8 +20,16 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
 - `new_updates`: eski "Yeni Ne Var?" kartı. Arayüzden kaldırıldı; yeni
   evrak işaretleri Önemli Tarihler içine taşındı. Eski istemciler için
   işlem kimliği native tarafta kabul edilmeye devam eder.
-- `parties`: yalnız belgelerde açıkça görülen kişi/kurum/rol eşleşmelerini
-  kaynak göstererek aktarır.
+- `parties` ("Taraflar"): AI sağlayıcısı çağırmadan evrak künyelerini okur.
+  Her evrak, kendi künyesindeki esas / soruşturma numarasıyla bir dosyaya
+  bağlanır; böylece dosyaya eklenen başka dosyaların rolleri bu dosyanın
+  taraflarına karışmaz. Gösterir: bu dosyanın tarafları, güncel ve önceki
+  vekil / müdafiler (tarihleriyle), "karşı davacı", "istinaf kanun yoluna
+  başvuran" gibi nitelikler; hakim (değişmişse öncekiler), bilirkişi ve
+  tanıklar; aynı kişilerin eklenen diğer dava (dosya başına bir satır), icra
+  takibi ve soruşturmalardaki rolleri (kişi başına özet). Adres, kimlik,
+  telefon ve UETS bilgisi gösterilmez; diğer dosya eşleşmeleri ad-soyad
+  aynılığına dayanır.
 - `classification`: sınırlı sayıda seçilmiş doğrulanmış kaynağı sınıflandırır.
   Tam dava indeksinin kapsandığı iddia edilmez.
 - `chronology`: tarihi veya olay tarihi kanıtı bulunan kaynak parçalarını
@@ -37,8 +45,8 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
 - Sağlayıcıya yalnız seçilmiş kısa metin parçaları gider; ham evrak dosyası
   veya kimlik belirleyen dosya yolu aktarılmaz.
 - Dosya özeti dışındaki olgusal yanıtlarda `[Dxxxxxx]` kaynak atfı zorunludur.
-- Önemli Tarihler ve Ara Kararlar ve Yapılacaklar LM Studio kapalıyken de
-  çalışır; yalnız tam dava indeksi gerekir. Evrak kataloğu için indeksin bu
+- Önemli Tarihler, Ara Kararlar ve Yapılacaklar ve Taraflar LM Studio
+  kapalıyken de çalışır; yalnız tam dava indeksi gerekir. Evrak kataloğu için indeksin bu
   sürümle bir kez yenilenmesi gerekir.
 - LM Studio yalnız localhost üzerinden çağrılır.
 

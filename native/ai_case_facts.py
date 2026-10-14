@@ -193,33 +193,93 @@ def mask_identifiers(text):
 # --------------------------------------------------------------------------
 # Header labels: "SANIK : AD SOYAD, baba adı …", "VEKİLLERİ : Av. …"
 # --------------------------------------------------------------------------
-_LABEL_LINE = re.compile(r"^\s*([A-ZÇĞİÖŞÜÂÎÛ][A-ZÇĞİÖŞÜÂÎÛ .]{1,40}?)\s*:\s*(.*?)\s*$")
+_LABEL_LINE = re.compile(
+    r"^\s*([A-ZÇĞİÖŞÜÂÎÛ][A-ZÇĞİÖŞÜÂÎÛ0-9 .'\-/]{1,60}?)\s*(\([^)]{1,80}\))?\s*:\s*(.*?)\s*$")
+# Single words that name a side. A label may carry several ("DAVACI-KARŞI
+# DAVALI", "MÜŞTEKİ-KATILAN") or wrap one in other words ("CEVABA CEVAP VEREN
+# DAVACI", "SÜRE UZATIM TALEBİNDE BULUNAN-DAVALI").
+_ROLE_WORDS = {
+    "DAVACI": "Davacı", "DAVACILAR": "Davacı", "DAVALI": "Davalı", "DAVALILAR": "Davalı",
+    "SANIK": "Sanık", "SANIKLAR": "Sanık", "ŞÜPHELİ": "Şüpheli", "ŞÜPHELİLER": "Şüpheli",
+    "MÜŞTEKİ": "Müşteki", "MÜŞTEKİLER": "Müşteki", "KATILAN": "Katılan", "KATILANLAR": "Katılan",
+    "MAĞDUR": "Mağdur", "MAĞDURLAR": "Mağdur", "ŞİKAYETÇİ": "Şikayetçi", "ŞİKÂYETÇİ": "Şikayetçi",
+    "ALACAKLI": "Alacaklı", "ALACAKLILAR": "Alacaklı", "BORÇLU": "Borçlu", "BORÇLULAR": "Borçlu",
+}
 PARTY_LABELS = {
     "MÜŞTEKİ": "Müşteki", "MÜŞTEKİLER": "Müşteki", "ŞİKAYETÇİ": "Şikayetçi", "ŞİKÂYETÇİ": "Şikayetçi",
     "KATILAN": "Katılan", "MAĞDUR": "Mağdur", "SANIK": "Sanık", "SANIKLAR": "Sanık",
     "ŞÜPHELİ": "Şüpheli", "DAVACI": "Davacı", "DAVACILAR": "Davacı", "DAVALI": "Davalı",
     "DAVALILAR": "Davalı", "ALACAKLI": "Alacaklı", "BORÇLU": "Borçlu",
+    "SUÇA SÜRÜKLENEN ÇOCUK": "Suça sürüklenen çocuk", "İHBAR OLUNAN": "İhbar olunan",
+    "FER'İ MÜDAHİL": "Fer'i müdahil", "FERİ MÜDAHİL": "Fer'i müdahil", "MÜDAHİL": "Müdahil",
+    "TEDBİR İSTEYEN": "Tedbir isteyen", "İHTİYATİ TEDBİR İSTEYEN": "Tedbir isteyen", "KARŞI TARAF": "Karşı taraf",
 }
+# Labels that describe a side's address, ID or amount, not the side itself.
+_NOT_A_PARTY = {"ADRES", "ADRESİ", "ADRESLERİ", "BİLGİLERİ", "KİMLİK", "NO", "NUMARASI", "TC", "MİKTARI", "VERGİ",
+                "HAKKINDA", "TARİHİ", "VEKİLİNİN", "İLE"}
 COUNSEL_LABELS = {
     "VEKİL": "vekili", "VEKİLİ": "vekili", "VEKİLLERİ": "vekili",
     "MÜDAFİ": "müdafii", "MÜDAFİİ": "müdafii", "MÜDAFİLERİ": "müdafii",
 }
-DEFENDANT_ROLES = {"Sanık", "Şüpheli"}
+DEFENDANT_ROLES = {"Sanık", "Şüpheli", "Suça sürüklenen çocuk"}
 SUBJECT_LABELS = {"SUÇ": "Suç", "SUÇLAR": "Suç", "DAVA": "Dava", "DAVANIN KONUSU": "Dava"}
 SUBJECT_DATE_LABELS = {"SUÇ TARİHİ": "Suç tarihi", "SUÇ TARİHLERİ": "Suç tarihi", "DAVA TARİHİ": "Dava tarihi"}
 _HEADER_STOP = re.compile(
     r"(?i)belli edilen gün|belirli gün|gereği düşünüldü|açıklamalar|^\s*g\.?\s?d\.?\s*:|vekilinin dava dilek|dosya incelendi")
 _NAME_OK = re.compile(r"[A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû.' -]+")
+_NAME_PREFIX = re.compile(r"^(?:ad[ıi](?:\s+soyad[ıi])?|ad[ıi]\s*-\s*soyad[ıi])\s*:\s*", re.I)
+_INLINE_COUNSEL = re.compile(r"(?i)^(.*?)\s+(vekil\w*|müdafi\w*)\s+(Av\.?\s.*)$")
+_QUALIFIED_VALUE = re.compile(r"^\s*\(([^)]{1,80})\)\s*:\s*(.*?)\s*$")
 
 
 def _label_key(label):
     return re.sub(r"\s+", " ", label.replace(".", " ")).strip()
 
 
+def _label_tokens(label):
+    return [token for token in re.split(r"[\s\-/]+", _label_key(label)) if token]
+
+
+def party_role(label):
+    """(role, note) for a header label, or (None, None).
+
+    "DAVACI" -> ("Davacı", None); "CEVABA CEVAP VEREN DAVACI" -> ("Davacı", None);
+    "DAVACI-KARŞI DAVALI" -> ("Davacı", "karşı davalı"); "KARŞI DAVACI" -> ("Karşı davacı", None).
+    """
+    key = _label_key(label)
+    if key in PARTY_LABELS:
+        return PARTY_LABELS[key], None
+    tokens = _label_tokens(label)
+    if any(token in _NOT_A_PARTY for token in tokens):
+        return None, None
+    for index, token in enumerate(tokens):
+        if token in _ROLE_WORDS:
+            role = _ROLE_WORDS[token]
+            if index and tokens[index - 1] == "KARŞI":
+                role = "Karşı " + tr_lower(role)
+            rest = tokens[index + 1:]
+            note = tr_lower(" ".join(rest)) if any(t in _ROLE_WORDS for t in rest) else None
+            return role, note
+    return None, None
+
+
+def _role_only_line(text):
+    """A bare role word on its own line ("DAVACI"), its value on the next line."""
+    text = str(text or "").strip()
+    if not text or len(text) > 40 or text != text.upper() or ":" in text:
+        return None
+    tokens = _label_tokens(text)
+    if tokens and all(token in _ROLE_WORDS or token == "KARŞI" for token in tokens):
+        return party_role(text)[0]
+    return None
+
+
 def name_from_value(value):
-    """Person name at the start of a label value, without birth/address/ID detail."""
-    head = re.split(r"[,(\[]|\s-\s|\s{2,}|\bTCKN\b|\bT\.C\.", str(value or ""), maxsplit=1)[0]
+    """Person or institution name at the start of a label value, without birth/address/ID detail."""
+    text = _NAME_PREFIX.sub("", str(value or "").strip())
+    head = re.split(r"[,(\[]|\s-\s|\s{2,}|\bTCKN\b|\bT\.\s?C\b\.?|\bVergi\b|\bTC\s+(?:No|Kimlik)", text, maxsplit=1)[0]
     head = re.sub(r"(?:\s+\d[\d\s]*)+$", "", head).strip(" .:;-")
+    head = re.sub(r"(?i)^av(?:\.\s*|\s+)(?=[^\W\d_])", "Av. ", head)
     words = head.split()
     if not 2 <= len(words) <= 7 or not _NAME_OK.fullmatch(head):
         return None
@@ -230,31 +290,68 @@ def name_from_value(value):
 
 def _counsel_split(label):
     """'MÜŞTEKİ VEKİLİ' -> ('Müşteki', 'vekili'); 'VEKİLLERİ' -> (None, 'vekili')."""
-    parts = label.split()
+    parts = _label_tokens(label)
     if parts and parts[-1] in COUNSEL_LABELS:
         owner = " ".join(parts[:-1])
-        return PARTY_LABELS.get(owner), COUNSEL_LABELS[parts[-1]]
+        return (party_role(owner)[0] if owner else None), COUNSEL_LABELS[parts[-1]]
     return None, None
 
 
+def _new_party(role, value, note=None):
+    party = {"role": role, "name": None, "counsel": [], "note": note or None}
+    inline = _INLINE_COUNSEL.match(str(value or "").strip())
+    if inline:
+        # "Azize Öztürk vekili Av. Rıdvan Galip Ergün"
+        party["name"] = name_from_value(inline.group(1))
+        counsel = name_from_value(inline.group(3))
+        if counsel:
+            label = "müdafii" if tr_lower(inline.group(2)).startswith("müdafi") else "vekili"
+            party["counsel"].append({"name": counsel, "label": label})
+    else:
+        party["name"] = name_from_value(value)
+    return party
+
+
 def parse_header(text):
-    """Parties, counsel and case subject from the label block at the top of a record."""
+    """Parties, counsel and case subject from the label block at the top of a record.
+
+    Each party is {"role", "name", "counsel": [{"name", "label"}], "note"}; the
+    note keeps a qualifier written with the role ("karşı davalı", "istinaf
+    kanun yoluna başvuran").
+    """
     parties, subject, subject_date = [], None, None
-    current_party = None
-    counsel_mode = None
+    current_party = counsel_target = None
+    counsel_mode = pending_role = None
     for line in str(text or "").splitlines()[:80]:
         if _HEADER_STOP.search(line):
             break
+        stripped = line.strip()
         match = _LABEL_LINE.match(line)
         if not match:
-            if counsel_mode and re.match(r"^\s*Av\.?\s", line, re.I):
-                name = name_from_value(line.strip())
-                if name and current_party is not None:
-                    current_party["counsel"].append({"name": name, "label": counsel_mode})
+            if pending_role:
+                qualified = _QUALIFIED_VALUE.match(stripped)
+                if qualified:
+                    # "DAVACI" / "(İstinaf Kanun Yoluna Başvuran) : AD SOYAD"
+                    current_party = _new_party(pending_role, qualified.group(2), tr_lower(qualified.group(1)))
+                    parties.append(current_party)
+                    pending_role = counsel_mode = None
+                    continue
+            role_only = _role_only_line(stripped)
+            if role_only:
+                pending_role, counsel_mode = role_only, None
                 continue
-            counsel_mode = None
+            pending_role = None
+            if counsel_mode and re.match(r"^\s*Av\.?\s", line, re.I):
+                # Further lawyers listed under "VEKİLLERİ", often with an address line between.
+                name = name_from_value(stripped)
+                if name and counsel_target is not None:
+                    counsel_target["counsel"].append({"name": name, "label": counsel_mode})
+                continue
+            if len(stripped) > 100:
+                counsel_mode = None
             continue
-        label, value = _label_key(match.group(1)), match.group(2)
+        pending_role = None
+        label, qualifier, value = _label_key(match.group(1)), match.group(2), match.group(3)
         owner, counsel_label = _counsel_split(label)
         if counsel_label:
             target = current_party
@@ -263,16 +360,20 @@ def parse_header(text):
             elif counsel_label == "müdafii":
                 target = next((p for p in reversed(parties) if p["role"] in DEFENDANT_ROLES), current_party)
             if target is None:
-                target = {"role": owner or ("Sanık" if counsel_label == "müdafii" else "Taraf"), "name": None, "counsel": []}
+                target = {"role": owner or ("Sanık" if counsel_label == "müdafii" else "Taraf"), "name": None,
+                          "counsel": [], "note": None}
                 parties.append(target)
             name = name_from_value(value)
             if name:
                 target["counsel"].append({"name": name, "label": counsel_label})
-            counsel_mode = counsel_label
+            counsel_target, counsel_mode = target, counsel_label
             continue
         counsel_mode = None
-        if label in PARTY_LABELS:
-            current_party = {"role": PARTY_LABELS[label], "name": name_from_value(value), "counsel": []}
+        role, note = party_role(label)
+        if role:
+            if qualifier and not note:
+                note = tr_lower(qualifier.strip("() "))
+            current_party = _new_party(role, value, note)
             parties.append(current_party)
         elif label in SUBJECT_LABELS and value and subject is None:
             subject = {"label": SUBJECT_LABELS[label], "text": tr_title(value.strip(" .;"))[:160]}
