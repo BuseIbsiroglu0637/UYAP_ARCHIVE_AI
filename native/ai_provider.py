@@ -431,7 +431,10 @@ def _validate_important_dates_answer(answer, selected):
             item = allowed.get(ref)
             if not item or any(value != item["eventDate"] for value in normalized):
                 continue
-            if any(term in line.casefold() for term in event_keywords.get(item["eventType"], ())):
+            if (
+                item["eventType"].casefold() in line.casefold()
+                or any(term in line.casefold() for term in event_keywords.get(item["eventType"], ()))
+            ):
                 supported = True
                 break
         if not supported:
