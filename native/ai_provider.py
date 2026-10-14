@@ -313,6 +313,16 @@ verilen süreyi listele. Yapıldı/yapılmadı hükmü kurma. Her olguyu [Dxxxxx
     "parties": """Yalnız kaynakta açıkça yazan kişi/kurum ve rolünü çıkar.
 Davacı/davalı/vekil/sanık gibi rolleri yalnız belge açıkça destekliyorsa yaz.
 Sırf benzer isimlerden aynı kişi sonucu çıkarma. Her olguyu [Dxxxxxx] ile bitir.""",
+}
+# Workflows no longer shown as a card but still accepted from older builds.
+# Akıllı Sınıflandırma and Kronoloji saw at most a handful of snippets: UYAP
+# already gives every document's type, and the Zaman Çizelgesi page lists all
+# documents by date, so the cards repeated those views with less coverage.
+_LEGACY_WORKFLOW_TASKS = {
+    "new_updates": """Yalnız yerel ilk karşılaştırma kaydından sonra yeni veya
+değişmiş olduğu hash karşılaştırmasıyla belirlenen sağlanan evrakları incele.
+Kaynak yoksa gelişme uydurma; silindiği veya sonuçlandığı gibi hükümler kurma.
+Her olguyu [Dxxxxxx] ile bitir.""",
     "classification": """Yalnız sağlanan doğrulanmış evrak parçalarını belge türü
 ve gerekçesiyle sınıflandır. Emin değilsen Belirsiz yaz. Belge başlığı ile
 içerik çelişiyorsa bunu belirt. Tüm dosyanın sınıflandırıldığını iddia etme.
@@ -321,13 +331,6 @@ Her olguyu [Dxxxxxx] ile bitir.""",
 belgede anlatılan olay tarihi farklı olabilir; ayrı yaz.
 Tarihsiz olaya tarih uydurma, olay sırası kesin değilse belirsiz de.
 Her maddi olguyu [Dxxxxxx] ile bitir.""",
-}
-# Workflows no longer shown as a card but still accepted from older builds.
-_LEGACY_WORKFLOW_TASKS = {
-    "new_updates": """Yalnız yerel ilk karşılaştırma kaydından sonra yeni veya
-değişmiş olduğu hash karşılaştırmasıyla belirlenen sağlanan evrakları incele.
-Kaynak yoksa gelişme uydurma; silindiği veya sonuçlandığı gibi hükümler kurma.
-Her olguyu [Dxxxxxx] ile bitir.""",
 }
 
 def provider_status():

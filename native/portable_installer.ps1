@@ -33,6 +33,8 @@ $AiIndexSource = Join-Path $PSScriptRoot 'ai_local_index.py'
 $AiProviderSource = Join-Path $PSScriptRoot 'ai_provider.py'
 # ai_provider imports these; the runtime has no package discovery, so each is copied.
 $AiModuleSources = @('ai_workflows.py', 'ai_case_facts.py', 'ai_important_dates.py', 'ai_court_orders.py', 'ai_parties.py') | ForEach-Object { Join-Path $PSScriptRoot $_ }
+# Vendored pure-Python libraries (pypdf); ai_local_index adds runtime\vendor to sys.path.
+$AiVendorSource = Join-Path $PSScriptRoot 'vendor'
 $HostSelfTestSource = Join-Path $PSScriptRoot 'host_self_test.py'
 
 New-Item -ItemType Directory -Force -Path $AppRoot | Out-Null
@@ -258,6 +260,10 @@ function Configure-EmbeddedRuntime([string]$RuntimeDir) {
   Copy-Item -LiteralPath $AiIndexSource -Destination (Join-Path $RuntimeDir 'ai_local_index.py') -Force
   Copy-Item -LiteralPath $AiProviderSource -Destination (Join-Path $RuntimeDir 'ai_provider.py') -Force
   foreach ($module in $AiModuleSources) { Copy-Item -LiteralPath $module -Destination (Join-Path $RuntimeDir (Split-Path $module -Leaf)) -Force }
+  # Replaced as a whole so no file of an older library version survives an update.
+  $vendorTarget = Join-Path $RuntimeDir 'vendor'
+  if (Test-Path -LiteralPath $vendorTarget) { Remove-Item -LiteralPath $vendorTarget -Recurse -Force }
+  Copy-Item -LiteralPath $AiVendorSource -Destination $vendorTarget -Recurse -Force
   Copy-Item -LiteralPath $HostSelfTestSource -Destination (Join-Path $RuntimeDir 'host_self_test.py') -Force
   Copy-Item -LiteralPath $SiteCustomizeTemplate -Destination (Join-Path $RuntimeDir 'sitecustomize.py') -Force
 }
@@ -314,6 +320,7 @@ function Install-PortableAgent {
   if (-not (Test-Path $AiIndexSource)) { throw 'ai_local_index.py paket içinde bulunamadı.' }
   if (-not (Test-Path $AiProviderSource)) { throw 'ai_provider.py paket içinde bulunamadı.' }
   foreach ($module in $AiModuleSources) { if (-not (Test-Path $module)) { throw ((Split-Path $module -Leaf) + ' paket içinde bulunamadı.') } }
+  if (-not (Test-Path (Join-Path $AiVendorSource 'pypdf\__init__.py'))) { throw 'vendor\pypdf paket içinde bulunamadı.' }
   if (-not (Test-Path $SiteCustomizeTemplate)) { throw 'portable_sitecustomize.py paket içinde bulunamadı.' }
 
   $registryBefore = Read-RegistryState

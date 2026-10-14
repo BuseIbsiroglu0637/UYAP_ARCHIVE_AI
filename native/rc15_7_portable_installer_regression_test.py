@@ -40,6 +40,8 @@ for token in [
     'ai_important_dates.py',
     'ai_court_orders.py',
     'ai_parties.py',
+    "$AiVendorSource = Join-Path $PSScriptRoot 'vendor'",
+    'pypdf\\__init__.py',
 ]:
     require(token.lower() in installer.lower(), f'portable installer token eksik: {token}')
 

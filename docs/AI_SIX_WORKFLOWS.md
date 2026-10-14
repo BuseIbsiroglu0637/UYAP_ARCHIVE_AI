@@ -30,12 +30,29 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
   takibi ve soruşturmalardaki rolleri (kişi başına özet). Adres, kimlik,
   telefon ve UETS bilgisi gösterilmez; diğer dosya eşleşmeleri ad-soyad
   aynılığına dayanır.
-- `classification`: sınırlı sayıda seçilmiş doğrulanmış kaynağı sınıflandırır.
-  Tam dava indeksinin kapsandığı iddia edilmez.
-- `chronology`: tarihi veya olay tarihi kanıtı bulunan kaynak parçalarını
-  kronolojik analize sunar. Belge tarihi ile olay tarihi ayrılır.
+- `classification` ("Akıllı Sınıflandırma") ve `chronology` ("Kronoloji"):
+  arayüzden kaldırıldı. En fazla birkaç kaynak parçası görüyorlardı; evrak
+  türünü UYAP zaten veriyor, tüm evrakların tarih sırası "Zaman Çizelgesi"
+  sayfasında, olaylar Önemli Tarihler'de. Eski istemciler için işlem
+  kimlikleri native tarafta kabul edilmeye devam eder.
 
 `ask`: genel soru-cevap için ayrı eski akış.
+
+## PDF okuma
+- PDF metni önce gömülü `pypdf` ile okunur (yazı tipleri, ToUnicode CMap,
+  nesne akışları); yetersiz kalırsa eski içerik akışı okuyucusu denenir. İki
+  sonuç da aynı kalite kontrolünden geçer.
+- Eski okuyucu UYAP PDF'lerinin yalnız ~%3'ünü okuyabiliyordu; arşivden
+  rastgele 150 PDF'te yeni okuyucu 134'ünü kalite kontrolünden geçirdi.
+  Kalan ~%9 taranmış görüntüdür; OCR henüz yoktur.
+- Okuma 20 sn bütçeli ayrı bir iş parçacığında çalışır; bütçeyi aşan PDF
+  eski okuyucuya düşer, iki takılmadan sonra o işlem boyunca yeni okuyucu
+  kullanılmaz.
+- Dava indeksinin kapsam kaydında `pdfReader` sürümü tutulur. Bu sürümden
+  önce oluşturulmuş indeks için Workspace bir kez "İndeksi güncelle (PDF
+  okuma)" önerir.
+- Kütüphane `native/vendor` altındadır; kurulum `runtime\vendor` olarak
+  kopyalar (bkz. `native/vendor/README.md`).
 
 ## Kaydedilen sonuçlar
 - Dosya Özeti, Önemli Tarihler, Ara Kararlar ve Yapılacaklar ve Taraflar
@@ -69,15 +86,18 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
 ```powershell
 py -3 native/ai_context_contract_test.py
 py -3 native/saved_results_regression_test.py
+py -3 native/pdf_reader_regression_test.py
 ```
 
 ## Canlı kabul testi (henüz yapılmadı)
 1. LM Studio Model Server açık; model `/v1/models` içinde görünür.
 2. Tam fiziksel doğrulanmış test dava dosyasını seçip indeks oluştur.
-3. Altı iş akışını ayrı ayrı çalıştır. Her yanıtın doğru başlık ve işlem
-   kimliğiyle gösterildiğini, kaynakların ilgili dava dosyasına ait olduğunu kontrol et.
-4. Kronoloji düğmesi dosya özetine düşmemeli.
-5. Tarih/rol/sınıflandırma çıktıları doğrulanmış evraklardan manuel kontrol edilmeli.
+3. Dört iş akışını ve Dosyada Sor'u ayrı ayrı çalıştır. Her yanıtın doğru
+   başlık ve işlem kimliğiyle gösterildiğini, kaynakların ilgili dava dosyasına
+   ait olduğunu kontrol et.
+4. İndeksi PDF okuyucu sürümüyle yeniden oluşturunca indekslenen evrak
+   sayısının arttığını ve "metni okunamadı" notlarının azaldığını kontrol et.
+5. Tarih/rol çıktıları doğrulanmış evraklardan manuel kontrol edilmeli.
 6. Önemli Tarihler ilk seferde "YENİ" işareti koymamalı; yeni doğrulanmış
    evrak eklenip indeks yenilendiğinde yalnız o evraka dayanan satırlar
    işaretlenmeli. Ara Kararlar'daki her madde ilgili zabıt/karar evrakıyla

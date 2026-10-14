@@ -739,7 +739,7 @@ def test_six_ai_workflows_route_by_explicit_id_and_verified_case_scope():
     from ai_workflows import WORKFLOW_IDS, workflow_context
     from ai_provider import _WORKFLOW_TASKS, answer_from_local_index
 
-    assert len(WORKFLOW_IDS) == 6
+    assert WORKFLOW_IDS == ("case_summary", "important_dates", "court_orders", "parties")
     assert set(WORKFLOW_IDS) - {"case_summary"} == set(_WORKFLOW_TASKS)
     assert answer_from_local_index(".", "not-a-case", "kronolojik özet",
                                    workflow_id="unknown")["errorCode"] == "AI_WORKFLOW_UNSUPPORTED"
@@ -805,9 +805,11 @@ def test_six_ai_workflows_workspace_and_worker_contract():
     worker = (ROOT/"background"/"service-worker.js").read_text(encoding="utf-8")
     native = (ROOT/"native"/"uyap_archive_agent.py").read_text(encoding="utf-8")
     provider = (ROOT/"native"/"ai_provider.py").read_text(encoding="utf-8")
-    for workflow_id in ("case_summary","important_dates","court_orders","parties","classification","chronology"):
+    for workflow_id in ("case_summary","important_dates","court_orders","parties"):
         assert f'data-ai-workflow="{workflow_id}"' in html
-    assert 'data-ai-workflow="new_updates"' not in html
+    # Retired cards: still accepted natively from older builds, never shown.
+    for workflow_id in ("new_updates","classification","chronology"):
+        assert f'data-ai-workflow="{workflow_id}"' not in html
     assert 'workflowId:state.aiWorkflowId' in js
     assert 'id="aiFreeformMode"' in html
     assert 'setAiPrompt("",{navigate:false,workflowId:"ask"})' in js
