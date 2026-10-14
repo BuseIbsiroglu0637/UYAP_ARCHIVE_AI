@@ -42,6 +42,12 @@ jobs:
         run: python native/phase1_release_channel_contract_test.py
       - name: AI context contract
         run: python native/ai_context_contract_test.py
+      - name: Important dates and case catalog regression
+        run: python native/important_dates_regression_test.py
+      - name: Court orders (Ara Kararlar ve Yapılacaklar) regression
+        run: python native/court_orders_regression_test.py
+      - name: Case summary v2 regression
+        run: python native/case_summary_v2_regression_test.py
       - name: Offline targeted regression tests
         run: |
           python native/rc15_9_8_source_path_self_heal_regression_test.py

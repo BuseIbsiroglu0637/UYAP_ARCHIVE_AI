@@ -25,7 +25,7 @@ import { askNativeAgent, pingNativeAgent, getNativeBridgeStats } from "./native-
 import {sendToFrame, uyapFrames, getFrameClientStats} from './frame-client.js';
 import {validateDownloadRequest} from '../shared/request-policy.js';
 import { clearRecoveredPacingError, nextPacingState, pacingDelayMs, shouldRunDeferredRetry, summarizePerformance, updatePerformanceMetrics } from '../shared/performance-policy.js';
-import { attemptStrategyForDocument, appendRetryStrategyHistory, contentEndpointCooldownMs, htmlRetryDecision, isIncompleteContentError, isIsolatedContentError, nextRetryStrategy, retryStrategySupported } from '../shared/failure-policy.js';
+import { attemptStrategyForDocument, appendRetryStrategyHistory, contentEndpointCooldownMs, htmlRetryDecision, isIncompleteContentError, isIsolatedContentError, isLocalTargetError, nextRetryStrategy, retryStrategySupported } from '../shared/failure-policy.js';
 import { suppressArchiveDownloadUi, restoreArchiveDownloadUi, handleArchiveDownloadUiAlarm, forgetManagedDownload } from './download-ui.js';
 import { FINAL_RECOVERY_MAX_PASSES, planFinalRecovery } from '../shared/final-recovery.js';
 import { showLoginRequiredNotification, clearLoginRequiredNotification, showArchiveCompletionNotification, showArchiveProblemNotification } from './session-notifications.js';
@@ -5431,6 +5431,8 @@ export async function handleDownloadChanged(delta) {
         provisionalUnmatchedPath: null,
         contentHashReconciled: Boolean(agent.contentHashReconciled),
         contentHashReuseMode: agent.contentHashReuseMode || null,
+        targetPathShortened: agent.targetPathShortened === true,
+        targetPathLength: Number.isFinite(agent.targetPathLength) ? agent.targetPathLength : null,
         localHashReconcilePending: false,
         localArchiveMatchState: document.localArchiveMatchState === "ambiguous_hash_pending"
           ? (agent.contentHashReconciled ? "content_hash_reconciled" : "content_hash_distinct")
@@ -5562,6 +5564,11 @@ export async function handleDownloadChanged(delta) {
         pdfStartXref: Number.isFinite(Number(agent.pdfStartXref)) ? Number(agent.pdfStartXref) : null,
         pdfXrefKind: agent.pdfXrefKind || null,
         pdfValidatorMode: Object.prototype.hasOwnProperty.call(agent, 'pdfTailWindow') ? 'v2' : (agent.errorCode === 'TRUNCATED_PDF' ? 'legacy' : null),
+        targetPathLength: Number.isFinite(agent.targetPathLength) ? agent.targetPathLength : null,
+        targetDirLength: Number.isFinite(agent.targetDirLength) ? agent.targetDirLength : null,
+        targetPathLimit: Number.isFinite(agent.targetPathLimit) ? agent.targetPathLimit : null,
+        fileErrorWinError: Number.isFinite(agent.fileErrorWinError) ? agent.fileErrorWinError : null,
+        fileErrorPathLength: Number.isFinite(agent.fileErrorPathLength) ? agent.fileErrorPathLength : null,
         completedAt: new Date().toISOString()
       });
       if (effectiveErrorCode === "SOURCE_FILE_MISSING") {
@@ -5860,11 +5867,13 @@ async function handleFailure(document, errorCode, errorMessage = null) {
   const nextStrategy = nextRetryStrategy(latest, errorCode);
   const strategyRequired = retryStrategySupported(errorCode);
   const isolatedContentFailure = isIsolatedContentError(errorCode);
+  const localTargetFailure = isLocalTargetError(errorCode);
 
   // Deterministic per-document format/signature failures do not improve by
   // downloading the same bytes three more times. Quarantine once, surface the
   // record for review, and immediately let the rest of the queue continue.
-  if (isolatedContentFailure || htmlDecision?.retry === false || retryDelay === null || (strategyRequired && !nextStrategy)) {
+  // The same holds for a local archive target that cannot be written.
+  if (isolatedContentFailure || localTargetFailure || htmlDecision?.retry === false || retryDelay === null || (strategyRequired && !nextStrategy)) {
     await documentStore.update(document.key, {
       status: STATUS.REVIEW_REQUIRED,
       errorCode,
@@ -6623,6 +6632,7 @@ function problemCategory(errorCode = "", document = null) {
   if (["PDF_TRAILING_DATA", "TRUNCATED_PDF"].includes(code)) return "PDF yapı sorunu";
   if (["TRUNCATED_TIFF", "DOWNLOAD_SIZE_MISMATCH", "DOWNLOAD_NOT_COMPLETE", "SOURCE_FILE_MISSING", "DOWNLOAD_INTERRUPTED", "DOWNLOAD_STALLED"].includes(code)) return "Eksik / kesilmiş indirme";
   if (code === "LOCAL_ARCHIVE_AMBIGUOUS") return "Yerel arşiv eşleşmesi";
+  if (isLocalTargetError(code)) return "Arşiv klasörü yolu / yazma";
   if (["NATIVE_AGENT_UNAVAILABLE", "TRANSFER_INTEGRITY_FAILED"].includes(code) || NATIVE_OPERATION_ERROR_CODES.has(code)) return "Yerel ajan / dosya doğrulama";
   if (["DOWNLOAD_START_FAILED", "NATIVE_DOWNLOAD_NOT_CORRELATED", "CLICK_DOWNLOAD_TIMEOUT"].includes(code)) return "İndirme başlatma";
   return "Diğer";
@@ -6631,6 +6641,8 @@ function problemCategory(errorCode = "", document = null) {
 function problemRecommendedAction(document = {}) {
   const code = String(document.errorCode || "");
   if (code === "LOCAL_ARCHIVE_AMBIGUOUS") return "Yerel arşivi kontrol et";
+  if (code === "TARGET_PATH_TOO_LONG") return "Daha kısa bir arşiv klasörü seç";
+  if (code === "TARGET_PATH_UNAVAILABLE") return "Arşiv klasörü erişimini kontrol et";
   if ((code === "NATIVE_AGENT_UNAVAILABLE" || NATIVE_OPERATION_ERROR_CODES.has(code)) && Number.isInteger(document.downloadId) && document.stagingPath && document.actualFilename) {
     return "Yeniden doğrula";
   }
@@ -7965,6 +7977,12 @@ async function diagnosticDocumentView(sessionId, document) {
     sourcePathRecoveryKnownRootExists: document.sourcePathRecoveryKnownRootExists === true,
     sourcePathRecoveryBrowserRootExists: document.sourcePathRecoveryBrowserRootExists === true,
     sourcePathRecoverySelectedRootExists: document.sourcePathRecoverySelectedRootExists === true,
+    targetPathLength: Number.isFinite(document.targetPathLength) ? document.targetPathLength : null,
+    targetDirLength: Number.isFinite(document.targetDirLength) ? document.targetDirLength : null,
+    targetPathLimit: Number.isFinite(document.targetPathLimit) ? document.targetPathLimit : null,
+    targetPathShortened: document.targetPathShortened === true,
+    fileErrorWinError: Number.isFinite(document.fileErrorWinError) ? document.fileErrorWinError : null,
+    fileErrorPathLength: Number.isFinite(document.fileErrorPathLength) ? document.fileErrorPathLength : null,
     actualMime: document.actualMime || null,
     pdfValidatorMode: document.pdfValidatorMode || null,
     pdfTrailingBytes: Number.isFinite(Number(document.pdfTrailingBytes)) ? Number(document.pdfTrailingBytes) : null,

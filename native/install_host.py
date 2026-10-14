@@ -18,7 +18,10 @@ from host_self_test import check_host, check_host_details
 
 VERSION = '2.7.68'
 MIN_REUSABLE_VERSION = '2.7.68'
-REQUIRED_CAPABILITIES = {'archive_case_ai_v1', 'ai_summary_archive_v1'}
+# target_path_budget_v1: an installed agent without it reports over-long
+# archive paths as SOURCE_FILE_MISSING and loops on fresh re-downloads, so
+# it must be replaced rather than reused.
+REQUIRED_CAPABILITIES = {'archive_case_ai_v1', 'ai_summary_archive_v1', 'target_path_budget_v1'}
 HOST_NAME = 'tr.gov.uyap.archive_agent'
 STANDARD_EXTENSION_ID = 'mkcemhoekaohggeebgkifcmjbilincfl'
 EXTENSION_ID = 'fppnhbkemmbocmicplkfidcbggeininh'
@@ -585,6 +588,7 @@ def install(executable):
     migration = _copy_legacy_rollback(base, layout, previous_probe)
     current_before = _validate_current(layout)
     backed_up_current = False
+    staged_into_current = False
     swap_temp = None
     previous_rollback_temp = None
 
@@ -602,6 +606,7 @@ def install(executable):
                 layout['current'].rename(swap_temp)
 
         staging.rename(layout['current'])
+        staged_into_current = True
         _write_stable_manifest(layout, allowed_id)
         registration = register_manifest_all_registry_views(layout['manifest'])
         verify_host(layout['current'] / 'uyap_archive_agent.exe')
@@ -626,7 +631,10 @@ def install(executable):
     except Exception:
         # Restore the prior managed current if we moved it to rollback.
         try:
-            if layout['current'].exists():
+            # Remove only the new agent we put there. If the swap failed first
+            # (e.g. a running portable agent locks its runtime), "current" is
+            # still the working agent and must not be touched.
+            if staged_into_current and layout['current'].exists():
                 _safe_remove_tree(layout['current'], layout['root'])
             if backed_up_current and layout['rollback'].exists():
                 layout['rollback'].rename(layout['current'])

@@ -270,9 +270,15 @@ function renderTimelineRows(){
   const list=$("timelineList");list.textContent="";$("timelineEmpty").hidden=filtered.length>0;
   let lastDay="";for(const {d,date} of filtered){const day=shortDate(date),row=document.createElement("div");row.className="timeline-item";row.innerHTML=`<div class="timeline-rail"><span></span></div><div class="timeline-date">${day!==lastDay?esc(day):""}</div><div class="timeline-content"><div class="timeline-title-row"><strong>${esc(documentTitle(d))}</strong><span>${esc(documentType(d))}</span></div><p>${esc(d.uyapPath||d.targetPath||d.localPath||"Arşiv kaydı")}</p><div class="timeline-meta"><span>${esc(archiveRowStatusLabel(d.status))}</span><span>${esc(d.sourceSystem==="UYAP_KURUM"?"UYAP Kurum":"UYAP")}</span></div></div>`;list.append(row);lastDay=day;}
 }
-function setAiPrompt(prompt,{navigate=true,workflowId="ask"}={}){state.aiWorkflowId=workflowId;state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";if(navigate)showView("ai");}
+function setAiPrompt(prompt,{navigate=true,workflowId="ask"}={}){state.aiWorkflowId=workflowId;state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;updateAiSendButton();if(navigate)showView("ai");}
+// "Önemli Tarihler" and "Ara Kararlar ve Yapılacaklar" are read from the records
+// by rules on the agent; they need the case index but no AI provider.
+const AI_RULE_WORKFLOWS={important_dates:"Önemli tarihleri çıkar",court_orders:"Ara kararları göster"};
+function aiWorkflowNeedsProvider(){return !AI_RULE_WORKFLOWS[state.aiWorkflowId];}
+function aiSendLabel(){return AI_RULE_WORKFLOWS[state.aiWorkflowId]||(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder");}
+function updateAiSendButton(){const send=$("aiSend"),gate=state.aiSendGate;if(!send||!gate)return;const providerOk=gate.providerReady||!aiWorkflowNeedsProvider();send.disabled=!providerOk||!gate.indexReady;send.textContent=!providerOk?"AI sağlayıcısı bağlanınca kullanılabilir":(gate.indexReady?aiSendLabel():"Önce tam dava indeksini hazırla");}
 function selectedAiArchiveCase(){return state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;}
-const AI_WORKFLOW_TITLES={case_summary:"Dosya Özeti",important_dates:"Önemli Tarihler",new_updates:"Yeni Ne Var?",parties:"Taraflar",classification:"Akıllı Sınıflandırma",chronology:"Kronoloji",ask:"Dosyada Sor"};
+const AI_WORKFLOW_TITLES={case_summary:"Dosya Özeti",important_dates:"Önemli Tarihler",court_orders:"Ara Kararlar ve Yapılacaklar",new_updates:"Yeni Ne Var?",parties:"Taraflar",classification:"Akıllı Sınıflandırma",chronology:"Kronoloji",ask:"Dosyada Sor"};
 function isCaseSummaryPrompt(){return state.aiWorkflowId==="case_summary";}
 function normalizeSummaryHeading(value){
   return String(value||"")
@@ -283,14 +289,24 @@ function normalizeSummaryHeading(value){
     .trim()
     .toLocaleLowerCase("tr-TR");
 }
+// case_summary_v2 headings (rule-based facts + validated narrative) and the
+// four legacy v1 headings, so saved summaries of both kinds keep rendering.
+const CASE_SUMMARY_SECTIONS=[
+  {key:"kunye",title:"Künye",list:true,aliases:["künye","kunye"]},
+  {key:"lastHearing",title:"Son celse ve ara kararlar",list:true,aliases:["son celse ve ara kararlar"]},
+  {key:"next",title:"Sonraki duruşma ve süreler",list:true,highlight:true,aliases:["sonraki duruşma ve süreler","sonraki durusma ve sureler"]},
+  {key:"overview",title:"Genel durum",list:false,aliases:["genel durum"]},
+  {key:"developments",title:"Öne çıkan gelişmeler",list:true,aliases:["öne çıkan gelişmeler","one cikan gelismeler"]},
+  {key:"timeline",title:"Akış",list:true,aliases:["akış","akis"]},
+  {key:"coverage",title:"Kapsam ve eksikler",list:true,aliases:["kapsam ve eksikler"]},
+  {key:"topic",title:"Dosyanın konusu",list:false,aliases:["dosyanın konusu","dosyanin konusu"]},
+  {key:"status",title:"Son durum",list:false,aliases:["son durum"]},
+  {key:"dates",title:"Önemli tarihler",list:true,aliases:["önemli tarihler","onemli tarihler"]}
+];
+function summaryTextWithRefs(value){return esc(value).replace(/\[(D\d{6})\]/g,'<span class="ai-ref">$1</span>');}
 function parseCaseSummary(answer){
-  const aliases=new Map([
-    ["dosyanın konusu","topic"],["dosyanin konusu","topic"],
-    ["son durum","status"],
-    ["öne çıkan gelişmeler","developments"],["one cikan gelismeler","developments"],
-    ["önemli tarihler","dates"],["onemli tarihler","dates"]
-  ]);
-  const sections={topic:[],status:[],developments:[],dates:[],other:[]};
+  const aliases=new Map(CASE_SUMMARY_SECTIONS.flatMap(section=>section.aliases.map(alias=>[alias,section.key])));
+  const sections=Object.fromEntries([...CASE_SUMMARY_SECTIONS.map(section=>[section.key,[]]),["other",[]]]);
   let current="other";
   for(const raw of String(answer||"").split(/\r?\n/)){
     const line=raw.trim();
@@ -304,15 +320,44 @@ function parseCaseSummary(answer){
 }
 function renderCaseSummaryHtml(answer){
   const sections=parseCaseSummary(answer);
-  const block=(title,items,list=false)=>{
+  const known=CASE_SUMMARY_SECTIONS.map(section=>{
+    const items=sections[section.key];
     if(!items?.length)return "";
-    const content=list
-      ?`<ul>${items.slice(0,8).map(item=>`<li>${esc(item)}</li>`).join("")}</ul>`
-      :items.slice(0,4).map(item=>`<p>${esc(item)}</p>`).join("");
-    return `<section class="ai-summary-section"><h3>${esc(title)}</h3>${content}</section>`;
-  };
-  const known=block("Dosyanın konusu",sections.topic)+block("Son durum",sections.status)+block("Öne çıkan gelişmeler",sections.developments,true)+block("Önemli tarihler",sections.dates,true);
+    const content=section.list
+      ?`<ul>${items.slice(0,16).map(item=>`<li>${summaryTextWithRefs(item)}</li>`).join("")}</ul>`
+      :items.slice(0,4).map(item=>`<p>${summaryTextWithRefs(item)}</p>`).join("");
+    return `<section class="ai-summary-section${section.highlight?" is-key":""}"><h3>${esc(section.title)}</h3>${content}</section>`;
+  }).join("");
   return `<div class="ai-summary-document">${known||`<section class="ai-summary-section"><p>${esc(answer||"Yanıt alınamadı.")}</p></section>`}</div>`;
+}
+function renderDateRefsHtml(item){
+  return (Array.isArray(item?.refs)?item.refs:[]).map(ref=>`<span class="ai-ref">${esc(ref)}</span>`).join("")+(item?.moreRefs?`<span class="ai-ref more">+${esc(item.moreRefs)}</span>`:"");
+}
+// Sections produced by the agent's rule-based views (Önemli Tarihler, Ara
+// Kararlar ve Yapılacaklar): dated rows with optional addressee, status badge
+// and related-record lines, every fact tagged with its [Dxxxxxx] source.
+function renderRuleSectionsHtml(sections){
+  const tone=value=>["good","warn","bad","info","muted"].includes(value)?value:"muted";
+  const block=section=>{
+    const items=Array.isArray(section?.items)?section.items:[];
+    const rows=items.length
+      ?items.map(item=>{
+        const who=item.who?`<b class="ai-order-who">${esc(item.who)}</b> — `:"";
+        const status=item.status?.label?`<span class="ai-order-status tone-${tone(item.status.tone)}">${esc(item.status.label)}</span>`:"";
+        const lines=(Array.isArray(item.lines)?item.lines:[]).map(line=>`<li class="tone-${tone(line.tone)}">${esc(line.text||"")}${renderDateRefsHtml(line)}</li>`).join("");
+        return `<li class="ai-date-row kind-${esc(item.kind||"event")}${item.isNew?" is-new":""}"><span class="ai-date">${esc(item.dateText||"")}</span><span class="ai-date-text">${item.isNew?'<span class="ai-new-badge">YENİ</span>':""}${who}${esc(item.text||"")}${status}${renderDateRefsHtml(item)}${lines?`<ul class="ai-order-lines">${lines}</ul>`:""}</span></li>`;
+      }).join("")
+      :`<li class="ai-date-row empty"><span class="ai-date"></span><span class="ai-date-text">${esc(section?.empty||"Kayıt yok.")}</span></li>`;
+    const refs=Array.isArray(section?.refs)&&section.refs.length?renderDateRefsHtml({refs:section.refs}):"";
+    return `<section class="ai-summary-section ai-dates-section${section?.highlight?" is-key":""}"><h3>${esc(section?.title||"")}${refs}${section?.subtitle?`<small>${esc(section.subtitle)}</small>`:""}</h3><ul class="ai-date-list">${rows}</ul></section>`;
+  };
+  return `<div class="ai-summary-document ai-dates-document">${(Array.isArray(sections)?sections:[]).map(block).join("")}</div>`;
+}
+function renderImportantDatesHtml(sections){return renderRuleSectionsHtml(sections);}
+function ruleSectionsOf(result){
+  if(result?.datesSchema==="important_dates_v2"&&Array.isArray(result?.dateSections))return result.dateSections;
+  if(result?.ordersSchema==="court_orders_v1"&&Array.isArray(result?.orderSections))return result.orderSections;
+  return null;
 }
 function renderSummarySourcesHtml(sources){
   const rows=Array.isArray(sources)?sources:[];
@@ -334,9 +379,12 @@ function renderAiResult(result,selected,{fromHistory=false}={}){
   meta.textContent=parts.join(" • ")||"Yerel AI sonucu";
   const workflowNote=result?.workflowNotice
     ?`<div class="ai-prompt-preview">${esc(result.workflowNotice)}</div>`:"";
+  const ruleSections=ruleSectionsOf(result);
   content.innerHTML=workflowNote+(summaryMode
     ?renderCaseSummaryHtml(result?.answer||"")+renderSummarySourcesHtml(sources)
-    :`<div class="ai-freeform-answer">${esc(result?.answer||"Yanıt alınamadı.")}</div>`);
+    :ruleSections
+      ?renderRuleSectionsHtml(ruleSections)
+      :`<div class="ai-freeform-answer">${esc(result?.answer||"Yanıt alınamadı.")}</div>`);
   if(pdf)pdf.hidden=!summaryMode;
   if(saved){const locallySaved=summaryMode&&(fromHistory||Boolean(result?.savedSummary)||Boolean(result?.summaryId));saved.hidden=!locallySaved;saved.textContent=locallySaved?"✓ Yerel arşive kaydedildi":"";}
   panel.scrollIntoView({behavior:"smooth",block:"start"});
@@ -483,7 +531,7 @@ async function renderAiWorkspace(){
       :selected.readyForAi?"Tam arşivden yerel metin indeksi henüz oluşturulmadı.":"Dosya tamamlanmadan indeks oluşturulamaz.";
     if(buildButton){buildButton.disabled=!selected.readyForAi;buildButton.textContent=indexReady?"Tam dava indeksini güncelle":"Tam dava indeksini hazırla";}
     if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel dava kaynaklarında ara":"Önce tam dava indeksini hazırla";}
-    if(send){send.disabled=!providerReady||!indexReady;send.textContent=providerReady?(indexReady?(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder"):"Önce tam dava indeksini hazırla"):"AI sağlayıcısı bağlanınca kullanılabilir";}
+    state.aiSendGate={providerReady,indexReady};updateAiSendButton();
   }catch(error){
     state.aiCases=[];state.aiContext=null;state.aiIndex=null;state.aiSummaries=[];state.aiCurrentResult=null;renderAiSummaryHistory();
     $("aiCaseTitle").textContent="Yerel arşiv okunamadı";
@@ -709,7 +757,7 @@ $("aiSend").addEventListener("click",async()=>{
   const query=String($("aiPrompt")?.value||"").trim();
   if(!query)return showToast("Önce AI’ya sorulacak metni yazın.",true);
   const summaryMode=isCaseSummaryPrompt(query),button=$("aiSend");
-  button.disabled=true;button.textContent=summaryMode?"Dosya özeti hazırlanıyor…":"Kaynaklı yanıt hazırlanıyor…";
+  button.disabled=true;button.textContent=summaryMode?"Dosya özeti hazırlanıyor…":(AI_RULE_WORKFLOWS[state.aiWorkflowId]?"Kayıtlar okunuyor…":"Kaynaklı yanıt hazırlanıyor…");
   renderAiResultLoading(summaryMode);
   try{
     const result=await sendRuntime(MESSAGE.AI_ASK_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,workflowId:state.aiWorkflowId,query,limit:summaryMode?6:8});
@@ -731,8 +779,8 @@ $("aiSend").addEventListener("click",async()=>{
     renderAiResultError(error);
     showToast(String(error).replace(/^Error:\s*/,""),true);
   }finally{
-    const ready=state.aiService?.enabled===true&&state.aiService?.configured===true&&state.aiIndex?.ready===true&&selected.readyForAi===true;
-    button.disabled=!ready;button.textContent=ready?(summaryMode?"Dosya özetini oluştur":"Soruyu gönder"):"AI bağlamı hazır değil";
+    state.aiSendGate={providerReady:state.aiService?.enabled===true&&state.aiService?.configured===true,indexReady:state.aiIndex?.ready===true&&selected.readyForAi===true};
+    updateAiSendButton();
   }
 });
 $("globalSearch").addEventListener("keydown",event=>{if(event.key!=="Enter")return;const q=$("globalSearch").value.trim();$("jobSearch").value=q;showView("jobs");renderJobs();});

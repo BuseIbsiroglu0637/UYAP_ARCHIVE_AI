@@ -5,13 +5,26 @@ from __future__ import annotations
 import hashlib
 from html.parser import HTMLParser
 import html
+import json
 from pathlib import Path
 import re
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
+import json
 import zipfile
 import zlib
+
+from ai_case_facts import (
+    BODY_ROLE_RULES,
+    body_document_role,
+    extract_case_facts,
+    format_date as format_fact_date,
+    is_attachment_title,
+    parse_date as parse_fact_date,
+    title_document_role,
+    tr_lower,
+)
 
 AI_INDEX_SCHEMA_VERSION = 1
 AI_INDEX_DIR = "_ai"
@@ -409,23 +422,49 @@ def _pdf_operator_text(block):
     return values
 
 
+# Streams that never carry text operators. A scanned UYAP record is mostly
+# JPEG / CCITT image data; scanning megabytes of it for "BT … ET" and "[ … ]TJ"
+# found only random byte matches and cost ~20-50 s per PDF, which stalled the
+# case index (one native lane) for hours on large files.
+# Exact keys only: a page or form dictionary may carry "/ProcSet [/PDF /Text
+# /ImageB]" and must still be read.
+_PDF_NON_TEXT_STREAM = re.compile(
+    rb"/Subtype\s*/Image\b|/(?:DCTDecode|JPXDecode|CCITTFaxDecode|JBIG2Decode)\b|/Length[123]\b"
+    rb"|/Type\s*/(?:XRef|Metadata|ObjStm)\b")
+PDF_TEXT_TIME_BUDGET_SECONDS = 20.0
+
+
+def _pdf_stream_header(raw, stream_start):
+    """The stream's own dictionary: from its "N 0 obj" header up to "stream"."""
+    prefix = raw[max(0, stream_start - 600):stream_start]
+    cut = prefix.rfind(b"obj")
+    return prefix[cut:] if cut >= 0 else prefix
+
+
 def _pdf_text(path):
     raw = _read_limited(path)
     values = []
+    started = time.monotonic()
     for stream in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", raw, re.S):
+        if time.monotonic() - started > PDF_TEXT_TIME_BUDGET_SECONDS:
+            break
+        header = _pdf_stream_header(raw, stream.start())
+        if _PDF_NON_TEXT_STREAM.search(header):
+            continue
         payload = stream.group(1)
-        prefix = raw[max(0, stream.start() - 600):stream.start()]
-        candidates = [payload]
-        if b"/FlateDecode" in prefix:
+        if b"/Filter" in header:
+            # Only Flate content can be decoded here; compressed bytes
+            # themselves never contain readable text operators.
+            if b"/FlateDecode" not in header:
+                continue
             try:
-                inflated = zlib.decompress(payload)
-                if len(inflated) <= MAX_TEXT_FILE_BYTES:
-                    candidates.append(inflated)
+                candidate = zlib.decompressobj().decompress(payload, MAX_TEXT_FILE_BYTES)
             except zlib.error:
-                pass
-        for candidate in candidates:
-            for bt in re.finditer(rb"BT(.*?)ET", candidate, re.S):
-                values.extend(_pdf_operator_text(bt.group(1)))
+                continue
+        else:
+            candidate = payload
+        for bt in re.finditer(rb"BT(.*?)ET", candidate, re.S):
+            values.extend(_pdf_operator_text(bt.group(1)))
     text = _clean("\n".join(values))
     if not text:
         raise ValueError("AI_PDF_TEXT_NOT_EXTRACTABLE")
@@ -587,6 +626,9 @@ def _index_db(root, scope_id=None):
         );
         CREATE INDEX IF NOT EXISTS idx_ai_documents_session ON ai_documents(session_id);
         CREATE INDEX IF NOT EXISTS idx_ai_chunks_source ON ai_chunks(source_ref);
+        CREATE TABLE IF NOT EXISTS ai_meta(
+          key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
     """)
     try:
         db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS ai_chunks_fts USING fts5(source_ref UNINDEXED, text, tokenize='unicode61')")
@@ -832,15 +874,45 @@ def build_archive_case_index(downloads_root, institution_name, case_id):
     quality_reasons = {}
     quality_chunk_reasons = {}
     methods = {}
+    # Every document of the case with its UYAP title and date, readable or not.
+    # Scanned records have no text, but their title and date still date an
+    # event (a tebligat, a hearing record) for the important-dates workflow.
+    catalog = {}
+    skipped = []
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    def remember_skipped(item, reason):
+        # Title and date only: the summary must be able to say which documents
+        # it could not read, without storing any of their content.
+        skipped.append({
+            "sourceRef": item["sourceRef"],
+            "title": str(item.get("title") or "Adsız evrak")[:240],
+            "date": format_fact_date(parse_fact_date(item.get("date"))) or None,
+            "extension": item["path"].suffix.lower().lstrip(".") or None,
+            "reason": reason,
+        })
+
     try:
         db.execute("DELETE FROM ai_chunks")
         if fts5:
             db.execute("DELETE FROM ai_chunks_fts")
         db.execute("DELETE FROM ai_documents")
+        # The rule views keep what the user has already seen ("YENİ" marks)
+        # under their own keys; only the catalog and coverage are rebuilt here.
+        db.execute("DELETE FROM ai_meta WHERE key IN ('case_catalog','coverage')")
 
         for item in rows:
             ref = item["sourceRef"]
+            catalog[ref] = {
+                "ref": ref,
+                # sourceRef is positional and shifts when documents arrive;
+                # this hash identifies the UYAP document across rebuilds.
+                "idHash": hashlib.sha256(str(item["documentId"]).encode("utf-8")).hexdigest()[:16],
+                "title": str(item.get("title") or "Adsız evrak")[:240],
+                "date": str(item.get("date") or "")[:32] or None,
+                "extension": item["path"].suffix.lower().lstrip(".") or None,
+                "indexed": False,
+            }
             try:
                 extracted = extract_text(item["path"])
                 method = str(extracted.get("method") or "unknown")
@@ -860,8 +932,13 @@ def build_archive_case_index(downloads_root, institution_name, case_id):
                         quality_rejected += 1
                         reason = str(extracted.get("qualityReason") or "all_pdf_chunks_rejected")
                         quality_reasons[reason] = quality_reasons.get(reason, 0) + 1
+                        remember_skipped(item, "low_quality_text")
                     else:
                         unsupported += 1
+                        remember_skipped(
+                            item,
+                            "unsupported" if extracted.get("errorCode") == "AI_TEXT_FORMAT_UNSUPPORTED" else "no_text",
+                        )
                     continue
 
                 for chunk_no, chunk in enumerate(chunks):
@@ -892,9 +969,37 @@ def build_archive_case_index(downloads_root, institution_name, case_id):
                     ),
                 )
                 indexed += 1
+                catalog[ref]["indexed"] = True
             except Exception:
                 failed += 1
+                remember_skipped(item, "extraction_failed")
 
+        db.execute(
+            "INSERT OR REPLACE INTO ai_meta(key,value,updated_at) VALUES('case_catalog',?,?)",
+            (
+                json.dumps({
+                    "schemaVersion": 2,
+                    "institutionName": inspection["institutionName"],
+                    "caseId": inspection["caseId"],
+                    "totalDocuments": int(inspection["totalDocuments"]),
+                    "builtAt": now,
+                    "documents": list(catalog.values()),
+                }, ensure_ascii=False),
+                now,
+            ),
+        )
+        coverage = {
+            "schemaVersion": 1,
+            "totalDocuments": int(inspection["totalDocuments"]),
+            "indexedDocuments": indexed,
+            "skipped": skipped[:500],
+            "skippedCount": len(skipped),
+            "builtAt": now,
+        }
+        db.execute(
+            "INSERT OR REPLACE INTO ai_meta(key,value,updated_at) VALUES('coverage',?,?)",
+            (json.dumps(coverage, ensure_ascii=False), now),
+        )
         db.commit()
         available = db.execute("SELECT COUNT(*) FROM ai_documents WHERE session_id=?", (scope_id,)).fetchone()[0]
         chunks = db.execute(
@@ -1064,35 +1169,95 @@ def _summary_chunk_signal(text):
     return letters * 3 + words * 12 + min(len(value), 2400) - numeric_penalty
 
 
-SUMMARY_DOCUMENT_RULES = (
-    ("final_decision", "Sonuç / karar", 100, ("gerekçeli karar", "nihai karar", "kesin karar", "hüküm")),
-    ("opening", "Dosya başlangıcı", 90, ("dava dilek", "şikayet dilek", "başvuru dilek", "talep dilek", "takip talebi", "itiraz dilek")),
-    ("procedural", "Önemli süreç işlemi", 80, ("ara karar", "tensip", "duruşma zapt", "duruşma tutana", "ön inceleme")),
-    ("expert", "Uzman / bilirkişi incelemesi", 75, ("bilirkişi", "uzman rapor", "heyet rapor", "inceleme rapor")),
-    ("response", "Esaslı cevap / bilgi", 70, ("cevap dilek", "savunma", "müzekkere cev", "kurum cev", "cevabi yazı", "cevap yazı")),
-    ("enforcement", "Maddi işlem / tespit", 68, ("haciz", "istihkak", "tespit tutana", "haciz tutana", "keşif")),
-    ("deadline", "Tebligat / süre işlemi", 55, ("teblig", "tebliğ", "muhtıra", "kesin süre", "süre ver")),
-)
+# Body-text fallback rules, kept under the old name for diagnostics/tests.
+SUMMARY_DOCUMENT_RULES = BODY_ROLE_RULES
+_TEMPLATE_TOKEN = re.compile(r"\b[a-z]{2,}[A-Z][A-Za-z]{2,}\b")
+_DECISION_ANCHOR = re.compile(
+    r"(?i)GERE[ĞG][İI]\s+D[ÜU][ŞS][ÜU]N[ÜU]LD[ÜU]|(?m:^\s*G\.?\s?D\.?\s*:)|(?m:^\s*H[ÜU]K[ÜU]M\s*:)"
+    r"|(?m:^\s*SONU[ÇC]\s*:)|(?m:^\s*NET[İI]CE\s+VE\s+TALEP)")
+_SNIPPET_GAP = "\n…\n"
+_TALIMAT_MARK = re.compile(r"(?i)TAL[İI]MAT\s+NO\s*:")
+
+
+def _looks_like_template(text):
+    """UYAP receipt/form templates leave camelCase placeholders (birimAdi, dosyaNo…)."""
+    return len(_TEMPLATE_TOKEN.findall(str(text or ""))) >= 3
+
+
+def fit_snippet(text, limit):
+    """Shorten a document for the model without losing its decision.
+
+    Court records put what matters last: interim decisions after "GEREĞİ
+    DÜŞÜNÜLDÜ" and the next hearing date in the closing sentence. Cutting from
+    the start dropped exactly that part, so keep the decision block (or the
+    tail) and fill the remaining budget from the head.
+    """
+    value = _clean(text)
+    limit = max(200, int(limit or 0))
+    if len(value) <= limit:
+        return value
+    anchor = None
+    for match in _DECISION_ANCHOR.finditer(value):
+        anchor = match
+    if anchor is not None and anchor.start() > limit * 0.3:
+        tail = value[anchor.start():]
+    else:
+        tail = value[-int(limit * 0.4):]
+    tail_budget = int(limit * 0.7) - len(_SNIPPET_GAP)
+    if len(tail) > tail_budget:
+        front = tail_budget // 2
+        back = tail_budget - front - len(_SNIPPET_GAP)
+        tail = tail[:front].rstrip() + _SNIPPET_GAP + tail[-back:].lstrip()
+    head_budget = limit - len(tail) - len(_SNIPPET_GAP)
+    head = value[:head_budget].rstrip() if head_budget > 0 else ""
+    return (head + _SNIPPET_GAP + tail.lstrip()) if head else tail[:limit]
+
+
+def _join_chunks(chunks):
+    """Rebuild a document from its overlapping index chunks."""
+    text = ""
+    for chunk in chunks:
+        chunk = str(chunk or "")
+        if not text:
+            text = chunk
+            continue
+        overlap = 0
+        for size in range(min(len(text), len(chunk), DEFAULT_OVERLAP_CHARS + 64), 24, -1):
+            if text.endswith(chunk[:size]):
+                overlap = size
+                break
+        text += chunk[overlap:] if overlap else "\n" + chunk
+    return text
 
 
 def _summary_document_profile(row):
     source_ref, text, title, document_type, document_date, chunk_no = row
-    haystack = _clean(f"{title or ''} {document_type or ''} {text or ''}").casefold()
-    role = "other"
-    reason = "Anlamlı dosya içeriği"
-    base_score = 35
-    for candidate_role, candidate_reason, candidate_score, patterns in SUMMARY_DOCUMENT_RULES:
-        if any(pattern in haystack for pattern in patterns):
-            role = candidate_role
-            reason = candidate_reason
-            base_score = candidate_score
-            break
+    titled = title_document_role(title)
+    role_source = "title"
+    if titled:
+        role, reason, base_score = titled
+    else:
+        bodied = body_document_role(f"{document_type or ''} {text or ''}")
+        if bodied:
+            role, reason, base_score = bodied
+            base_score *= 0.85
+            role_source = "body"
+        else:
+            role, reason, base_score, role_source = "other", "Anlamlı dosya içeriği", 35, None
     signal = _summary_chunk_signal(text)
     quality_bonus = max(0.0, min(18.0, signal / 350.0))
+    if is_attachment_title(title):
+        base_score -= 15
+    if _looks_like_template(text):
+        # A receipt/form whose title merely names the petition it accompanies
+        # (e.g. "Şikayet Dilekçesi (Ön Büro)") must not anchor the summary.
+        role, reason, base_score, role_source = "low_value", "Form / alındı kaydı", 5, "template"
+        quality_bonus = 0.0
     return {
         "row": row,
         "sourceRef": source_ref,
         "role": role,
+        "roleSource": role_source,
         "reason": reason,
         "baseScore": float(base_score),
         "signal": float(signal),
@@ -1103,13 +1268,17 @@ def _summary_document_profile(row):
 
 
 def _select_summary_documents(rows, limit):
-    """Deterministically select distinct, meaningful documents for case_summary_v1.
+    """Deterministically select distinct, meaningful documents for the case summary.
 
-    Selection is code-driven, not model-driven:
+    Selection is code-driven and title-first, not model-driven:
     - one best chunk per Dxxxxxx source,
-    - prefer opening/final decision and high-value procedural evidence,
-    - include timeline edges when useful,
-    - cap repeated document roles so one category cannot crowd out the summary.
+    - anchors: the opening document and the final decision,
+    - the newest procedural record (current state) and the earliest one
+      (tensip: subject, parties, first hearing date),
+    - then expert, response, enforcement and deadline evidence,
+    - at most two documents of one role while filling (three hearing records),
+    - financial/administrative slips (reddiyat, makbuz …) only when nothing
+      else exists, so they cannot crowd out the record that matters.
     """
     limit = max(1, min(int(limit or 5), 6, MAX_RESULTS))
     best_by_source = {}
@@ -1123,8 +1292,9 @@ def _select_summary_documents(rows, limit):
     documents = list(best_by_source.values())
     if not documents:
         return []
+    meaningful = [item for item in documents if item["role"] != "low_value"]
 
-    dated = [item for item in documents if item["dateKey"] != (0, 0, 0)]
+    dated = [item for item in meaningful if item["dateKey"] != (0, 0, 0)]
     if dated:
         earliest = min(dated, key=lambda item: (item["dateKey"], item["sourceRef"]))
         latest = max(dated, key=lambda item: (item["dateKey"], item["sourceRef"]))
@@ -1152,45 +1322,53 @@ def _select_summary_documents(rows, limit):
         role_counts[item["role"]] = role_counts.get(item["role"], 0) + 1
         return True
 
-    # The beginning and the final/decisive document are the strongest anchors.
-    for role in ("opening", "final_decision"):
-        candidates = [item for item in documents if item["role"] == role]
-        if candidates:
-            add(max(candidates, key=lambda item: (item["score"], item["dateKey"], item["sourceRef"])))
+    def best(role):
+        candidates = [item for item in meaningful if item["role"] == role and item["sourceRef"] not in selected_refs]
+        return max(candidates, key=lambda item: (item["score"], item["dateKey"], item["sourceRef"])) if candidates else None
 
-    # Then cover materially different parts of the case.
-    for role in ("procedural", "expert", "response", "enforcement", "deadline"):
+    for role in ("opening", "final_decision"):
+        add(best(role))
+
+    procedural = [item for item in meaningful if item["role"] == "procedural"]
+    if procedural:
+        # Another court's talimat hearing is not the case's current state.
+        talimat_refs = {
+            row[0] for row in rows
+            if _TALIMAT_MARK.search(str(row[1] or "")) or "talimat" in tr_lower(row[2])
+        }
+        own = [item for item in procedural if item["sourceRef"] not in talimat_refs] or procedural
+        add(max(own, key=lambda item: (item["dateKey"], item["score"], item["sourceRef"])))
+        dated_procedural = [item for item in procedural if item["dateKey"] != (0, 0, 0)]
+        if dated_procedural:
+            add(min(dated_procedural, key=lambda item: (item["dateKey"], -item["score"], item["sourceRef"])))
+
+    for role in ("expert", "response", "enforcement", "deadline"):
         if len(selected) >= limit:
             break
-        candidates = [item for item in documents if item["role"] == role and item["sourceRef"] not in selected_refs]
-        if candidates:
-            add(max(candidates, key=lambda item: (item["score"], item["dateKey"], item["sourceRef"])))
+        add(best(role))
 
-    # Ensure the newest meaningful document represents the current state.
     if dated and len(selected) < limit:
         newest = max(dated, key=lambda item: (item["dateKey"], item["score"], item["sourceRef"]))
         add(newest, "En güncel anlamlı evrak")
 
-    # Fill remaining slots by deterministic score, with at most two of one role.
     ranked = sorted(
-        documents,
+        meaningful,
         key=lambda item: (-item["score"], tuple(-x for x in item["dateKey"]), item["sourceRef"]),
     )
     for item in ranked:
         if len(selected) >= limit:
             break
-        if item["sourceRef"] in selected_refs:
-            continue
-        if role_counts.get(item["role"], 0) >= 2:
-            continue
-        add(item)
-
-    # If the role cap left room, fill it without the cap rather than inventing a quota.
+        # Hearing records carry the case's decisions, so allow one more of them.
+        cap = 3 if item["role"] == "procedural" else 2
+        if item["sourceRef"] not in selected_refs and role_counts.get(item["role"], 0) < cap:
+            add(item)
     for item in ranked:
         if len(selected) >= limit:
             break
         add(item)
-
+    if not selected:
+        for item in sorted(documents, key=lambda item: (-item["score"], item["sourceRef"])):
+            add(item)
     return selected
 
 
@@ -1199,7 +1377,35 @@ def _select_summary_rows(rows, limit):
     return [item["row"] for item in _select_summary_documents(rows, limit)]
 
 
-def summary_context(downloads_root, session_id, limit=4):
+def _case_documents(db, session_id):
+    """Every indexed document of a scope with its full, re-joined text."""
+    documents = {}
+    for source_ref, title, document_type, document_date in db.execute(
+        "SELECT source_ref, title, document_type, document_date FROM ai_documents WHERE session_id=?",
+        (session_id,),
+    ).fetchall():
+        documents[source_ref] = {"title": title, "documentType": document_type, "documentDate": document_date, "chunks": []}
+    for source_ref, text in db.execute(
+        """SELECT c.source_ref, c.text FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref
+           WHERE d.session_id=? ORDER BY c.source_ref, c.chunk_no""",
+        (session_id,),
+    ).fetchall():
+        if source_ref in documents:
+            documents[source_ref]["chunks"].append(text)
+    for document in documents.values():
+        document["text"] = _join_chunks(document.pop("chunks"))
+    return documents
+
+
+def _read_meta(db, key):
+    try:
+        row = db.execute("SELECT value FROM ai_meta WHERE key=?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+    except (sqlite3.Error, TypeError, ValueError):
+        return None
+
+
+def summary_context(downloads_root, session_id, limit=4, snippet_chars=1800):
     root = Path(downloads_root).resolve(strict=True)
     session_id = str(session_id or "").strip()
     limit = max(1, min(int(limit or 4), MAX_RESULTS))
@@ -1214,15 +1420,19 @@ def summary_context(downloads_root, session_id, limit=4):
             (session_id,),
         ).fetchall()
         chosen = _select_summary_documents(rows, limit)
+        documents = _case_documents(db, session_id)
         results = []
         for item in chosen:
             source_ref, text, title, document_type, document_date, chunk_no = item["row"]
+            full_text = (documents.get(source_ref) or {}).get("text") or text
             results.append({
                 "sourceRef": source_ref,
                 "title": title,
                 "documentType": document_type,
                 "documentDate": document_date,
-                "snippet": _clean(text)[:1800],
+                # The whole document, shortened around its decision block, not
+                # just the single "best" chunk.
+                "snippet": fit_snippet(full_text, snippet_chars),
                 "score": float(item["score"]),
                 "chunkNo": int(chunk_no or 0),
                 "summaryRole": item["role"],
@@ -1231,7 +1441,7 @@ def summary_context(downloads_root, session_id, limit=4):
         return {
             "ok": True,
             "kind": "UYAP_AI_SUMMARY_CONTEXT",
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "query": "__summary__",
             "results": results,
             "distinctSources": len(results),
@@ -1240,6 +1450,52 @@ def summary_context(downloads_root, session_id, limit=4):
         }
     finally:
         db.close()
+
+
+def case_summary_facts(downloads_root, session_id, institution_name=None, case_id=None, today=None):
+    """Rule-based case facts and coverage for a scope. No model is involved."""
+    root = Path(downloads_root).resolve(strict=True)
+    session_id = str(session_id or "").strip()
+    db, _ = _index_db(root, session_id)
+    try:
+        documents = _case_documents(db, session_id)
+        meta = _read_meta(db, "coverage")
+    finally:
+        db.close()
+    facts = extract_case_facts(
+        [
+            {"ref": ref, "title": doc["title"], "date": parse_fact_date(doc["documentDate"]), "text": doc["text"]}
+            for ref, doc in documents.items()
+        ],
+        institution_name=institution_name,
+        case_id=case_id,
+        today=today,
+    )
+    skipped = list((meta or {}).get("skipped") or [])
+
+    def importance(item):
+        role = title_document_role(item.get("title"))
+        return (0 if role and role[0] not in {"low_value", "correspondence"} else 1, str(item.get("date") or ""))
+
+    return {
+        "ok": True,
+        "kind": "UYAP_AI_CASE_FACTS",
+        "schemaVersion": 1,
+        "facts": facts,
+        "coverage": {
+            "totalDocuments": (meta or {}).get("totalDocuments"),
+            "indexedDocuments": len(documents),
+            "notIndexed": skipped,
+            "notIndexedSamples": sorted(skipped, key=importance)[:6],
+            "metaAvailable": meta is not None,
+        },
+        "documents": {
+            ref: {"title": doc["title"], "documentType": doc["documentType"], "documentDate": doc["documentDate"]}
+            for ref, doc in documents.items()
+        },
+        "rawDocumentsUploaded": False,
+        "networkUsed": False,
+    }
 
 
 def search_index(downloads_root, session_id, query, limit=8):

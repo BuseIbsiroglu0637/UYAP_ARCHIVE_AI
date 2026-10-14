@@ -1,6 +1,7 @@
 from __future__ import annotations
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 
@@ -37,6 +38,54 @@ with tempfile.TemporaryDirectory(prefix='uyap-rc155-lifecycle-') as td:
     assert (layout['current'] / 'uyap_archive_agent.exe').read_bytes() == b'current'
     assert (layout['rollback'] / 'uyap_archive_agent.exe').read_bytes() == b'rollback'
     assert (protected / 'keep.txt').read_text(encoding='utf-8') == 'keep'
+
+# A failed swap must never delete the agent that is still in place: a running
+# portable agent locks its runtime, so renaming "current" fails before the new
+# agent is moved in. The working agent has to survive untouched.
+with tempfile.TemporaryDirectory(prefix='uyap-rc155-swapfail-') as td:
+    real_layout = agent._agent_layout(Path(td) / 'UYAPArsiv')
+
+    class LockedDir(type(Path())):
+        def rename(self, target):
+            raise PermissionError('locked by a running agent')
+
+    layout = {**real_layout, 'current': LockedDir(str(real_layout['current']))}
+    (real_layout['current'] / 'runtime').mkdir(parents=True)
+    for name in ('ai_provider.py', 'python.exe', 'uyap_archive_agent.py'):
+        (real_layout['current'] / 'runtime' / name).write_text(name, encoding='utf-8')
+    new_exe = Path(td) / 'new_agent.exe'
+    new_exe.write_bytes(b'new')
+    stubs = {
+        '_agent_layout': lambda _base: layout,
+        'capture_registry_state': lambda: {},
+        'probe_existing_compatible_host': lambda: {},
+        'verify_host': lambda _path: None,
+        '_validate_current': lambda _layout: {'ok': False},
+        'terminate_running_agents': lambda: None,
+        'restore_registry_state': lambda _previous: None,
+    }
+    saved = {name: getattr(agent, name) for name in stubs}
+    saved_env = os.environ.get('LOCALAPPDATA')
+    os.environ['LOCALAPPDATA'] = td
+    try:
+        for name, stub in stubs.items():
+            setattr(agent, name, stub)
+        try:
+            agent.install(new_exe)
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError('a failed swap must be reported')
+    finally:
+        for name, value in saved.items():
+            setattr(agent, name, value)
+        if saved_env is None:
+            os.environ.pop('LOCALAPPDATA', None)
+        else:
+            os.environ['LOCALAPPDATA'] = saved_env
+    kept = sorted(path.name for path in (real_layout['current'] / 'runtime').iterdir())
+    assert kept == ['ai_provider.py', 'python.exe', 'uyap_archive_agent.py'], kept
+    assert not any(path.name.startswith('.staging-') for path in real_layout['root'].iterdir())
 
 stable = agent.host_manifest(Path(r'C:\Users\test\AppData\Local\UYAPArsiv\Agent\current\uyap_archive_agent.exe'), actual_id)
 assert stable['path'].endswith(r'Agent\current\uyap_archive_agent.exe')
