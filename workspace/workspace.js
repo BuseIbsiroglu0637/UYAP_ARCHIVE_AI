@@ -270,7 +270,12 @@ function renderTimelineRows(){
   const list=$("timelineList");list.textContent="";$("timelineEmpty").hidden=filtered.length>0;
   let lastDay="";for(const {d,date} of filtered){const day=shortDate(date),row=document.createElement("div");row.className="timeline-item";row.innerHTML=`<div class="timeline-rail"><span></span></div><div class="timeline-date">${day!==lastDay?esc(day):""}</div><div class="timeline-content"><div class="timeline-title-row"><strong>${esc(documentTitle(d))}</strong><span>${esc(documentType(d))}</span></div><p>${esc(d.uyapPath||d.targetPath||d.localPath||"Arşiv kaydı")}</p><div class="timeline-meta"><span>${esc(archiveRowStatusLabel(d.status))}</span><span>${esc(d.sourceSystem==="UYAP_KURUM"?"UYAP Kurum":"UYAP")}</span></div></div>`;list.append(row);lastDay=day;}
 }
-function setAiPrompt(prompt,{navigate=true,workflowId="ask"}={}){state.aiWorkflowId=workflowId;state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";if(navigate)showView("ai");}
+function setAiPrompt(prompt,{navigate=true,workflowId="ask"}={}){state.aiWorkflowId=workflowId;state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;updateAiSendButton();if(navigate)showView("ai");}
+// "Önemli Tarihler" is read from the records by rules on the agent; it needs
+// the case index but no AI provider, so it stays usable without LM Studio.
+function aiWorkflowNeedsProvider(){return state.aiWorkflowId!=="important_dates";}
+function aiSendLabel(){return state.aiWorkflowId==="important_dates"?"Önemli tarihleri çıkar":(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder");}
+function updateAiSendButton(){const send=$("aiSend"),gate=state.aiSendGate;if(!send||!gate)return;const providerOk=gate.providerReady||!aiWorkflowNeedsProvider();send.disabled=!providerOk||!gate.indexReady;send.textContent=!providerOk?"AI sağlayıcısı bağlanınca kullanılabilir":(gate.indexReady?aiSendLabel():"Önce tam dava indeksini hazırla");}
 function selectedAiArchiveCase(){return state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;}
 const AI_WORKFLOW_TITLES={case_summary:"Dosya Özeti",important_dates:"Önemli Tarihler",new_updates:"Yeni Ne Var?",parties:"Taraflar",classification:"Akıllı Sınıflandırma",chronology:"Kronoloji",ask:"Dosyada Sor"};
 function isCaseSummaryPrompt(){return state.aiWorkflowId==="case_summary";}
@@ -314,6 +319,19 @@ function renderCaseSummaryHtml(answer){
   const known=block("Dosyanın konusu",sections.topic)+block("Son durum",sections.status)+block("Öne çıkan gelişmeler",sections.developments,true)+block("Önemli tarihler",sections.dates,true);
   return `<div class="ai-summary-document">${known||`<section class="ai-summary-section"><p>${esc(answer||"Yanıt alınamadı.")}</p></section>`}</div>`;
 }
+function renderDateRefsHtml(item){
+  return (Array.isArray(item?.refs)?item.refs:[]).map(ref=>`<span class="ai-ref">${esc(ref)}</span>`).join("")+(item?.moreRefs?`<span class="ai-ref more">+${esc(item.moreRefs)}</span>`:"");
+}
+function renderImportantDatesHtml(sections){
+  const block=section=>{
+    const items=Array.isArray(section?.items)?section.items:[];
+    const rows=items.length
+      ?items.map(item=>`<li class="ai-date-row kind-${esc(item.kind||"event")}"><span class="ai-date">${esc(item.dateText||"")}</span><span class="ai-date-text">${esc(item.text||"")}${renderDateRefsHtml(item)}</span></li>`).join("")
+      :`<li class="ai-date-row empty"><span class="ai-date"></span><span class="ai-date-text">${esc(section?.empty||"Kayıt yok.")}</span></li>`;
+    return `<section class="ai-summary-section ai-dates-section${section?.highlight?" is-key":""}"><h3>${esc(section?.title||"")}${section?.subtitle?`<small>${esc(section.subtitle)}</small>`:""}</h3><ul class="ai-date-list">${rows}</ul></section>`;
+  };
+  return `<div class="ai-summary-document ai-dates-document">${(Array.isArray(sections)?sections:[]).map(block).join("")}</div>`;
+}
 function renderSummarySourcesHtml(sources){
   const rows=Array.isArray(sources)?sources:[];
   if(!rows.length)return "";
@@ -334,9 +352,12 @@ function renderAiResult(result,selected,{fromHistory=false}={}){
   meta.textContent=parts.join(" • ")||"Yerel AI sonucu";
   const workflowNote=result?.workflowNotice
     ?`<div class="ai-prompt-preview">${esc(result.workflowNotice)}</div>`:"";
+  const datesMode=result?.datesSchema==="important_dates_v2"&&Array.isArray(result?.dateSections);
   content.innerHTML=workflowNote+(summaryMode
     ?renderCaseSummaryHtml(result?.answer||"")+renderSummarySourcesHtml(sources)
-    :`<div class="ai-freeform-answer">${esc(result?.answer||"Yanıt alınamadı.")}</div>`);
+    :datesMode
+      ?renderImportantDatesHtml(result.dateSections)
+      :`<div class="ai-freeform-answer">${esc(result?.answer||"Yanıt alınamadı.")}</div>`);
   if(pdf)pdf.hidden=!summaryMode;
   if(saved){const locallySaved=summaryMode&&(fromHistory||Boolean(result?.savedSummary)||Boolean(result?.summaryId));saved.hidden=!locallySaved;saved.textContent=locallySaved?"✓ Yerel arşive kaydedildi":"";}
   panel.scrollIntoView({behavior:"smooth",block:"start"});
@@ -483,7 +504,7 @@ async function renderAiWorkspace(){
       :selected.readyForAi?"Tam arşivden yerel metin indeksi henüz oluşturulmadı.":"Dosya tamamlanmadan indeks oluşturulamaz.";
     if(buildButton){buildButton.disabled=!selected.readyForAi;buildButton.textContent=indexReady?"Tam dava indeksini güncelle":"Tam dava indeksini hazırla";}
     if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel dava kaynaklarında ara":"Önce tam dava indeksini hazırla";}
-    if(send){send.disabled=!providerReady||!indexReady;send.textContent=providerReady?(indexReady?(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder"):"Önce tam dava indeksini hazırla"):"AI sağlayıcısı bağlanınca kullanılabilir";}
+    state.aiSendGate={providerReady,indexReady};updateAiSendButton();
   }catch(error){
     state.aiCases=[];state.aiContext=null;state.aiIndex=null;state.aiSummaries=[];state.aiCurrentResult=null;renderAiSummaryHistory();
     $("aiCaseTitle").textContent="Yerel arşiv okunamadı";
@@ -709,7 +730,7 @@ $("aiSend").addEventListener("click",async()=>{
   const query=String($("aiPrompt")?.value||"").trim();
   if(!query)return showToast("Önce AI’ya sorulacak metni yazın.",true);
   const summaryMode=isCaseSummaryPrompt(query),button=$("aiSend");
-  button.disabled=true;button.textContent=summaryMode?"Dosya özeti hazırlanıyor…":"Kaynaklı yanıt hazırlanıyor…";
+  button.disabled=true;button.textContent=summaryMode?"Dosya özeti hazırlanıyor…":(state.aiWorkflowId==="important_dates"?"Tarihler çıkarılıyor…":"Kaynaklı yanıt hazırlanıyor…");
   renderAiResultLoading(summaryMode);
   try{
     const result=await sendRuntime(MESSAGE.AI_ASK_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,workflowId:state.aiWorkflowId,query,limit:summaryMode?6:8});
@@ -731,8 +752,8 @@ $("aiSend").addEventListener("click",async()=>{
     renderAiResultError(error);
     showToast(String(error).replace(/^Error:\s*/,""),true);
   }finally{
-    const ready=state.aiService?.enabled===true&&state.aiService?.configured===true&&state.aiIndex?.ready===true&&selected.readyForAi===true;
-    button.disabled=!ready;button.textContent=ready?(summaryMode?"Dosya özetini oluştur":"Soruyu gönder"):"AI bağlamı hazır değil";
+    state.aiSendGate={providerReady:state.aiService?.enabled===true&&state.aiService?.configured===true,indexReady:state.aiIndex?.ready===true&&selected.readyForAi===true};
+    updateAiSendButton();
   }
 });
 $("globalSearch").addEventListener("keydown",event=>{if(event.key!=="Enter")return;const q=$("globalSearch").value.trim();$("jobSearch").value=q;showView("jobs");renderJobs();});

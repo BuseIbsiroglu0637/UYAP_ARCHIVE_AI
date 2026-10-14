@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from html.parser import HTMLParser
 import html
+import json
 from pathlib import Path
 import re
 import sqlite3
@@ -409,23 +410,49 @@ def _pdf_operator_text(block):
     return values
 
 
+# Streams that never carry text operators. A scanned UYAP record is mostly
+# JPEG / CCITT image data; scanning megabytes of it for "BT … ET" and "[ … ]TJ"
+# found only random byte matches and cost ~20-50 s per PDF, which stalled the
+# case index (one native lane) for hours on large files.
+# Exact keys only: a page or form dictionary may carry "/ProcSet [/PDF /Text
+# /ImageB]" and must still be read.
+_PDF_NON_TEXT_STREAM = re.compile(
+    rb"/Subtype\s*/Image\b|/(?:DCTDecode|JPXDecode|CCITTFaxDecode|JBIG2Decode)\b|/Length[123]\b"
+    rb"|/Type\s*/(?:XRef|Metadata|ObjStm)\b")
+PDF_TEXT_TIME_BUDGET_SECONDS = 20.0
+
+
+def _pdf_stream_header(raw, stream_start):
+    """The stream's own dictionary: from its "N 0 obj" header up to "stream"."""
+    prefix = raw[max(0, stream_start - 600):stream_start]
+    cut = prefix.rfind(b"obj")
+    return prefix[cut:] if cut >= 0 else prefix
+
+
 def _pdf_text(path):
     raw = _read_limited(path)
     values = []
+    started = time.monotonic()
     for stream in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", raw, re.S):
+        if time.monotonic() - started > PDF_TEXT_TIME_BUDGET_SECONDS:
+            break
+        header = _pdf_stream_header(raw, stream.start())
+        if _PDF_NON_TEXT_STREAM.search(header):
+            continue
         payload = stream.group(1)
-        prefix = raw[max(0, stream.start() - 600):stream.start()]
-        candidates = [payload]
-        if b"/FlateDecode" in prefix:
+        if b"/Filter" in header:
+            # Only Flate content can be decoded here; compressed bytes
+            # themselves never contain readable text operators.
+            if b"/FlateDecode" not in header:
+                continue
             try:
-                inflated = zlib.decompress(payload)
-                if len(inflated) <= MAX_TEXT_FILE_BYTES:
-                    candidates.append(inflated)
+                candidate = zlib.decompressobj().decompress(payload, MAX_TEXT_FILE_BYTES)
             except zlib.error:
-                pass
-        for candidate in candidates:
-            for bt in re.finditer(rb"BT(.*?)ET", candidate, re.S):
-                values.extend(_pdf_operator_text(bt.group(1)))
+                continue
+        else:
+            candidate = payload
+        for bt in re.finditer(rb"BT(.*?)ET", candidate, re.S):
+            values.extend(_pdf_operator_text(bt.group(1)))
     text = _clean("\n".join(values))
     if not text:
         raise ValueError("AI_PDF_TEXT_NOT_EXTRACTABLE")
@@ -587,6 +614,9 @@ def _index_db(root, scope_id=None):
         );
         CREATE INDEX IF NOT EXISTS idx_ai_documents_session ON ai_documents(session_id);
         CREATE INDEX IF NOT EXISTS idx_ai_chunks_source ON ai_chunks(source_ref);
+        CREATE TABLE IF NOT EXISTS ai_meta(
+          key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
     """)
     try:
         db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS ai_chunks_fts USING fts5(source_ref UNINDEXED, text, tokenize='unicode61')")
@@ -832,15 +862,27 @@ def build_archive_case_index(downloads_root, institution_name, case_id):
     quality_reasons = {}
     quality_chunk_reasons = {}
     methods = {}
+    # Every document of the case with its UYAP title and date, readable or not.
+    # Scanned records have no text, but their title and date still date an
+    # event (a tebligat, a hearing record) for the important-dates workflow.
+    catalog = {}
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
         db.execute("DELETE FROM ai_chunks")
         if fts5:
             db.execute("DELETE FROM ai_chunks_fts")
         db.execute("DELETE FROM ai_documents")
+        db.execute("DELETE FROM ai_meta")
 
         for item in rows:
             ref = item["sourceRef"]
+            catalog[ref] = {
+                "ref": ref,
+                "title": str(item.get("title") or "Adsız evrak")[:240],
+                "date": str(item.get("date") or "")[:32] or None,
+                "extension": item["path"].suffix.lower().lstrip(".") or None,
+                "indexed": False,
+            }
             try:
                 extracted = extract_text(item["path"])
                 method = str(extracted.get("method") or "unknown")
@@ -892,9 +934,24 @@ def build_archive_case_index(downloads_root, institution_name, case_id):
                     ),
                 )
                 indexed += 1
+                catalog[ref]["indexed"] = True
             except Exception:
                 failed += 1
 
+        db.execute(
+            "INSERT OR REPLACE INTO ai_meta(key,value,updated_at) VALUES('case_catalog',?,?)",
+            (
+                json.dumps({
+                    "schemaVersion": 1,
+                    "institutionName": inspection["institutionName"],
+                    "caseId": inspection["caseId"],
+                    "totalDocuments": int(inspection["totalDocuments"]),
+                    "builtAt": now,
+                    "documents": list(catalog.values()),
+                }, ensure_ascii=False),
+                now,
+            ),
+        )
         db.commit()
         available = db.execute("SELECT COUNT(*) FROM ai_documents WHERE session_id=?", (scope_id,)).fetchone()[0]
         chunks = db.execute(

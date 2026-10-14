@@ -35,6 +35,9 @@ for token in [
     'rollback',
     'ai_local_index.py',
     'ai_provider.py',
+    'ai_workflows.py',
+    'ai_case_facts.py',
+    'ai_important_dates.py',
 ]:
     require(token.lower() in installer.lower(), f'portable installer token eksik: {token}')
 

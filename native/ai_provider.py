@@ -15,6 +15,7 @@ import urllib.request
 import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
+from ai_important_dates import important_dates_answer
 from ai_local_index import search_index, summary_context
 from ai_workflows import (
     ALL_WORKFLOW_IDS, WORKFLOW_LABELS, workflow_context, EVENT_HINTS,
@@ -596,6 +597,11 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
     if workflow_id not in ALL_WORKFLOW_IDS:
         return {"ok": False, "errorCode": "AI_WORKFLOW_UNSUPPORTED",
                 "error": "Tanımlanmamış AI iş akışı."}
+    if workflow_id == "important_dates":
+        # Dates are read from the records by rules; a model can only add
+        # errors here, so none is called (and LM Studio need not run). The
+        # model-based dates path below is kept only for legacy callers/tests.
+        return important_dates_answer(downloads_root, session_id)
     status = provider_status()
     if not status["configured"]:
         provider = status.get("provider")
