@@ -5595,12 +5595,18 @@ def dispatch(message):
     if action == "ai_list_summaries":
         return list_ai_summaries(message)
     if action == "ai_answer":
+        total_documents = message.get("totalDocuments")
         result = ai_answer_from_local_index(
             message["downloadsRoot"],
             message["sessionId"],
             message.get("query") or "",
             message.get("limit") or 8,
             workflow_id=message.get("workflowId"),
+            case_context={
+                "institutionName": str(message.get("institutionName") or "").strip() or None,
+                "caseId": str(message.get("caseId") or "").strip() or None,
+                "totalDocuments": total_documents if isinstance(total_documents, int) else None,
+            },
         )
         diagnostic_path = _write_ai_diagnostic(message, result)
         if isinstance(result, dict) and diagnostic_path:

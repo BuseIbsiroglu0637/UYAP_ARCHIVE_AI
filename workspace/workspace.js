@@ -289,14 +289,24 @@ function normalizeSummaryHeading(value){
     .trim()
     .toLocaleLowerCase("tr-TR");
 }
+// case_summary_v2 headings (rule-based facts + validated narrative) and the
+// four legacy v1 headings, so saved summaries of both kinds keep rendering.
+const CASE_SUMMARY_SECTIONS=[
+  {key:"kunye",title:"Künye",list:true,aliases:["künye","kunye"]},
+  {key:"lastHearing",title:"Son celse ve ara kararlar",list:true,aliases:["son celse ve ara kararlar"]},
+  {key:"next",title:"Sonraki duruşma ve süreler",list:true,highlight:true,aliases:["sonraki duruşma ve süreler","sonraki durusma ve sureler"]},
+  {key:"overview",title:"Genel durum",list:false,aliases:["genel durum"]},
+  {key:"developments",title:"Öne çıkan gelişmeler",list:true,aliases:["öne çıkan gelişmeler","one cikan gelismeler"]},
+  {key:"timeline",title:"Akış",list:true,aliases:["akış","akis"]},
+  {key:"coverage",title:"Kapsam ve eksikler",list:true,aliases:["kapsam ve eksikler"]},
+  {key:"topic",title:"Dosyanın konusu",list:false,aliases:["dosyanın konusu","dosyanin konusu"]},
+  {key:"status",title:"Son durum",list:false,aliases:["son durum"]},
+  {key:"dates",title:"Önemli tarihler",list:true,aliases:["önemli tarihler","onemli tarihler"]}
+];
+function summaryTextWithRefs(value){return esc(value).replace(/\[(D\d{6})\]/g,'<span class="ai-ref">$1</span>');}
 function parseCaseSummary(answer){
-  const aliases=new Map([
-    ["dosyanın konusu","topic"],["dosyanin konusu","topic"],
-    ["son durum","status"],
-    ["öne çıkan gelişmeler","developments"],["one cikan gelismeler","developments"],
-    ["önemli tarihler","dates"],["onemli tarihler","dates"]
-  ]);
-  const sections={topic:[],status:[],developments:[],dates:[],other:[]};
+  const aliases=new Map(CASE_SUMMARY_SECTIONS.flatMap(section=>section.aliases.map(alias=>[alias,section.key])));
+  const sections=Object.fromEntries([...CASE_SUMMARY_SECTIONS.map(section=>[section.key,[]]),["other",[]]]);
   let current="other";
   for(const raw of String(answer||"").split(/\r?\n/)){
     const line=raw.trim();
@@ -310,14 +320,14 @@ function parseCaseSummary(answer){
 }
 function renderCaseSummaryHtml(answer){
   const sections=parseCaseSummary(answer);
-  const block=(title,items,list=false)=>{
+  const known=CASE_SUMMARY_SECTIONS.map(section=>{
+    const items=sections[section.key];
     if(!items?.length)return "";
-    const content=list
-      ?`<ul>${items.slice(0,8).map(item=>`<li>${esc(item)}</li>`).join("")}</ul>`
-      :items.slice(0,4).map(item=>`<p>${esc(item)}</p>`).join("");
-    return `<section class="ai-summary-section"><h3>${esc(title)}</h3>${content}</section>`;
-  };
-  const known=block("Dosyanın konusu",sections.topic)+block("Son durum",sections.status)+block("Öne çıkan gelişmeler",sections.developments,true)+block("Önemli tarihler",sections.dates,true);
+    const content=section.list
+      ?`<ul>${items.slice(0,16).map(item=>`<li>${summaryTextWithRefs(item)}</li>`).join("")}</ul>`
+      :items.slice(0,4).map(item=>`<p>${summaryTextWithRefs(item)}</p>`).join("");
+    return `<section class="ai-summary-section${section.highlight?" is-key":""}"><h3>${esc(section.title)}</h3>${content}</section>`;
+  }).join("");
   return `<div class="ai-summary-document">${known||`<section class="ai-summary-section"><p>${esc(answer||"Yanıt alınamadı.")}</p></section>`}</div>`;
 }
 function renderDateRefsHtml(item){
