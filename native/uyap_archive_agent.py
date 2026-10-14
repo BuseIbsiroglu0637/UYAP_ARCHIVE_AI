@@ -147,23 +147,53 @@ def _archive_ai_summary_directory(downloads_root, institution_name, case_id, cre
         return None
 
 
-def _public_summary(payload, path=None):
-    return {
+# Saved results: Dosya Özeti plus the rule views (Önemli Tarihler, Ara Kararlar
+# ve Yapılacaklar, Taraflar). One store, one record kind; "workflowId" tells them
+# apart (records written before it existed are case summaries). Rule views keep
+# their section data so a saved record reopens and prints exactly as shown.
+AI_SAVED_WORKFLOWS = {
+    "case_summary": ("summary", "Dosya Özeti"),
+    "important_dates": ("dates", "Önemli Tarihler"),
+    "court_orders": ("orders", "Ara Kararlar ve Yapılacaklar"),
+    "parties": ("parties", "Taraflar"),
+}
+AI_RULE_SECTION_SCHEMAS = {"important_dates": "important_dates_v2", "court_orders": "court_orders_v1",
+                           "parties": "parties_v1"}
+AI_RESULT_MAX_SECTIONS_CHARS = 400_000
+AI_RESULT_MAX_SOURCES = 200
+AI_SAVED_TRASH_DAYS = 7
+_AI_DELETED_LOG = "_deleted.json"
+_AI_TRASH = ".trash"
+
+
+def _public_summary(payload, path=None, include_sections=True):
+    workflow_id = str(payload.get("workflowId") or "case_summary")
+    rule = workflow_id != "case_summary"
+    row = {
         "summaryId": str(payload.get("summaryId") or ""),
         "schemaVersion": int(payload.get("schemaVersion") or AI_SUMMARY_SCHEMA_VERSION),
         "createdAt": payload.get("createdAt"),
         "institutionName": payload.get("institutionName"),
         "caseId": payload.get("caseId"),
-        "answer": payload.get("answer"),
+        "workflowId": workflow_id,
+        "workflowTitle": payload.get("workflowTitle") or AI_SAVED_WORKFLOWS.get(workflow_id, ("", "Dosya Özeti"))[1],
+        # A rule view's text and sections can be large; lists carry only metadata.
+        "answer": payload.get("answer") if include_sections or not rule else None,
         "sources": payload.get("sources") or [],
         "sourceRefs": payload.get("sourceRefs") or [],
         "provider": payload.get("provider"),
         "model": payload.get("model"),
         "retrievalMode": payload.get("retrievalMode"),
         "selectionPolicy": payload.get("selectionPolicy"),
+        "sectionsSchema": payload.get("sectionsSchema"),
+        "workflowNotice": payload.get("workflowNotice"),
+        "hasSections": bool(payload.get("sections")),
         "path": str(path) if path else payload.get("path"),
         "storage": payload.get("storage") or "central_local",
     }
+    if include_sections and rule:
+        row["sections"] = payload.get("sections") or []
+    return row
 
 
 def _summary_payloads_from(folder):
@@ -191,20 +221,82 @@ def _write_summary_payload(folder, payload):
     return target
 
 
+def _deleted_ids(folder):
+    """Ids the user deleted. Kept so an archive mirror copy can never bring a record back."""
+    try:
+        data = json.loads((folder / _AI_DELETED_LOG).read_text(encoding="utf-8"))
+        deleted = data.get("deleted") if isinstance(data, dict) else None
+        return {str(key): value for key, value in deleted.items()} if isinstance(deleted, dict) else {}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+
+def _write_deleted_ids(folder, deleted):
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / _AI_DELETED_LOG
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps({"schemaVersion": 1, "deleted": deleted}, ensure_ascii=False, indent=2),
+                         encoding="utf-8")
+    os.replace(temporary, target)
+
+
+def _move_saved_record(source_folder, target_folder, summary_id):
+    """Move every copy of one record between a folder and its trash; returns the new paths."""
+    moved = []
+    for payload, path in _summary_payloads_from(source_folder):
+        if str(payload.get("summaryId") or "") != summary_id:
+            continue
+        target_folder.mkdir(parents=True, exist_ok=True)
+        target = target_folder / path.name
+        os.replace(path, target)
+        os.utime(target, None)  # trash age counts from the deletion
+        moved.append((payload, target))
+    return moved
+
+
+def _purge_saved_trash(folder):
+    if folder is None:
+        return
+    trash = folder / _AI_TRASH
+    if not trash.is_dir():
+        return
+    cutoff = time.time() - AI_SAVED_TRASH_DAYS * 86400
+    for path in trash.glob("*.json"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
+
+
 def save_ai_summary(message):
     downloads_root = message.get("downloadsRoot")
     institution_name = str(message.get("institutionName") or "").strip()
     case_id = str(message.get("caseId") or "").strip()
     answer = str(message.get("answer") or "").strip()
+    workflow_id = str(message.get("workflowId") or "case_summary").strip()
+    if workflow_id not in AI_SAVED_WORKFLOWS:
+        raise ValueError("Bu AI iş akışının sonucu kaydedilemez")
+    rule = workflow_id != "case_summary"
     if not institution_name or not case_id:
         raise ValueError("AI özet kaydı için kurum ve dosya no gerekli")
     if not answer:
         raise ValueError("Kaydedilecek AI özeti boş")
     answer = answer[:AI_SUMMARY_MAX_ANSWER_CHARS]
+    sections = None
+    if rule:
+        raw_sections = message.get("sections")
+        if not isinstance(raw_sections, list) or not raw_sections:
+            raise ValueError("Kaydedilecek sonuç bölümleri boş")
+        encoded = json.dumps(raw_sections, ensure_ascii=False)
+        if len(encoded) > AI_RESULT_MAX_SECTIONS_CHARS:
+            raise ValueError("Kaydedilecek sonuç çok büyük")
+        sections = json.loads(encoded)
+    max_sources = AI_RESULT_MAX_SOURCES if rule else AI_SUMMARY_MAX_SOURCES
     raw_sources = message.get("sources") or []
     sources = []
     if isinstance(raw_sources, list):
-        for item in raw_sources[:AI_SUMMARY_MAX_SOURCES]:
+        for item in raw_sources[:max_sources]:
             if not isinstance(item, dict):
                 continue
             sources.append({
@@ -215,30 +307,36 @@ def save_ai_summary(message):
                 "selectionReason": str(item.get("selectionReason") or "")[:240] or None,
                 "summaryRole": str(item.get("summaryRole") or "")[:80] or None,
             })
-    source_refs = [str(value)[:32] for value in (message.get("sourceRefs") or [])[:AI_SUMMARY_MAX_SOURCES]]
-    digest_input = json.dumps(
-        {"answer": answer, "sourceRefs": source_refs, "institutionName": institution_name, "caseId": case_id},
-        ensure_ascii=False,
-        sort_keys=True,
-    ).encode("utf-8")
-    summary_hash = hashlib.sha256(digest_input).hexdigest()
+    source_refs = [str(value)[:32] for value in (message.get("sourceRefs") or [])[:max_sources]]
+    digest_fields = {"answer": answer, "sourceRefs": source_refs, "institutionName": institution_name, "caseId": case_id}
+    if rule:
+        digest_fields["workflowId"] = workflow_id
+    summary_hash = hashlib.sha256(json.dumps(digest_fields, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     central = _central_ai_summary_directory(institution_name, case_id)
+    deleted = _deleted_ids(central)
 
     for payload, path in _summary_payloads_from(central):
         if payload.get("summaryHash") == summary_hash:
-            return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True, "summary": _public_summary(payload, path)}
+            return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True,
+                    "summary": _public_summary(payload, path, include_sections=False)}
 
     # Backward compatibility: if an earlier build saved only inside the archive
     # tree, import that record into the stable central store on the next save.
     archive_folder = _archive_ai_summary_directory(downloads_root, institution_name, case_id, create=False)
     for payload, _path in _summary_payloads_from(archive_folder):
-        if payload.get("summaryHash") == summary_hash:
+        if payload.get("summaryHash") == summary_hash and str(payload.get("summaryId") or "") not in deleted:
             payload = {**payload, "schemaVersion": AI_SUMMARY_SCHEMA_VERSION, "storage": "central_local"}
             target = _write_summary_payload(central, payload)
-            return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True, "summary": _public_summary(payload, target)}
+            return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True,
+                    "summary": _public_summary(payload, target, include_sections=False)}
 
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    summary_id = f"summary-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{summary_hash[:12]}"
+    prefix, title = AI_SAVED_WORKFLOWS[workflow_id]
+    summary_id = base_id = f"{prefix}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{summary_hash[:12]}"
+    copy = 1
+    while summary_id in deleted:  # never reuse the id of a record the user deleted
+        copy += 1
+        summary_id = f"{base_id}-{copy}"
     payload = {
         "schemaVersion": AI_SUMMARY_SCHEMA_VERSION,
         "kind": "UYAP_AI_SAVED_SUMMARY",
@@ -247,6 +345,8 @@ def save_ai_summary(message):
         "createdAt": now,
         "institutionName": institution_name,
         "caseId": case_id,
+        "workflowId": workflow_id,
+        "workflowTitle": title,
         "answer": answer,
         "sources": sources,
         "sourceRefs": source_refs,
@@ -261,6 +361,12 @@ def save_ai_summary(message):
             "rawSourceSnippetsStored": False,
         },
     }
+    if rule:
+        payload.update({
+            "sectionsSchema": AI_RULE_SECTION_SCHEMAS[workflow_id],
+            "sections": sections,
+            "workflowNotice": str(message.get("workflowNotice") or "")[:600] or None,
+        })
     target = _write_summary_payload(central, payload)
 
     # Best-effort mirror beside the archive for portability. The central copy is
@@ -272,26 +378,39 @@ def save_ai_summary(message):
         except OSError:
             pass
 
-    return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": False, "summary": _public_summary(payload, target)}
+    return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": False,
+            "summary": _public_summary(payload, target, include_sections=False)}
 
 
-def list_ai_summaries(message):
-    downloads_root = message.get("downloadsRoot")
+def _saved_case(message, purpose):
     institution_name = str(message.get("institutionName") or "").strip()
     case_id = str(message.get("caseId") or "").strip()
     if not institution_name or not case_id:
-        raise ValueError("AI özet geçmişi için kurum ve dosya no gerekli")
-    limit = max(1, min(int(message.get("limit") or 20), 100))
+        raise ValueError(f"{purpose} için kurum ve dosya no gerekli")
     central = _central_ai_summary_directory(institution_name, case_id)
-    archive_folder = _archive_ai_summary_directory(downloads_root, institution_name, case_id, create=False)
+    archive_folder = _archive_ai_summary_directory(message.get("downloadsRoot"), institution_name, case_id, create=False)
+    return institution_name, case_id, central, archive_folder
+
+
+def list_ai_summaries(message):
+    institution_name, case_id, central, archive_folder = _saved_case(message, "AI özet geçmişi")
+    limit = max(1, min(int(message.get("limit") or 20), 100))
+    deleted = _deleted_ids(central)
+    _purge_saved_trash(central)
+    _purge_saved_trash(archive_folder)
 
     merged = {}
     for payload, path in _summary_payloads_from(central):
+        if str(payload.get("summaryId") or "") in deleted:
+            continue
         key = str(payload.get("summaryHash") or payload.get("summaryId") or path.name)
         merged[key] = (payload, path)
 
-    # Import archive-only summaries created by the previous implementation.
+    # Import archive-only summaries created by the previous implementation;
+    # never one the user deleted.
     for payload, path in _summary_payloads_from(archive_folder):
+        if str(payload.get("summaryId") or "") in deleted:
+            continue
         key = str(payload.get("summaryHash") or payload.get("summaryId") or path.name)
         if key not in merged:
             imported = {**payload, "schemaVersion": AI_SUMMARY_SCHEMA_VERSION, "storage": "central_local"}
@@ -306,7 +425,7 @@ def list_ai_summaries(message):
         key=lambda item: str(item[0].get("createdAt") or ""),
         reverse=True,
     )[:limit]
-    summaries = [_public_summary(payload, path) for payload, path in ordered]
+    summaries = [_public_summary(payload, path, include_sections=False) for payload, path in ordered]
     return {
         "ok": True,
         "kind": "UYAP_AI_SAVED_SUMMARY_LIST",
@@ -318,6 +437,61 @@ def list_ai_summaries(message):
         "historyRoot": str(central),
         "archiveMirrorChecked": archive_folder is not None,
     }
+
+
+def get_ai_summary(message):
+    """One saved record with its sections (for reopening and printing a rule view)."""
+    _institution, _case, central, _archive = _saved_case(message, "Kayıt")
+    summary_id = str(message.get("summaryId") or "").strip()
+    if summary_id and summary_id not in _deleted_ids(central):
+        for payload, path in _summary_payloads_from(central):
+            if str(payload.get("summaryId") or "") == summary_id:
+                return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "summary": _public_summary(payload, path)}
+    return {"ok": False, "errorCode": "AI_SAVED_RESULT_NOT_FOUND", "error": "Kaydedilen sonuç bulunamadı."}
+
+
+def delete_ai_summary(message):
+    """Move one saved record (and its archive mirror) to trash; restorable for AI_SAVED_TRASH_DAYS.
+
+    Archive documents, the AI index and PDFs the user already saved are never touched.
+    """
+    _institution, _case, central, archive_folder = _saved_case(message, "Kayıt silme")
+    summary_id = str(message.get("summaryId") or "").strip()
+    if not summary_id:
+        raise ValueError("Silinecek kaydın kimliği gerekli")
+    moved = _move_saved_record(central, central / _AI_TRASH, summary_id)
+    if not moved:
+        return {"ok": False, "errorCode": "AI_SAVED_RESULT_NOT_FOUND", "error": "Silinecek kayıt bulunamadı."}
+    mirror_moved = False
+    if archive_folder is not None:
+        try:
+            mirror_moved = bool(_move_saved_record(archive_folder, archive_folder / _AI_TRASH, summary_id))
+        except OSError:
+            mirror_moved = False
+    deleted = _deleted_ids(central)
+    deleted[summary_id] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    _write_deleted_ids(central, deleted)
+    return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY_DELETED", "summaryId": summary_id, "restorable": True,
+            "mirrorRemoved": mirror_moved, "restoreDays": AI_SAVED_TRASH_DAYS}
+
+
+def restore_ai_summary(message):
+    _institution, _case, central, archive_folder = _saved_case(message, "Kaydı geri alma")
+    summary_id = str(message.get("summaryId") or "").strip()
+    restored = _move_saved_record(central / _AI_TRASH, central, summary_id) if summary_id else []
+    if not restored:
+        return {"ok": False, "errorCode": "AI_SAVED_RESULT_NOT_RESTORABLE",
+                "error": "Kayıt geri alınamadı; çöp kutusundan temizlenmiş olabilir."}
+    if archive_folder is not None:
+        try:
+            _move_saved_record(archive_folder / _AI_TRASH, archive_folder, summary_id)
+        except OSError:
+            pass
+    deleted = _deleted_ids(central)
+    deleted.pop(summary_id, None)
+    _write_deleted_ids(central, deleted)
+    payload, path = restored[0]
+    return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "summary": _public_summary(payload, path, include_sections=False)}
 
 
 def _portable_resume_config_path():
@@ -5594,6 +5768,12 @@ def dispatch(message):
         return save_ai_summary(message)
     if action == "ai_list_summaries":
         return list_ai_summaries(message)
+    if action == "ai_get_summary":
+        return get_ai_summary(message)
+    if action == "ai_delete_summary":
+        return delete_ai_summary(message)
+    if action == "ai_restore_summary":
+        return restore_ai_summary(message)
     if action == "ai_answer":
         total_documents = message.get("totalDocuments")
         result = ai_answer_from_local_index(

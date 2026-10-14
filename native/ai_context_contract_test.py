@@ -540,7 +540,11 @@ def test_ai_workspace_has_readable_result_history_and_pdf_export_contract():
     assert 'GET_AI_ARCHIVE_SUMMARIES:"get_ai_archive_summaries"' in workspace
     assert "renderCaseSummaryHtml" in workspace
     assert "openSummaryPrint" in workspace
-    assert "Özet geçmişi okunamadı:" in workspace
+    assert "Kayıt geçmişi okunamadı:" in workspace
+    for name in ("GET_AI_ARCHIVE_SUMMARY", "DELETE_AI_ARCHIVE_SUMMARY", "RESTORE_AI_ARCHIVE_SUMMARY"):
+        assert name in constants and name in workspace and f"MESSAGE.{name}" in worker, name
+    for action in ("ai_get_summary", "ai_delete_summary", "ai_restore_summary"):
+        assert f'"{action}"' in worker, action
     assert "AI_PRINT_SUMMARY_KEY" in workspace
     assert 'GET_AI_ARCHIVE_SUMMARIES: "get_ai_archive_summaries"' in constants
     assert 'action:"ai_save_summary"' in worker

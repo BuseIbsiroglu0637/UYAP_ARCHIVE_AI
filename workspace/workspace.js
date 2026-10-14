@@ -1,6 +1,6 @@
 const MESSAGE=Object.freeze({
   GET_ACTIVE_SESSION:"get_active_session",GET_SESSIONS:"get_sessions",GET_REPORT_DATA:"get_report_data",GET_AI_CONTEXT:"get_ai_context",GET_AI_SERVICE_STATUS:"get_ai_service_status",BUILD_AI_INDEX:"build_ai_index",GET_AI_INDEX_STATUS:"get_ai_index_status",SEARCH_AI_INDEX:"search_ai_index",AI_ASK:"ai_ask",
-  GET_AI_ARCHIVE_CASES:"get_ai_archive_cases",BUILD_AI_ARCHIVE_CASE_INDEX:"build_ai_archive_case_index",GET_AI_ARCHIVE_CASE_INDEX_STATUS:"get_ai_archive_case_index_status",SEARCH_AI_ARCHIVE_CASE:"search_ai_archive_case",AI_ASK_ARCHIVE_CASE:"ai_ask_archive_case",GET_AI_ARCHIVE_SUMMARIES:"get_ai_archive_summaries",
+  GET_AI_ARCHIVE_CASES:"get_ai_archive_cases",BUILD_AI_ARCHIVE_CASE_INDEX:"build_ai_archive_case_index",GET_AI_ARCHIVE_CASE_INDEX_STATUS:"get_ai_archive_case_index_status",SEARCH_AI_ARCHIVE_CASE:"search_ai_archive_case",AI_ASK_ARCHIVE_CASE:"ai_ask_archive_case",GET_AI_ARCHIVE_SUMMARIES:"get_ai_archive_summaries",GET_AI_ARCHIVE_SUMMARY:"get_ai_archive_summary",DELETE_AI_ARCHIVE_SUMMARY:"delete_ai_archive_summary",RESTORE_AI_ARCHIVE_SUMMARY:"restore_ai_archive_summary",
   GET_DIAGNOSTIC_DATA:"get_diagnostic_data",GET_PROBLEM_ITEMS:"get_problem_items",RETRY_SELECTED_PROBLEMS:"retry_selected_problems",
   RESET_RUNTIME:"reset_runtime",REPACKAGE_ARCHIVE:"repackage_archive",NEW_JOB:"new_job",SOURCE_DIAGNOSTIC:"source_diagnostic",
   TEST_NOTIFICATION:"test_notification",OPEN_ARCHIVE_FOLDER:"open_archive_folder",GET_ARCHIVE_REGISTRY:"get_archive_registry",CONFIRM_HTML_EXCLUSION:"confirm_html_exclusion",OPEN_FINAL_PACKAGE_FOLDER:"open_final_package_folder"
@@ -371,7 +371,8 @@ function renderSummarySourcesHtml(sources){
 function renderAiResult(result,selected,{fromHistory=false}={}){
   const panel=$("aiResultPanel"),content=$("aiResultContent"),title=$("aiResultTitle"),meta=$("aiResultMeta"),pdf=$("aiSummaryPdf"),saved=$("aiSummarySavedBadge");
   if(!panel||!content)return;
-  const summaryMode=result?.retrievalMode==="case_summary_v1"||Boolean(result?.summaryId);
+  // A saved rule view also carries a summaryId; only the summary itself is summaryMode.
+  const summaryMode=result?.retrievalMode==="case_summary_v1"||(Boolean(result?.summaryId)&&savedWorkflow(result)==="case_summary");
   panel.hidden=false;
   state.aiCurrentResult={...result,archiveCase:result?.archiveCase||selected||null};
   title.textContent=summaryMode?"Dosya Özeti":(result?.workflowTitle||AI_WORKFLOW_TITLES[result?.workflowId]||"Dosyada Sor Yanıtı");
@@ -387,8 +388,8 @@ function renderAiResult(result,selected,{fromHistory=false}={}){
     :ruleSections
       ?renderRuleSectionsHtml(ruleSections)
       :`<div class="ai-freeform-answer">${esc(result?.answer||"Yanıt alınamadı.")}</div>`);
-  if(pdf)pdf.hidden=!summaryMode;
-  if(saved){const locallySaved=summaryMode&&(fromHistory||Boolean(result?.savedSummary)||Boolean(result?.summaryId));saved.hidden=!locallySaved;saved.textContent=locallySaved?"✓ Yerel arşive kaydedildi":"";}
+  if(pdf)pdf.hidden=!(summaryMode||(ruleSections&&SAVED_PDF_WORKFLOWS.has(result?.workflowId)));
+  if(saved){const locallySaved=(summaryMode||Boolean(ruleSections))&&(fromHistory||Boolean(result?.savedSummary)||Boolean(result?.summaryId));saved.hidden=!locallySaved;saved.textContent=locallySaved?"✓ Yerel arşive kaydedildi":"";}
   panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
 function renderAiResultLoading(summaryMode){
@@ -406,23 +407,44 @@ function renderAiResultError(error){
   panel.hidden=false;if(title)title.textContent="AI işlemi tamamlanamadı";if(meta)meta.textContent="Tanı bilgisi hata mesajında korunur.";if(pdf)pdf.hidden=true;if(saved)saved.hidden=true;
   content.innerHTML='<div class="ai-result-error">'+esc(String(error).replace(/^Error:\s*/,""))+'</div>';
 }
+// Saved results: Dosya Özeti and the rule views share one local history.
+// PDF is offered for the summary, Önemli Tarihler and Ara Kararlar.
+const SAVED_PDF_WORKFLOWS=new Set(["case_summary","important_dates","court_orders"]);
+const SAVED_FILTERS=[["all","Tümü"],["case_summary","Dosya Özeti"],["important_dates","Önemli Tarihler"],["court_orders","Ara Kararlar"],["parties","Taraflar"]];
+const RULE_SCHEMA_KEYS={important_dates:["datesSchema","dateSections"],court_orders:["ordersSchema","orderSections"],parties:["partiesSchema","partySections"]};
+const AI_UNDO_MS=10000;
+const savedWorkflow=item=>item?.workflowId||"case_summary";
 function renderAiSummaryHistory(){
-  const box=$("aiSummaryHistory"),count=$("aiSummaryHistoryCount");
+  const box=$("aiSummaryHistory"),count=$("aiSummaryHistoryCount"),filters=$("aiSavedFilters");
   if(!box)return;
-  const rows=Array.isArray(state.aiSummaries)?state.aiSummaries:[];
-  if(count)count.textContent=`${rows.length.toLocaleString("tr-TR")} özet`;
-  if(!rows.length){box.innerHTML='<div class="ai-history-empty">Bu dava dosyası için henüz kaydedilmiş özet yok.</div>';return;}
-  box.innerHTML=rows.map((item,index)=>{
+  const all=Array.isArray(state.aiSummaries)?state.aiSummaries:[];
+  const filter=SAVED_FILTERS.some(([key])=>key===state.aiSavedFilter)?state.aiSavedFilter:"all";
+  const rows=filter==="all"?all:all.filter(item=>savedWorkflow(item)===filter);
+  if(count)count.textContent=`${all.length.toLocaleString("tr-TR")} kayıt`;
+  if(filters)filters.innerHTML=all.length?SAVED_FILTERS.map(([key,label])=>{
+    const total=key==="all"?all.length:all.filter(item=>savedWorkflow(item)===key).length;
+    return total||key===filter?`<button class="ai-saved-filter${key===filter?" is-active":""}" data-ai-saved-filter="${key}">${esc(label)} <span>${total}</span></button>`:"";
+  }).join(""):"";
+  const undo=state.aiUndo&&state.aiUndo.until>Date.now()
+    ?`<div class="ai-history-undo"><span>${esc(state.aiUndo.label)} silindi.</span><button data-ai-saved-undo="${esc(state.aiUndo.summaryId)}">Geri al</button></div>`:"";
+  if(!rows.length){box.innerHTML=undo+`<div class="ai-history-empty">${all.length?"Bu türde kaydedilmiş sonuç yok.":"Bu dava dosyası için henüz kaydedilmiş sonuç yok."}</div>`;return;}
+  box.innerHTML=undo+rows.map(item=>{
+    const id=esc(item.summaryId||""),workflow=savedWorkflow(item),title=item.workflowTitle||AI_WORKFLOW_TITLES[workflow]||"Dosya Özeti";
     const sourceCount=Array.isArray(item.sources)?item.sources.length:0;
-    return `<div class="ai-history-item"><div><strong>${esc(formatDate(item.createdAt))}</strong><small>${esc(item.model||"Yerel AI")} • ${sourceCount} kaynak • ${esc(item.summaryId||"")}</small></div><div class="ai-history-actions"><button data-ai-summary-open="${index}">Aç</button><button data-ai-summary-pdf="${index}">PDF</button></div></div>`;
+    const meta=workflow==="case_summary"?`${item.model||"Yerel AI"} • ${sourceCount} kaynak`:`Yerel kurallar • ${(item.sourceRefs||[]).length} kaynak evrak`;
+    if(state.aiDeleteConfirm===item.summaryId){
+      return `<div class="ai-history-item is-confirm"><div><strong>Bu kayıt silinsin mi?</strong><small>${esc(title)} • ${esc(formatDate(item.createdAt))}. Arşivdeki evraklar ve indirdiğiniz PDF'ler etkilenmez.</small></div><div class="ai-history-actions"><button class="ai-history-danger" data-ai-saved-delete-confirm="${id}">Evet, sil</button><button data-ai-saved-delete-cancel="${id}">Vazgeç</button></div></div>`;
+    }
+    const pdf=SAVED_PDF_WORKFLOWS.has(workflow)?`<button data-ai-saved-pdf="${id}">PDF</button>`:"";
+    return `<div class="ai-history-item"><div><span class="ai-history-type type-${esc(workflow)}">${esc(title)}</span><strong>${esc(formatDate(item.createdAt))}</strong><small>${esc(meta)}</small></div><div class="ai-history-actions"><button data-ai-saved-open="${id}">Aç</button>${pdf}<button class="ai-history-delete" data-ai-saved-delete="${id}" title="Kaydı sil">Sil</button></div></div>`;
   }).join("");
 }
 async function loadAiSummaryHistory(selected){
   if(!selected){state.aiSummaries=[];renderAiSummaryHistory();return;}
   const box=$("aiSummaryHistory"),count=$("aiSummaryHistoryCount");
-  if(box)box.innerHTML='<div class="ai-history-empty">Kaydedilen özetler yükleniyor…</div>';
+  if(box)box.innerHTML='<div class="ai-history-empty">Kaydedilen sonuçlar yükleniyor…</div>';
   try{
-    const payload=await sendRuntime(MESSAGE.GET_AI_ARCHIVE_SUMMARIES,{institutionName:selected.institutionName,caseId:selected.caseId,limit:20});
+    const payload=await sendRuntime(MESSAGE.GET_AI_ARCHIVE_SUMMARIES,{institutionName:selected.institutionName,caseId:selected.caseId,limit:60});
     if(archiveCaseKey(selected)!==state.aiSelectedCaseKey)return;
     state.aiSummaries=Array.isArray(payload?.summaries)?payload.summaries:[];
     renderAiSummaryHistory();
@@ -430,21 +452,41 @@ async function loadAiSummaryHistory(selected){
     if(archiveCaseKey(selected)!==state.aiSelectedCaseKey)return;
     state.aiSummaries=[];
     if(count)count.textContent="Yüklenemedi";
-    if(box)box.innerHTML='<div class="ai-history-empty">Özet geçmişi okunamadı: '+esc(String(error).replace(/^Error:\s*/,""))+'</div>';
+    if(box)box.innerHTML='<div class="ai-history-empty">Kayıt geçmişi okunamadı: '+esc(String(error).replace(/^Error:\s*/,""))+'</div>';
   }
+}
+// A listed rule-view record carries no sections (list stays small); fetch it whole.
+async function loadSavedResult(item,selected){
+  if(savedWorkflow(item)==="case_summary"||Array.isArray(item.sections))return item;
+  const payload=await sendRuntime(MESSAGE.GET_AI_ARCHIVE_SUMMARY,{institutionName:selected.institutionName,caseId:selected.caseId,summaryId:item.summaryId});
+  return payload?.summary||item;
+}
+function savedToResult(item,selected){
+  const workflowId=savedWorkflow(item),base={...item,workflowId,archiveCase:selected};
+  if(workflowId==="case_summary")return {...base,retrievalMode:"case_summary_v1"};
+  const keys=RULE_SCHEMA_KEYS[workflowId];
+  return keys?{...base,[keys[0]]:item.sectionsSchema,[keys[1]]:Array.isArray(item.sections)?item.sections:[]}:base;
 }
 async function openSummaryPrint(summary){
   const selected=summary?.archiveCase||selectedAiArchiveCase()||{};
+  const sections=ruleSectionsOf(summary);
+  const workflowId=sections?summary.workflowId:"case_summary";
+  const documentTitle=sections?(summary.workflowTitle||AI_WORKFLOW_TITLES[workflowId]||"AI Sonucu"):"Dosya Özeti";
   const payload={
-    schemaVersion:1,
-    title:"UYAP Archive AI - Dosya Özeti",
+    schemaVersion:2,
+    workflowId,
+    title:"UYAP Archive AI - "+documentTitle,
+    documentTitle,
     institutionName:summary?.institutionName||selected.institutionName||"",
     caseId:summary?.caseId||selected.caseId||"",
     createdAt:summary?.createdAt||summary?.savedSummary?.createdAt||new Date().toISOString(),
     answer:summary?.answer||"",
     sources:Array.isArray(summary?.sources)?summary.sources:[],
+    sourceRefs:Array.isArray(summary?.sourceRefs)?summary.sourceRefs:[],
     model:summary?.model||"",
-    provider:summary?.provider||""
+    provider:summary?.provider||"",
+    sections:sections||null,
+    workflowNotice:sections?(summary?.workflowNotice||""):""
   };
   await chrome.storage.local.set({[AI_PRINT_SUMMARY_KEY]:payload});
   await chrome.tabs.create({url:chrome.runtime.getURL("workspace/summary-print.html")});
@@ -698,18 +740,53 @@ $("timelineOpenArchive").addEventListener("click",()=>showView("archive"));$("ti
 $("timelineSearch").addEventListener("input",renderTimelineRows);$("timelineType").addEventListener("change",renderTimelineRows);
 $("aiPrompt").addEventListener("input",()=>{state.aiPrompt=$("aiPrompt").value;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";});
 $("aiFreeformMode")?.addEventListener("click",()=>{setAiPrompt("",{navigate:false,workflowId:"ask"});$("aiPrompt")?.focus();});
-$("aiArchiveCasePicker")?.addEventListener("change",async()=>{state.aiSelectedCaseKey=$("aiArchiveCasePicker").value||null;state.aiIndex=null;state.aiCurrentResult=null;state.aiSummaries=[];if($("aiSearchResults"))$("aiSearchResults").textContent="";if($("aiAnswerBox")){$("aiAnswerBox").hidden=true;$("aiAnswerBox").textContent="";}if($("aiResultPanel"))$("aiResultPanel").hidden=true;renderAiSummaryHistory();await renderAiWorkspace();});
-$("aiSummaryPdf")?.addEventListener("click",async()=>{if(!state.aiCurrentResult)return showToast("PDF için önce bir dosya özeti oluşturun veya geçmişten açın.",true);try{await openSummaryPrint(state.aiCurrentResult);}catch(error){showToast(String(error).replace(/^Error:\s*/,""),true);}});
+$("aiArchiveCasePicker")?.addEventListener("change",async()=>{state.aiSelectedCaseKey=$("aiArchiveCasePicker").value||null;state.aiIndex=null;state.aiCurrentResult=null;state.aiSummaries=[];state.aiUndo=null;state.aiDeleteConfirm=null;if($("aiSearchResults"))$("aiSearchResults").textContent="";if($("aiAnswerBox")){$("aiAnswerBox").hidden=true;$("aiAnswerBox").textContent="";}if($("aiResultPanel"))$("aiResultPanel").hidden=true;renderAiSummaryHistory();await renderAiWorkspace();});
+$("aiSummaryPdf")?.addEventListener("click",async()=>{if(!state.aiCurrentResult)return showToast("PDF için önce bir sonuç oluşturun veya geçmişten açın.",true);try{await openSummaryPrint(state.aiCurrentResult);}catch(error){showToast(String(error).replace(/^Error:\s*/,""),true);}});
+$("aiSavedFilters")?.addEventListener("click",event=>{
+  const button=event.target.closest("[data-ai-saved-filter]");if(!button)return;
+  state.aiSavedFilter=button.dataset.aiSavedFilter;state.aiDeleteConfirm=null;renderAiSummaryHistory();
+});
 $("aiSummaryHistory")?.addEventListener("click",async(event)=>{
-  const openButton=event.target.closest("[data-ai-summary-open]"),pdfButton=event.target.closest("[data-ai-summary-pdf]");
-  const button=openButton||pdfButton;if(!button)return;
-  const index=Number(button.dataset.aiSummaryOpen??button.dataset.aiSummaryPdf);
-  const item=state.aiSummaries[index];if(!item)return;
-  const selected=selectedAiArchiveCase();
-  const result={...item,retrievalMode:"case_summary_v1",archiveCase:selected};
-  if(openButton)renderAiResult(result,selected,{fromHistory:true});
-  else{
-    try{await openSummaryPrint(result);}catch(error){showToast(String(error).replace(/^Error:\s*/,""),true);}
+  const button=event.target.closest("button");if(!button)return;
+  const selected=selectedAiArchiveCase();if(!selected)return;
+  const data=button.dataset,find=id=>state.aiSummaries.find(item=>item.summaryId===id);
+  const message=error=>String(error).replace(/^Error:\s*/,"");
+  if(data.aiSavedOpen||data.aiSavedPdf){
+    const item=find(data.aiSavedOpen||data.aiSavedPdf);if(!item)return;
+    try{
+      const result=savedToResult(await loadSavedResult(item,selected),selected);
+      if(data.aiSavedOpen)renderAiResult(result,selected,{fromHistory:true});
+      else await openSummaryPrint(result);
+    }catch(error){showToast(message(error),true);}
+    return;
+  }
+  if(data.aiSavedDelete||data.aiSavedDeleteCancel){
+    state.aiDeleteConfirm=data.aiSavedDelete||null;renderAiSummaryHistory();return;
+  }
+  if(data.aiSavedDeleteConfirm){
+    const item=find(data.aiSavedDeleteConfirm);state.aiDeleteConfirm=null;
+    if(!item){renderAiSummaryHistory();return;}
+    button.disabled=true;
+    try{
+      await sendRuntime(MESSAGE.DELETE_AI_ARCHIVE_SUMMARY,{institutionName:selected.institutionName,caseId:selected.caseId,summaryId:item.summaryId});
+      state.aiSummaries=state.aiSummaries.filter(row=>row.summaryId!==item.summaryId);
+      state.aiUndo={summaryId:item.summaryId,label:`${item.workflowTitle||AI_WORKFLOW_TITLES[savedWorkflow(item)]||"Kayıt"} · ${formatDate(item.createdAt)}`,until:Date.now()+AI_UNDO_MS};
+      if(state.aiCurrentResult?.summaryId===item.summaryId){
+        state.aiCurrentResult={...state.aiCurrentResult,summaryId:null,savedSummary:null};
+        const saved=$("aiSummarySavedBadge");if(saved)saved.hidden=true;
+      }
+      renderAiSummaryHistory();
+      setTimeout(()=>{if(state.aiUndo?.summaryId===item.summaryId){state.aiUndo=null;renderAiSummaryHistory();}},AI_UNDO_MS);
+    }catch(error){renderAiSummaryHistory();showToast(message(error),true);}
+    return;
+  }
+  if(data.aiSavedUndo){
+    button.disabled=true;
+    try{
+      await sendRuntime(MESSAGE.RESTORE_AI_ARCHIVE_SUMMARY,{institutionName:selected.institutionName,caseId:selected.caseId,summaryId:data.aiSavedUndo});
+      state.aiUndo=null;showToast("Kayıt geri alındı.");
+      await loadAiSummaryHistory(selected);
+    }catch(error){state.aiUndo=null;renderAiSummaryHistory();showToast(message(error),true);}
   }
 });
 $("aiBuildIndex").addEventListener("click",async()=>{
@@ -772,9 +849,10 @@ $("aiSend").addEventListener("click",async()=>{
       archiveCase:selected
     };
     renderAiResult(displayResult,selected);
-    if(summaryMode){
-      if(result?.summarySaveError)showToast("Özet oluşturuldu ancak yerel arşive kaydedilemedi: "+result.summarySaveError,true);
-      else showToast(result?.savedSummary?.summaryId?"Dosya özeti yerel arşive kaydedildi.":"Dosya özeti oluşturuldu.");
+    const ruleResult=Boolean(ruleSectionsOf(result));
+    if(summaryMode||ruleResult){
+      if(result?.summarySaveError)showToast((summaryMode?"Özet":"Sonuç")+" oluşturuldu ancak yerel arşive kaydedilemedi: "+result.summarySaveError,true);
+      else if(summaryMode)showToast(result?.savedSummary?.summaryId?"Dosya özeti yerel arşive kaydedildi.":"Dosya özeti oluşturuldu.");
       await loadAiSummaryHistory(selected);
     }
   }catch(error){
