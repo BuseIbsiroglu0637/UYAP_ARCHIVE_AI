@@ -637,6 +637,61 @@ def test_workspace_message_contract_exposes_ai_context_and_status():
 
 
 
+
+
+def test_important_dates_model_failure_returns_only_grounded_local_candidates():
+    from ai_provider import (
+        _deterministic_date_candidates,
+        _validate_important_dates_answer,
+        _validate_grounding,
+    )
+    rows = [
+        {"sourceRef": "D000001", "eventDate": "2026-04-11",
+         "eventType": "Duruşma", "title": "Duruşma Tutanağı"},
+        {"sourceRef": "D000002", "eventDate": "2026-04-12",
+         "eventType": "Ara karar", "title": "Ara Karar"},
+        {"sourceRef": "D999999", "eventDate": "2026-02-31",
+         "eventType": "Karar", "title": "Geçersiz tarih"},
+    ]
+    output = _deterministic_date_candidates(rows)
+    assert output == (
+        "- 11.04.2026 — Duruşma adayı [D000001]\n"
+        "- 12.04.2026 — Ara karar adayı [D000002]"
+    ), output
+    ok, error, _ = _validate_grounding(
+        output, {"D000001", "D000002"},
+        "[D000001] Duruşma\n[D000002] Ara karar",
+        summary_request=False,
+    )
+    assert ok is True, error
+    ok, error, _ = _validate_important_dates_answer(output, rows)
+    assert ok is True, error
+    bad_model_output = (
+        "Özet: Bu dosyada tüm yasal süreler dolmuştur.\n"
+        "- 01.04.2026 — Duruşma [D000001]"
+    )
+    ok, error, _ = _validate_grounding(
+        bad_model_output, {"D000001", "D000002"},
+        "[D000001] Duruşma\n[D000002] Ara karar",
+        summary_request=False,
+    )
+    assert ok is False and error == "AI_RESPONSE_UNCITED_CLAIMS"
+
+
+def test_important_dates_model_failure_fallback_wiring_and_ui_notice():
+    provider = (ROOT / "native" / "ai_provider.py").read_text(encoding="utf-8")
+    workspace = (ROOT / "workspace" / "workspace.js").read_text(encoding="utf-8")
+    css = (ROOT / "workspace" / "workspace.css").read_text(encoding="utf-8")
+    assert 'if not valid and workflow_id == "important_dates":' in provider
+    assert "_validate_grounding(safe_answer" in provider or (
+        "safe_answer, allowed_refs, source_text" in provider
+    )
+    assert "_validate_important_dates_answer(safe_answer, results)" in provider
+    assert '"responseRecovery": "verified_date_candidates_v1"' in provider
+    assert "modelAnswerAccepted" in provider
+    assert "esc(result.workflowNotice)" in workspace
+    assert ".ai-saved-badge[hidden]{display:none!important}" in css
+
 def test_important_dates_require_source_event_proximity_and_sane_dates():
     from ai_workflows import _date_events, _normalize_event_date
     from ai_provider import _validate_important_dates_answer
@@ -757,6 +812,8 @@ def test_six_ai_workflows_workspace_and_worker_contract():
     assert 'function isCaseSummaryPrompt(){return state.aiWorkflowId==="case_summary";}' in js
 
 if __name__ == "__main__":
+    test_important_dates_model_failure_returns_only_grounded_local_candidates()
+    test_important_dates_model_failure_fallback_wiring_and_ui_notice()
     test_important_dates_require_source_event_proximity_and_sane_dates()
     test_six_ai_workflows_route_by_explicit_id_and_verified_case_scope()
     test_six_ai_workflows_workspace_and_worker_contract()
