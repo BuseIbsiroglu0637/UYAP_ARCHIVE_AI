@@ -271,13 +271,14 @@ function renderTimelineRows(){
   let lastDay="";for(const {d,date} of filtered){const day=shortDate(date),row=document.createElement("div");row.className="timeline-item";row.innerHTML=`<div class="timeline-rail"><span></span></div><div class="timeline-date">${day!==lastDay?esc(day):""}</div><div class="timeline-content"><div class="timeline-title-row"><strong>${esc(documentTitle(d))}</strong><span>${esc(documentType(d))}</span></div><p>${esc(d.uyapPath||d.targetPath||d.localPath||"Arşiv kaydı")}</p><div class="timeline-meta"><span>${esc(archiveRowStatusLabel(d.status))}</span><span>${esc(d.sourceSystem==="UYAP_KURUM"?"UYAP Kurum":"UYAP")}</span></div></div>`;list.append(row);lastDay=day;}
 }
 function setAiPrompt(prompt,{navigate=true,workflowId="ask"}={}){state.aiWorkflowId=workflowId;state.aiPrompt=String(prompt||"");if($("aiPrompt"))$("aiPrompt").value=state.aiPrompt;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;updateAiSendButton();if(navigate)showView("ai");}
-// "Önemli Tarihler" is read from the records by rules on the agent; it needs
-// the case index but no AI provider, so it stays usable without LM Studio.
-function aiWorkflowNeedsProvider(){return state.aiWorkflowId!=="important_dates";}
-function aiSendLabel(){return state.aiWorkflowId==="important_dates"?"Önemli tarihleri çıkar":(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder");}
+// "Önemli Tarihler" and "Ara Kararlar ve Yapılacaklar" are read from the records
+// by rules on the agent; they need the case index but no AI provider.
+const AI_RULE_WORKFLOWS={important_dates:"Önemli tarihleri çıkar",court_orders:"Ara kararları göster"};
+function aiWorkflowNeedsProvider(){return !AI_RULE_WORKFLOWS[state.aiWorkflowId];}
+function aiSendLabel(){return AI_RULE_WORKFLOWS[state.aiWorkflowId]||(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder");}
 function updateAiSendButton(){const send=$("aiSend"),gate=state.aiSendGate;if(!send||!gate)return;const providerOk=gate.providerReady||!aiWorkflowNeedsProvider();send.disabled=!providerOk||!gate.indexReady;send.textContent=!providerOk?"AI sağlayıcısı bağlanınca kullanılabilir":(gate.indexReady?aiSendLabel():"Önce tam dava indeksini hazırla");}
 function selectedAiArchiveCase(){return state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;}
-const AI_WORKFLOW_TITLES={case_summary:"Dosya Özeti",important_dates:"Önemli Tarihler",new_updates:"Yeni Ne Var?",parties:"Taraflar",classification:"Akıllı Sınıflandırma",chronology:"Kronoloji",ask:"Dosyada Sor"};
+const AI_WORKFLOW_TITLES={case_summary:"Dosya Özeti",important_dates:"Önemli Tarihler",court_orders:"Ara Kararlar ve Yapılacaklar",new_updates:"Yeni Ne Var?",parties:"Taraflar",classification:"Akıllı Sınıflandırma",chronology:"Kronoloji",ask:"Dosyada Sor"};
 function isCaseSummaryPrompt(){return state.aiWorkflowId==="case_summary";}
 function normalizeSummaryHeading(value){
   return String(value||"")
@@ -322,15 +323,31 @@ function renderCaseSummaryHtml(answer){
 function renderDateRefsHtml(item){
   return (Array.isArray(item?.refs)?item.refs:[]).map(ref=>`<span class="ai-ref">${esc(ref)}</span>`).join("")+(item?.moreRefs?`<span class="ai-ref more">+${esc(item.moreRefs)}</span>`:"");
 }
-function renderImportantDatesHtml(sections){
+// Sections produced by the agent's rule-based views (Önemli Tarihler, Ara
+// Kararlar ve Yapılacaklar): dated rows with optional addressee, status badge
+// and related-record lines, every fact tagged with its [Dxxxxxx] source.
+function renderRuleSectionsHtml(sections){
+  const tone=value=>["good","warn","bad","info","muted"].includes(value)?value:"muted";
   const block=section=>{
     const items=Array.isArray(section?.items)?section.items:[];
     const rows=items.length
-      ?items.map(item=>`<li class="ai-date-row kind-${esc(item.kind||"event")}"><span class="ai-date">${esc(item.dateText||"")}</span><span class="ai-date-text">${esc(item.text||"")}${renderDateRefsHtml(item)}</span></li>`).join("")
+      ?items.map(item=>{
+        const who=item.who?`<b class="ai-order-who">${esc(item.who)}</b> — `:"";
+        const status=item.status?.label?`<span class="ai-order-status tone-${tone(item.status.tone)}">${esc(item.status.label)}</span>`:"";
+        const lines=(Array.isArray(item.lines)?item.lines:[]).map(line=>`<li class="tone-${tone(line.tone)}">${esc(line.text||"")}${renderDateRefsHtml(line)}</li>`).join("");
+        return `<li class="ai-date-row kind-${esc(item.kind||"event")}${item.isNew?" is-new":""}"><span class="ai-date">${esc(item.dateText||"")}</span><span class="ai-date-text">${item.isNew?'<span class="ai-new-badge">YENİ</span>':""}${who}${esc(item.text||"")}${status}${renderDateRefsHtml(item)}${lines?`<ul class="ai-order-lines">${lines}</ul>`:""}</span></li>`;
+      }).join("")
       :`<li class="ai-date-row empty"><span class="ai-date"></span><span class="ai-date-text">${esc(section?.empty||"Kayıt yok.")}</span></li>`;
-    return `<section class="ai-summary-section ai-dates-section${section?.highlight?" is-key":""}"><h3>${esc(section?.title||"")}${section?.subtitle?`<small>${esc(section.subtitle)}</small>`:""}</h3><ul class="ai-date-list">${rows}</ul></section>`;
+    const refs=Array.isArray(section?.refs)&&section.refs.length?renderDateRefsHtml({refs:section.refs}):"";
+    return `<section class="ai-summary-section ai-dates-section${section?.highlight?" is-key":""}"><h3>${esc(section?.title||"")}${refs}${section?.subtitle?`<small>${esc(section.subtitle)}</small>`:""}</h3><ul class="ai-date-list">${rows}</ul></section>`;
   };
   return `<div class="ai-summary-document ai-dates-document">${(Array.isArray(sections)?sections:[]).map(block).join("")}</div>`;
+}
+function renderImportantDatesHtml(sections){return renderRuleSectionsHtml(sections);}
+function ruleSectionsOf(result){
+  if(result?.datesSchema==="important_dates_v2"&&Array.isArray(result?.dateSections))return result.dateSections;
+  if(result?.ordersSchema==="court_orders_v1"&&Array.isArray(result?.orderSections))return result.orderSections;
+  return null;
 }
 function renderSummarySourcesHtml(sources){
   const rows=Array.isArray(sources)?sources:[];
@@ -352,11 +369,11 @@ function renderAiResult(result,selected,{fromHistory=false}={}){
   meta.textContent=parts.join(" • ")||"Yerel AI sonucu";
   const workflowNote=result?.workflowNotice
     ?`<div class="ai-prompt-preview">${esc(result.workflowNotice)}</div>`:"";
-  const datesMode=result?.datesSchema==="important_dates_v2"&&Array.isArray(result?.dateSections);
+  const ruleSections=ruleSectionsOf(result);
   content.innerHTML=workflowNote+(summaryMode
     ?renderCaseSummaryHtml(result?.answer||"")+renderSummarySourcesHtml(sources)
-    :datesMode
-      ?renderImportantDatesHtml(result.dateSections)
+    :ruleSections
+      ?renderRuleSectionsHtml(ruleSections)
       :`<div class="ai-freeform-answer">${esc(result?.answer||"Yanıt alınamadı.")}</div>`);
   if(pdf)pdf.hidden=!summaryMode;
   if(saved){const locallySaved=summaryMode&&(fromHistory||Boolean(result?.savedSummary)||Boolean(result?.summaryId));saved.hidden=!locallySaved;saved.textContent=locallySaved?"✓ Yerel arşive kaydedildi":"";}
@@ -730,7 +747,7 @@ $("aiSend").addEventListener("click",async()=>{
   const query=String($("aiPrompt")?.value||"").trim();
   if(!query)return showToast("Önce AI’ya sorulacak metni yazın.",true);
   const summaryMode=isCaseSummaryPrompt(query),button=$("aiSend");
-  button.disabled=true;button.textContent=summaryMode?"Dosya özeti hazırlanıyor…":(state.aiWorkflowId==="important_dates"?"Tarihler çıkarılıyor…":"Kaynaklı yanıt hazırlanıyor…");
+  button.disabled=true;button.textContent=summaryMode?"Dosya özeti hazırlanıyor…":(AI_RULE_WORKFLOWS[state.aiWorkflowId]?"Kayıtlar okunuyor…":"Kaynaklı yanıt hazırlanıyor…");
   renderAiResultLoading(summaryMode);
   try{
     const result=await sendRuntime(MESSAGE.AI_ASK_ARCHIVE_CASE,{institutionName:selected.institutionName,caseId:selected.caseId,workflowId:state.aiWorkflowId,query,limit:summaryMode?6:8});

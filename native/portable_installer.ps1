@@ -32,7 +32,7 @@ $AgentSource = Join-Path $PSScriptRoot 'uyap_archive_agent.py'
 $AiIndexSource = Join-Path $PSScriptRoot 'ai_local_index.py'
 $AiProviderSource = Join-Path $PSScriptRoot 'ai_provider.py'
 # ai_provider imports these; the runtime has no package discovery, so each is copied.
-$AiModuleSources = @('ai_workflows.py', 'ai_case_facts.py', 'ai_important_dates.py') | ForEach-Object { Join-Path $PSScriptRoot $_ }
+$AiModuleSources = @('ai_workflows.py', 'ai_case_facts.py', 'ai_important_dates.py', 'ai_court_orders.py') | ForEach-Object { Join-Path $PSScriptRoot $_ }
 $HostSelfTestSource = Join-Path $PSScriptRoot 'host_self_test.py'
 
 New-Item -ItemType Directory -Force -Path $AppRoot | Out-Null

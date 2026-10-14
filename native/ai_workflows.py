@@ -16,15 +16,19 @@ from ai_local_index import _clean, _index_db, _summary_date_key, summary_context
 WORKFLOW_IDS = (
     "case_summary",
     "important_dates",
-    "new_updates",
+    "court_orders",
     "parties",
     "classification",
     "chronology",
 )
-ALL_WORKFLOW_IDS = frozenset((*WORKFLOW_IDS, "ask"))
+# "new_updates" (Yeni Ne Var?) left the six cards: its recent-documents view
+# repeated Önemli Tarihler. The id stays callable for older Workspace builds.
+LEGACY_WORKFLOW_IDS = ("new_updates",)
+ALL_WORKFLOW_IDS = frozenset((*WORKFLOW_IDS, "ask", *LEGACY_WORKFLOW_IDS))
 WORKFLOW_LABELS = {
     "case_summary": "Dosya Özeti",
     "important_dates": "Önemli Tarihler",
+    "court_orders": "Ara Kararlar ve Yapılacaklar",
     "new_updates": "Yeni Ne Var?",
     "parties": "Taraflar",
     "classification": "Akıllı Sınıflandırma",
@@ -42,6 +46,7 @@ HINTS = {
     "chronology": ("tarihli", "duruşma", "tebliğ", "başvuru", "karar",
                    "tensip", "itiraz", "tutanak", "işlem"),
     "new_updates": (),
+    "court_orders": ("gereği düşünüldü", "ara karar", "verilmesine", "istenmesine", "süre"),
 }
 DATE_IN_TEXT = re.compile(r"(?<!\d)(?:\d{1,2}[./-]\d{1,2}[./-]20\d{2}|20\d{2}[./-]\d{1,2}[./-]\d{1,2})(?!\d)")
 

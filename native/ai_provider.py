@@ -15,6 +15,7 @@ import urllib.request
 import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
+from ai_court_orders import court_orders_answer
 from ai_important_dates import important_dates_answer
 from ai_local_index import search_index, summary_context
 from ai_workflows import (
@@ -289,10 +290,10 @@ Her satırdaki tarih, olay türü ve D kaynağı aynı kaynak bloğuna ait olmal
 Hukuki süre sonu hesaplama; eksik tebliğ tarihi veya başlangıç varsa sonuç uydurma.
 Kaynakta yer almayan karar, sonuç, taraf veya kesinlik üretme.
 En fazla 6 kısa satır. Her satırın sonunda geçerli [Dxxxxxx] referansı.""",
-    "new_updates": """Yalnız yerel ilk karşılaştırma kaydından sonra yeni veya
-değişmiş olduğu hash karşılaştırmasıyla belirlenen sağlanan evrakları incele.
-Kaynak yoksa gelişme uydurma; silindiği veya sonuçlandığı gibi hükümler kurma.
-Her olguyu [Dxxxxxx] ile bitir.""",
+    # Answered by rules (ai_court_orders) before any model call; kept so every
+    # visible workflow has a task text.
+    "court_orders": """Yalnız kaynakta yazan ara karar maddelerini, kimden ne istendiğini ve
+verilen süreyi listele. Yapıldı/yapılmadı hükmü kurma. Her olguyu [Dxxxxxx] ile bitir.""",
     "parties": """Yalnız kaynakta açıkça yazan kişi/kurum ve rolünü çıkar.
 Davacı/davalı/vekil/sanık gibi rolleri yalnız belge açıkça destekliyorsa yaz.
 Sırf benzer isimlerden aynı kişi sonucu çıkarma. Her olguyu [Dxxxxxx] ile bitir.""",
@@ -304,6 +305,13 @@ Her olguyu [Dxxxxxx] ile bitir.""",
 belgede anlatılan olay tarihi farklı olabilir; ayrı yaz.
 Tarihsiz olaya tarih uydurma, olay sırası kesin değilse belirsiz de.
 Her maddi olguyu [Dxxxxxx] ile bitir.""",
+}
+# Workflows no longer shown as a card but still accepted from older builds.
+_LEGACY_WORKFLOW_TASKS = {
+    "new_updates": """Yalnız yerel ilk karşılaştırma kaydından sonra yeni veya
+değişmiş olduğu hash karşılaştırmasıyla belirlenen sağlanan evrakları incele.
+Kaynak yoksa gelişme uydurma; silindiği veya sonuçlandığı gibi hükümler kurma.
+Her olguyu [Dxxxxxx] ile bitir.""",
 }
 
 def provider_status():
@@ -602,6 +610,8 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         # errors here, so none is called (and LM Studio need not run). The
         # model-based dates path below is kept only for legacy callers/tests.
         return important_dates_answer(downloads_root, session_id)
+    if workflow_id == "court_orders":
+        return court_orders_answer(downloads_root, session_id)
     status = provider_status()
     if not status["configured"]:
         provider = status.get("provider")
@@ -671,7 +681,8 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "max_output_tokens": profile["maxOutputTokens"],
         "instructions": _SUMMARY_V1_INSTRUCTIONS if summary_request else (
             _PROVIDER_INSTRUCTIONS + "\n\n" + (
-                _task_instructions(query) if workflow_id == "ask" else _WORKFLOW_TASKS[workflow_id]
+                _task_instructions(query) if workflow_id == "ask"
+                else _WORKFLOW_TASKS.get(workflow_id) or _LEGACY_WORKFLOW_TASKS[workflow_id]
             )
         ),
         "input": (

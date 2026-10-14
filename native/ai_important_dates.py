@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import time
 from datetime import date as Date, timedelta
 from pathlib import Path
@@ -34,6 +35,8 @@ DEADLINE_LOOKBACK_DAYS = 120
 MAX_RECENT_LINES = 14
 MAX_MILESTONE_LINES = 12
 MAX_REFS_PER_LINE = 4
+# ai_meta key holding the document-id hashes this view has already shown.
+SEEN_KEY = "dates_seen"
 
 NOTICE = (
     "Tarihler kaynaktan kurallarla çıkarıldı; AI modeli kullanılmadı. Süreler hukuki hesap değildir: "
@@ -315,13 +318,27 @@ def _event_text(event):
     return text
 
 
-def build_important_dates(catalog, text_documents, today=None, total_documents=None, catalog_available=True):
+def build_important_dates(catalog, text_documents, today=None, total_documents=None, catalog_available=True,
+                          new_refs=None, tracking=None):
     """Sections for one case.
 
     catalog: [{"ref", "title", "date", "indexed"}] for every case document.
     text_documents: {ref: {"title", "date", "text"}} for readable documents.
+    new_refs: refs that arrived since the previous index state; lines resting
+    on them get "isNew". tracking: "first" | "tracked" | "unavailable" | None.
     """
     today = _today(today)
+    new_refs = set(new_refs or ())
+    marked = set()
+
+    def _line(day, text, refs, kind, time_text=None):
+        built = _item(day, text, refs, kind, time_text)
+        hit = new_refs.intersection(refs)
+        if hit:
+            built["isNew"] = True
+            marked.update(hit)
+        return built
+
     events, records, dava_dates = [], [], {}
     low = undated = 0
     for document in catalog:
@@ -381,10 +398,10 @@ def build_important_dates(catalog, text_documents, today=None, total_documents=N
             when = "bugün" if days == 0 else ("yarın" if days == 1 else f"{days} gün sonra")
             title = "Talimat duruşması" if next_record["info"]["isTalimat"] else (
                 next_record["info"].get("nextHearingType") or "Duruşma")
-            upcoming.append(_item(next_day, f"{title} — {when}", [next_record["ref"]], "hearing",
+            upcoming.append(_line(next_day, f"{title} — {when}", [next_record["ref"]], "hearing",
                                   hearing.get("time")))
         elif next_day:
-            upcoming.append(_item(next_day, "Son kayıtlı duruşma günü geçti; o günün zaptı arşivde henüz yok",
+            upcoming.append(_line(next_day, "Son kayıtlı duruşma günü geçti; o günün zaptı arşivde henüz yok",
                                   [next_record["ref"]], "stale", hearing.get("time")))
     for record in sorted(records, key=lambda r: (r["date"] or Date.min, r["ref"]), reverse=True):
         decided = record["date"]
@@ -396,13 +413,13 @@ def build_important_dates(catalog, text_documents, today=None, total_documents=N
                 continue
             what = {"istinaf": "İstinaf süresi", "temyiz": "Temyiz süresi", "itiraz": "İtiraz süresi"}.get(
                 limit["remedy"], "Süre")
-            upcoming.append(_item(end, f"{what} en erken biter — {limit['clause']} "
+            upcoming.append(_line(end, f"{what} en erken biter — {limit['clause']} "
                                        f"({_fmt(decided)} kararından sayıldı)", [record["ref"]], "limit"))
         for found in sorted(find_dates(" ".join(record["info"]["decisions"]))):
             day = _as_date(found)
             if day and day > today and day != next_day:
                 clause = next((d for d in record["info"]["decisions"] if found in find_dates(d)), "")
-                upcoming.append(_item(day, "Kararda geçen ileri tarih — " + _short(tr_title(clause), 120),
+                upcoming.append(_line(day, "Kararda geçen ileri tarih — " + _short(tr_title(clause), 120),
                                       [record["ref"]], "future"))
     upcoming.sort(key=lambda item: item["date"] or "")
 
@@ -410,14 +427,14 @@ def build_important_dates(catalog, text_documents, today=None, total_documents=N
     cutoff = latest - timedelta(days=RECENT_WINDOW_DAYS) if latest else None
     recent = sorted((e for e in events if cutoff and e["date"] >= cutoff),
                     key=lambda e: (e["date"], e["milestone"], e["kind"]), reverse=True)
-    recent_items = [_item(e["date"], _event_text(e), e["refs"], e["kind"]) for e in recent[:MAX_RECENT_LINES]]
+    recent_items = [_line(e["date"], _event_text(e), e["refs"], e["kind"]) for e in recent[:MAX_RECENT_LINES]]
     hidden_recent = max(0, len(recent) - MAX_RECENT_LINES)
     older = sorted((e for e in events if e["milestone"] and (not cutoff or e["date"] < cutoff)),
                    key=lambda e: (e["date"], e["kind"]))
     milestones = older
     if len(older) > MAX_MILESTONE_LINES:
         milestones = older[:3] + older[-(MAX_MILESTONE_LINES - 3):]
-    milestone_items = [_item(e["date"], _event_text(e), e["refs"], e["kind"]) for e in milestones]
+    milestone_items = [_line(e["date"], _event_text(e), e["refs"], e["kind"]) for e in milestones]
     if len(older) > MAX_MILESTONE_LINES:
         milestone_items.insert(3, {"date": None, "dateText": "…", "text": f"{len(older) - MAX_MILESTONE_LINES} "
                                    "ara kilometre taşı gösterilmedi", "refs": [], "moreRefs": 0, "kind": "gap"})
@@ -438,6 +455,21 @@ def build_important_dates(catalog, text_documents, today=None, total_documents=N
         coverage_lines.append(f"Son işlemlerde {hidden_recent} kayıt daha var; tamamı Evraklar sekmesinde.")
     if undated:
         coverage_lines.append(f"{undated} evrakın tarihi olmadığı için listeye alınamadı.")
+    if tracking == "first":
+        coverage_lines.append("YENİ işaretleri bundan sonra: indeks güncellendiğinde arşive yeni giren evraklara "
+                              "dayanan satırlar işaretlenecek.")
+    elif tracking == "tracked" and new_refs:
+        line = f"Önceki indeks durumuna göre {len(new_refs)} yeni evrak var"
+        unshown = len(new_refs - marked)
+        if marked:
+            line += "; dayandıkları satırlar YENİ ile işaretli"
+        if unshown:
+            line += f"; {unshown} tanesi bu listede yer almıyor (Evraklar sekmesinde)"
+        coverage_lines.append(line + ".")
+    elif tracking == "tracked":
+        coverage_lines.append("Önceki indeks durumuna göre yeni evrak yok.")
+    elif tracking == "unavailable" and catalog_available:
+        coverage_lines.append("YENİ işaretleri için \"Tam dava indeksini güncelle\" bir kez çalıştırılmalı.")
 
     sections = [
         {"key": "upcoming", "title": "Yaklaşan", "highlight": True, "items": upcoming,
@@ -456,7 +488,8 @@ def build_important_dates(catalog, text_documents, today=None, total_documents=N
         "answer": render_text(sections),
         "refs": list(dict.fromkeys(ref for s in sections for i in s["items"] for ref in i["refs"])),
         "coverage": {"totalDocuments": total, "indexedDocuments": indexed, "catalogAvailable": catalog_available,
-                     "lowValueSkipped": low, "undated": undated, "latestRecord": latest.isoformat() if latest else None},
+                     "lowValueSkipped": low, "undated": undated, "latestRecord": latest.isoformat() if latest else None,
+                     "newDocuments": len(new_refs), "newTracking": tracking},
     }
 
 
@@ -476,7 +509,7 @@ def render_text(sections):
             refs = "".join(f" [{ref}]" for ref in item["refs"]) + (f" +{item['moreRefs']}" if item.get("moreRefs") else "")
             prefix = f"{item['dateText']} · " if item.get("dateText") and item["dateText"] != "…" else (
                 "… " if item.get("dateText") == "…" else "")
-            lines.append(f"- {prefix}{item['text']}{refs}")
+            lines.append(f"- {prefix}{'[YENİ] ' if item.get('isNew') else ''}{item['text']}{refs}")
         if not lines and section.get("empty"):
             lines.append(f"- {section['empty']}")
         blocks.append(title + "\n" + "\n".join(lines))
@@ -513,26 +546,87 @@ def _load(downloads_root, scope_id):
     return documents, catalog
 
 
+def load_case(downloads_root, scope_id):
+    """(catalog rows, readable documents, total documents, catalog available) for a case scope."""
+    documents, catalog = _load(downloads_root, scope_id)
+    catalog_rows = (catalog or {}).get("documents") if isinstance(catalog, dict) else None
+    if catalog_rows:
+        rows = [{"ref": str(d.get("ref")), "title": d.get("title"), "date": d.get("date"),
+                 "indexed": bool(d.get("indexed")), "idHash": d.get("idHash")} for d in catalog_rows if d.get("ref")]
+        return rows, documents, catalog.get("totalDocuments"), True
+    rows = [{"ref": ref, "title": d["title"], "date": d["date"], "indexed": True, "idHash": None}
+            for ref, d in sorted(documents.items())]
+    return rows, documents, None, False
+
+
+def next_seen_state(rows, stored):
+    """(new document-id hashes, tracking mode, state to store) for the "YENİ" marks.
+
+    The stored state keeps the previous index state ("baseline") and the one
+    shown last ("current"). Marks stay on re-runs and move only when an index
+    update changes the document set, so a second look does not wipe them.
+    """
+    if not rows or any(not row.get("idHash") for row in rows):
+        return set(), "unavailable", None
+    current = sorted({str(row["idHash"]) for row in rows})
+    try:
+        baseline = set(stored["baseline"]) if isinstance(stored, dict) else None
+        shown = set(stored["current"]) if isinstance(stored, dict) else None
+    except (KeyError, TypeError):
+        baseline = shown = None
+    if baseline is None or shown is None:
+        return set(), "first", {"schemaVersion": 1, "baseline": current, "current": current}
+    if set(current) != shown:
+        baseline = shown
+    fresh = set(current) - baseline
+    return fresh, "tracked", {"schemaVersion": 1, "baseline": sorted(baseline), "current": current}
+
+
+def _read_seen(downloads_root, scope_id):
+    db, _ = _index_db(Path(downloads_root).resolve(strict=True), scope_id)
+    try:
+        row = db.execute("SELECT value FROM ai_meta WHERE key=?", (SEEN_KEY,)).fetchone()
+    finally:
+        db.close()
+    try:
+        return json.loads(row[0]) if row else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _store_seen(downloads_root, scope_id, state):
+    db, _ = _index_db(Path(downloads_root).resolve(strict=True), scope_id)
+    try:
+        db.execute("INSERT OR REPLACE INTO ai_meta(key,value,updated_at) VALUES(?,?,?)",
+                   (SEEN_KEY, json.dumps(state), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
+        db.commit()
+    finally:
+        db.close()
+
+
 def important_dates_answer(downloads_root, scope_id, today=None):
     scope_id = str(scope_id or "").strip()
     if not scope_id.startswith("case:"):
         return {"ok": False, "errorCode": "AI_WORKFLOW_ARCHIVE_CASE_REQUIRED",
                 "error": "Önemli tarihler yalnız tam dava indeksi için hazırlanabilir."}
     try:
-        documents, catalog = _load(downloads_root, scope_id)
+        rows, documents, total, catalog_available = load_case(downloads_root, scope_id)
     except (OSError, ValueError) as error:
         return {"ok": False, "errorCode": "AI_INDEX_UNAVAILABLE", "error": f"Dava indeksi okunamadı: {error}"}
-    catalog_rows = (catalog or {}).get("documents") if isinstance(catalog, dict) else None
-    if catalog_rows:
-        rows = [{"ref": str(d.get("ref")), "title": d.get("title"), "date": d.get("date"),
-                 "indexed": bool(d.get("indexed"))} for d in catalog_rows if d.get("ref")]
-        total = catalog.get("totalDocuments")
-    else:
-        rows = [{"ref": ref, "title": d["title"], "date": d["date"], "indexed": True}
-                for ref, d in sorted(documents.items())]
-        total = None
+    fresh, tracking, seen_state = set(), None, None
+    if catalog_available:
+        try:
+            fresh, tracking, seen_state = next_seen_state(rows, _read_seen(downloads_root, scope_id))
+        except (OSError, ValueError, sqlite3.Error):
+            tracking = None
+    new_refs = {row["ref"] for row in rows if row.get("idHash") in fresh}
     built = build_important_dates(rows, documents, today=today, total_documents=total,
-                                  catalog_available=bool(catalog_rows))
+                                  catalog_available=catalog_available, new_refs=new_refs, tracking=tracking)
+    if seen_state:
+        try:
+            _store_seen(downloads_root, scope_id, seen_state)
+        except (OSError, ValueError, sqlite3.Error):
+            pass  # marks are a convenience; the dates stand without them
     titles = {row["ref"]: row for row in rows}
     sources = [{
         "sourceRef": ref,

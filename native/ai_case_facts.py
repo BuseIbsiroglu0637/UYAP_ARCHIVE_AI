@@ -78,12 +78,20 @@ def _tr_capitalize(word):
     return low
 
 
+# Legal abbreviations stay in capitals: "HMK 139", "İİK'nun 349.", "CMK".
+_ABBREVIATIONS = {"HMK", "CMK", "İİK", "TCK", "TMK", "TBK", "HUMK", "CMUK", "SGK", "UYAP", "UETS", "MERNİS", "PTT",
+                  "BAM", "HAGB", "AYM", "AİHM", "ATK", "TL", "TC", "KDV", "IBAN", "SSK", "TBMM", "ASKİ"}
+
+
 def tr_title(value):
     """Re-case ALL-CAPS words for display; leave mixed-case words and abbreviations."""
     words = []
     for word in str(value or "").split():
         letters = [ch for ch in word if ch.isalpha()]
-        if len(letters) > 1 and "." not in word and all(ch.isupper() for ch in letters):
+        stem = re.split(r"['’]", word.strip(".,;:()"))[0]
+        if stem in _ABBREVIATIONS:
+            words.append(word)
+        elif len(letters) > 1 and "." not in word and all(ch.isupper() for ch in letters):
             words.append(_tr_capitalize(word))
         else:
             words.append(word)

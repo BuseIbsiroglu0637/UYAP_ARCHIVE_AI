@@ -801,8 +801,9 @@ def test_six_ai_workflows_workspace_and_worker_contract():
     worker = (ROOT/"background"/"service-worker.js").read_text(encoding="utf-8")
     native = (ROOT/"native"/"uyap_archive_agent.py").read_text(encoding="utf-8")
     provider = (ROOT/"native"/"ai_provider.py").read_text(encoding="utf-8")
-    for workflow_id in ("case_summary","important_dates","new_updates","parties","classification","chronology"):
+    for workflow_id in ("case_summary","important_dates","court_orders","parties","classification","chronology"):
         assert f'data-ai-workflow="{workflow_id}"' in html
+    assert 'data-ai-workflow="new_updates"' not in html
     assert 'workflowId:state.aiWorkflowId' in js
     assert 'id="aiFreeformMode"' in html
     assert 'setAiPrompt("",{navigate:false,workflowId:"ask"})' in js

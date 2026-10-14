@@ -266,6 +266,70 @@ def test_index_build_records_every_document_and_answer_needs_no_provider():
         assert important_dates_answer(root, "not-a-case")["errorCode"] == "AI_WORKFLOW_ARCHIVE_CASE_REQUIRED"
 
 
+def _add_document(root, name, day, content):
+    """One more verified document in the synthetic case, as a later download adds it."""
+    archive = root / "UYAP_Arsiv"
+    db = sqlite3.connect(archive / "_archive.db")
+    try:
+        index = db.execute("SELECT COUNT(*) FROM documents").fetchone()[0] + 1
+        folder = archive / "Örnekköy 3. Aile Mahkemesi" / "2026_77_Dosya" / "2026_77"
+        path = folder / f"evrak{index}.txt"
+        path.write_bytes(content.encode("utf-8"))
+        data = path.read_bytes()
+        db.execute("INSERT INTO documents VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+            "s", f"doc-{index}", "2026/77", name, f"K/{path.name}", str(path), len(data),
+            hashlib.sha256(data).hexdigest(), "VERIFIED", f"{day}T10:00:00Z", "Örnekköy 3. Aile Mahkemesi",
+            str(path.relative_to(archive)).replace("\\", "/"), day, "UYAP"))
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_new_documents_are_marked_until_the_next_index_change():
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        _archive_case(root, [
+            ("Tensip Zaptı", "2026-09-11", ".txt", TENSIP),
+            ("Genel Müzekkere", "2026-10-01", ".txt", "Bankalara yazılan müzekkere."),
+        ])
+
+        def index():
+            return build_archive_case_index(root, "Örnekköy 3. Aile Mahkemesi", "2026/77")["scopeId"]
+
+        def marked(result):
+            return [(item["dateText"], item["text"]) for section in result["dateSections"]
+                    for item in section["items"] if item.get("isNew")]
+
+        scope = index()
+        first = important_dates_answer(root, scope, today=TODAY)
+        assert first["dateCoverage"]["newTracking"] == "first" and not marked(first), first["dateCoverage"]
+        assert "YENİ işaretleri bundan sonra" in first["answer"] and "[YENİ]" not in first["answer"]
+        again = important_dates_answer(root, scope, today=TODAY)
+        assert again["dateCoverage"]["newTracking"] == "tracked" and not marked(again)
+        assert "Önceki indeks durumuna göre yeni evrak yok." in again["answer"], again["answer"]
+
+        # A later download brings a tebligat and a receipt (receipts are not listed).
+        _add_document(root, "Kapalı E-Tebliğ Mazbatası", "2026-09-20", "Tebligat mazbatası.")
+        _add_document(root, "Reddiyat Makbuzu", "2026-09-20", "Makbuz.")
+        index()
+        update = important_dates_answer(root, scope, today=TODAY)
+        assert marked(update) == [("20.09.2026", "Kapalı E-Tebliğ Mazbatası")], marked(update)
+        assert "20.09.2026 · [YENİ] Kapalı E-Tebliğ Mazbatası [D000002]" in update["answer"], update["answer"]
+        assert ("Önceki indeks durumuna göre 2 yeni evrak var; dayandıkları satırlar YENİ ile işaretli; "
+                "1 tanesi bu listede yer almıyor (Evraklar sekmesinde).") in update["answer"], update["answer"]
+        # Looking again, or rebuilding without new documents, keeps the marks.
+        assert marked(important_dates_answer(root, scope, today=TODAY)) == marked(update)
+        index()
+        assert marked(important_dates_answer(root, scope, today=TODAY)) == marked(update)
+
+        # The next change moves them to what it brought.
+        _add_document(root, "Genel Müzekkere", "2026-10-13", "Tapu müdürlüğüne yazı.")
+        index()
+        later = important_dates_answer(root, scope, today=TODAY)
+        assert marked(later) == [("13.10.2026", "Müzekkere / yazı gönderildi")], marked(later)
+        assert later["dateCoverage"]["newDocuments"] == 1
+
+
 def _pdf(objects):
     body = b"%PDF-1.4\n"
     for number, (header, payload) in enumerate(objects, start=1):
@@ -296,5 +360,6 @@ if __name__ == "__main__":
     test_upcoming_recent_and_milestones_for_a_family_court_case()
     test_talimat_hearing_is_not_the_next_hearing_and_limits_are_upcoming()
     test_index_build_records_every_document_and_answer_needs_no_provider()
+    test_new_documents_are_marked_until_the_next_index_change()
     test_scanned_pdf_image_data_is_skipped_and_text_still_found()
     print("Important dates regression: PASS")

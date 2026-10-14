@@ -872,12 +872,17 @@ def build_archive_case_index(downloads_root, institution_name, case_id):
         if fts5:
             db.execute("DELETE FROM ai_chunks_fts")
         db.execute("DELETE FROM ai_documents")
-        db.execute("DELETE FROM ai_meta")
+        # The rule views keep what the user has already seen ("YENİ" marks)
+        # under their own keys; only the catalog is rebuilt here.
+        db.execute("DELETE FROM ai_meta WHERE key='case_catalog'")
 
         for item in rows:
             ref = item["sourceRef"]
             catalog[ref] = {
                 "ref": ref,
+                # sourceRef is positional and shifts when documents arrive;
+                # this hash identifies the UYAP document across rebuilds.
+                "idHash": hashlib.sha256(str(item["documentId"]).encode("utf-8")).hexdigest()[:16],
                 "title": str(item.get("title") or "Adsız evrak")[:240],
                 "date": str(item.get("date") or "")[:32] or None,
                 "extension": item["path"].suffix.lower().lstrip(".") or None,
@@ -942,7 +947,7 @@ def build_archive_case_index(downloads_root, institution_name, case_id):
             "INSERT OR REPLACE INTO ai_meta(key,value,updated_at) VALUES('case_catalog',?,?)",
             (
                 json.dumps({
-                    "schemaVersion": 1,
+                    "schemaVersion": 2,
                     "institutionName": inspection["institutionName"],
                     "caseId": inspection["caseId"],
                     "totalDocuments": int(inspection["totalDocuments"]),
