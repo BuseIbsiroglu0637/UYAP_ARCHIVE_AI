@@ -442,6 +442,34 @@ def _validate_important_dates_answer(answer, selected):
     return True, None, {"validatedEvents": checked}
 
 
+def _deterministic_date_candidates(results):
+    """Fail-safe display for the dates workflow when the model fails grounding.
+
+    These are explicitly *candidates* taken only from the selected local
+    event-date extraction. Never add model claims or infer statutory deadlines.
+    """
+    lines = []
+    seen = set()
+    for row in results:
+        ref = str(row.get("sourceRef") or "")
+        event = str(row.get("eventDate") or "")
+        event_type = str(row.get("eventType") or "")
+        if not SOURCE_REF_RE.fullmatch("[" + ref + "]") or not event_type:
+            continue
+        if _normalize_event_date(event) != event:
+            continue
+        identity = (ref, event, event_type)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        year, month, day = event.split("-")
+        lines.append(
+            f"- {day}.{month}.{year} — {event_type} adayı ["
+            + ref + "]"
+        )
+    return "\n".join(lines)
+
+
 def _extract_output_text(payload):
     pieces = []
     for item in payload.get("output") or []:
@@ -711,6 +739,25 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         )
     if valid and workflow_id == "important_dates":
         valid, grounding_error, grounding_detail = _validate_important_dates_answer(answer, results)
+
+    # A small local model may write an uncited preamble or unmatched event.
+    # Do NOT paste citations onto its claims or disable grounding. Discard the
+    # unsafe generated answer; show only deterministic event-date candidates.
+    dates_fallback_used = False
+    if not valid and workflow_id == "important_dates":
+        safe_answer = _deterministic_date_candidates(results)
+        if safe_answer:
+            safe_valid, _, _ = _validate_grounding(
+                safe_answer, allowed_refs, source_text, summary_request=False
+            )
+            if safe_valid:
+                safe_valid, _, _ = _validate_important_dates_answer(safe_answer, results)
+            if safe_valid:
+                answer = safe_answer
+                valid = True
+                grounding_error = None
+                grounding_detail = {}
+                dates_fallback_used = True
     if not valid:
         return {
             "ok": False,
@@ -771,7 +818,14 @@ def answer_from_local_index(downloads_root, session_id, query, limit=MAX_SOURCES
         "answer": answer,
         "workflowId": workflow_id,
         "workflowTitle": WORKFLOW_LABELS[workflow_id],
-        "workflowNotice": retrieval.get("notice"),
+        "workflowNotice": (
+            "LM Studio yanıtı kaynak denetiminden geçmedi. Gösterilen satırlar "
+            "doğrulanmış yerel metinlerden kurallı çıkarılmış olay-tarih adaylarıdır; "
+            "kesin hukuki süre hesabı veya olay doğrulaması değildir."
+            if dates_fallback_used else retrieval.get("notice")
+        ),
+        "responseRecovery": "verified_date_candidates_v1" if dates_fallback_used else None,
+        "modelAnswerAccepted": not dates_fallback_used,
         "sourceRefs": cited_refs,
         "sources": sources,
         "model": status["model"],
