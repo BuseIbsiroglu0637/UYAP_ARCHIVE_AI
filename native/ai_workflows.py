@@ -1,4 +1,4 @@
-"""Six explicit, case-scoped AI retrieval workflows.
+"""Explicit, case-scoped AI retrieval workflows.
 
 Only entries in the verified, isolated local AI index are read. A comparison
 baseline stores hashes, not document text or identity, and is scoped by the
@@ -18,12 +18,12 @@ WORKFLOW_IDS = (
     "important_dates",
     "court_orders",
     "parties",
-    "classification",
-    "chronology",
 )
-# "new_updates" (Yeni Ne Var?) left the six cards: its recent-documents view
-# repeated Önemli Tarihler. The id stays callable for older Workspace builds.
-LEGACY_WORKFLOW_IDS = ("new_updates",)
+# Retired cards whose ids stay callable for older Workspace builds:
+# "new_updates" (Yeni Ne Var?) repeated Önemli Tarihler; "classification" and
+# "chronology" saw only a few snippets while UYAP document types and the
+# Zaman Çizelgesi page already cover every document.
+LEGACY_WORKFLOW_IDS = ("new_updates", "classification", "chronology")
 ALL_WORKFLOW_IDS = frozenset((*WORKFLOW_IDS, "ask", *LEGACY_WORKFLOW_IDS))
 WORKFLOW_LABELS = {
     "case_summary": "Dosya Özeti",

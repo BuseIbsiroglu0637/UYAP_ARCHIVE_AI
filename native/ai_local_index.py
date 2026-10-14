@@ -6,14 +6,24 @@ import hashlib
 from html.parser import HTMLParser
 import html
 import json
+import logging
 from pathlib import Path
 import re
 import sqlite3
+import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 import json
 import zipfile
 import zlib
+
+# pypdf (BSD-3-Clause, pure Python) is vendored under native/vendor; the
+# portable installer copies that folder beside the agent because the embedded
+# runtime has no pip. See native/vendor/README.md.
+_VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
+if _VENDOR_DIR.is_dir() and str(_VENDOR_DIR) not in sys.path:
+    sys.path.insert(0, str(_VENDOR_DIR))
 
 from ai_case_facts import (
     BODY_ROLE_RULES,
@@ -39,6 +49,17 @@ MAX_RESULTS = 20
 PDF_EXTRACTOR_METHOD = "pdf-content-stream-v5-mixed-script-gated"
 XLSX_EXTRACTOR_METHOD = "xlsx-semantic-v2-noise-gated"
 PDF_MIN_QUALITY_SCORE = 0.72
+# Full PDF reader (fonts, ToUnicode CMaps, object streams). The stream reader
+# above only decodes plain literal strings, so it read ~3% of UYAP PDFs; it
+# stays as a fallback. PDF_READER_VERSION is stored in a case index's coverage
+# so an index built before it is offered a rebuild.
+PDF_READER_METHOD = "pdf-pypdf-v1"
+PDF_READER_VERSION = "pypdf-v1"
+PDF_READER_MAX_PAGES = 400
+# A worker thread that overruns its time budget cannot be stopped; after this
+# many the reader is skipped for the rest of the process.
+PDF_READER_STUCK_LIMIT = 2
+_pdf_reader_stuck = 0
 
 ZIP_XML_TYPES = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
 IMAGE_TYPES = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"}
@@ -471,32 +492,101 @@ def _pdf_text(path):
     return text
 
 
+def pdf_reader_available():
+    try:
+        import pypdf  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def _pypdf_text(path):
+    """PDF text through pypdf, or None when it is unavailable or yields nothing.
+
+    Runs in a daemon thread under the same time budget as the stream reader so
+    one pathological page cannot stall the single native lane.
+    """
+    global _pdf_reader_stuck
+    if _pdf_reader_stuck >= PDF_READER_STUCK_LIMIT or path.stat().st_size > MAX_TEXT_FILE_BYTES:
+        return None
+    try:
+        from pypdf import PdfReader
+    except Exception:
+        return None
+    # pypdf reports recoverable structure problems as log warnings; the agent
+    # talks to the browser over stdio, so keep them quiet.
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
+    result = {}
+    deadline = time.monotonic() + PDF_TEXT_TIME_BUDGET_SECONDS
+
+    def read():
+        try:
+            reader = PdfReader(str(path), strict=False)
+            # Owner-password-only PDFs open with an empty user password.
+            if reader.is_encrypted and not reader.decrypt(""):
+                return
+            pages = []
+            for number, page in enumerate(reader.pages):
+                if number >= PDF_READER_MAX_PAGES or time.monotonic() > deadline:
+                    break
+                pages.append(page.extract_text() or "")
+            result["text"] = "\n".join(pages)
+        except Exception:
+            result.clear()
+
+    worker = threading.Thread(target=read, name="uyap-ai-pdf-reader", daemon=True)
+    worker.start()
+    worker.join(PDF_TEXT_TIME_BUDGET_SECONDS + 2.0)
+    if worker.is_alive():
+        _pdf_reader_stuck += 1
+        return None
+    return _clean(result.get("text") or "") or None
+
+
+def _pdf_extraction(path):
+    """Try the full reader first, the stream reader only when it falls short."""
+    candidates = []
+    text = _pypdf_text(path)
+    if text:
+        candidates.append((PDF_READER_METHOD, text, assess_text_quality(text)))
+    if not (candidates and candidates[0][2]["accepted"]):
+        try:
+            stream_text = _pdf_text(path)
+        except ValueError:
+            stream_text = ""
+        if stream_text:
+            candidates.append((PDF_EXTRACTOR_METHOD, stream_text, assess_text_quality(stream_text)))
+    if not candidates:
+        raise ValueError("AI_PDF_TEXT_NOT_EXTRACTABLE")
+    accepted = [item for item in candidates if item[2]["accepted"]]
+    method, text, assessment = accepted[0] if accepted else max(candidates, key=lambda item: item[2]["score"])
+    if not accepted:
+        return {
+            "text": "",
+            "method": method,
+            "quality": "rejected",
+            "errorCode": "AI_PDF_TEXT_LOW_QUALITY",
+            "qualityScore": assessment["score"],
+            "qualityReason": assessment["reason"],
+            "qualityMetrics": assessment["metrics"],
+        }
+    return {
+        "text": text,
+        "method": method,
+        "quality": "accepted",
+        "qualityScore": assessment["score"],
+        "qualityReason": None,
+        "qualityMetrics": assessment["metrics"],
+    }
+
+
 def extract_text(path):
     path = Path(path).resolve(strict=True)
     if not path.is_file() or path.is_symlink():
         raise ValueError("AI_SOURCE_NOT_REGULAR_FILE")
     extension = path.suffix.lower()
     if extension == ".pdf":
-        text = _pdf_text(path)
-        assessment = assess_text_quality(text)
-        if not assessment["accepted"]:
-            return {
-                "text": "",
-                "method": PDF_EXTRACTOR_METHOD,
-                "quality": "rejected",
-                "errorCode": "AI_PDF_TEXT_LOW_QUALITY",
-                "qualityScore": assessment["score"],
-                "qualityReason": assessment["reason"],
-                "qualityMetrics": assessment["metrics"],
-            }
-        return {
-            "text": text,
-            "method": PDF_EXTRACTOR_METHOD,
-            "quality": "accepted",
-            "qualityScore": assessment["score"],
-            "qualityReason": None,
-            "qualityMetrics": assessment["metrics"],
-        }
+        return _pdf_extraction(path)
     if extension in IMAGE_TYPES:
         return {"text": "", "method": "image-no-ocr", "quality": "unsupported", "errorCode": "AI_OCR_NOT_CONFIGURED"}
     if extension == ".udf":
@@ -995,6 +1085,7 @@ def build_archive_case_index(downloads_root, institution_name, case_id):
             "skipped": skipped[:500],
             "skippedCount": len(skipped),
             "builtAt": now,
+            "pdfReader": PDF_READER_VERSION if pdf_reader_available() else None,
         }
         db.execute(
             "INSERT OR REPLACE INTO ai_meta(key,value,updated_at) VALUES('coverage',?,?)",
@@ -1137,7 +1228,16 @@ def index_status(downloads_root, session_id):
     try:
         documents = db.execute("SELECT COUNT(*) FROM ai_documents WHERE session_id=?", (session_id,)).fetchone()[0]
         chunks = db.execute("SELECT COUNT(*) FROM ai_chunks c JOIN ai_documents d ON d.source_ref=c.source_ref WHERE d.session_id=?", (session_id,)).fetchone()[0]
-        return {"ok": True, "kind": "UYAP_AI_INDEX_STATUS", "schemaVersion": 1, "ready": int(chunks) > 0, "sessionId": session_id, "documents": int(documents), "chunks": int(chunks), "fts5": bool(fts5)}
+        status = {"ok": True, "kind": "UYAP_AI_INDEX_STATUS", "schemaVersion": 1, "ready": int(chunks) > 0, "sessionId": session_id, "documents": int(documents), "chunks": int(chunks), "fts5": bool(fts5)}
+        coverage = _read_meta(db, "coverage") if session_id.startswith("case:") else None
+        if isinstance(coverage, dict):
+            # A case index built before the full PDF reader left most PDFs
+            # unread; offer one rebuild so they are read again.
+            status["pdfReader"] = coverage.get("pdfReader")
+            status["rebuildRecommended"] = (
+                status["ready"] and pdf_reader_available() and coverage.get("pdfReader") != PDF_READER_VERSION
+            )
+        return status
     finally:
         db.close()
 
