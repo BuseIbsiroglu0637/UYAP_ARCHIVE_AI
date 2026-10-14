@@ -11,7 +11,7 @@
     <header class="doc-head">
       <div>
         <p class="kicker">UYAP ARCHIVE AI</p>
-        <h1>Dosya Özeti</h1>
+        <h1 id="docTitle">Dosya Özeti</h1>
         <p id="caseTitle" class="case-title">Dosya bilgisi yükleniyor…</p>
       </div>
       <div class="doc-actions no-print">
@@ -20,11 +20,12 @@
       </div>
     </header>
     <section id="meta" class="meta"></section>
+    <p id="notice" class="notice" hidden></p>
     <section id="summary" class="summary"></section>
     <section id="sources" class="sources"></section>
     <footer>
       <strong>UYAP Archive AI</strong>
-      <span>Bu belge yerel arşivdeki doğrulanmış evraklardan oluşturulan AI özetidir; hukuki görüş yerine geçmez.</span>
+      <span id="footerNote">Bu belge yerel arşivdeki doğrulanmış evraklardan oluşturulan AI özetidir; hukuki görüş yerine geçmez.</span>
     </footer>
   </main>
   <script src="summary-print.js"></script>

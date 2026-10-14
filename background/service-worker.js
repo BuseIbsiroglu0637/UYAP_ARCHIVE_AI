@@ -46,6 +46,13 @@ import {
   syncSessionGuardUi
 } from "./download-manager.js";
 
+// Rule views whose results are saved with their sections: [schema field, sections field].
+const RULE_RESULT_SECTIONS=Object.freeze({
+  important_dates:["datesSchema","dateSections"],
+  court_orders:["ordersSchema","orderSections"],
+  parties:["partiesSchema","partySections"]
+});
+
 let recoveryTask = null;
 function trustedKurumContextSender(sender = {}) {
   if (sender.id !== chrome.runtime.id || !Number.isInteger(sender.tab?.id) || !Number.isInteger(sender.frameId)) return false;
@@ -407,14 +414,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           throw new Error(`${result?.error||"AI sağlayıcısı yanıt veremedi."}${code}${diagnostic}`);
         }
         let savedSummary=null,summarySaveError=null;
-        if(result?.retrievalMode==="case_summary_v1"){
+        // Dosya Özeti and the rule views (Önemli Tarihler, Ara Kararlar, Taraflar)
+        // are kept in the local result history; rule views with their sections.
+        const ruleKeys=RULE_RESULT_SECTIONS[result?.workflowId];
+        const ruleSections=ruleKeys&&result?.[ruleKeys[0]]&&Array.isArray(result?.[ruleKeys[1]])?result[ruleKeys[1]]:null;
+        if(result?.retrievalMode==="case_summary_v1"||ruleSections){
           try{
             const saved=await askNativeAgent({
               action:"ai_save_summary",
               downloadsRoot:registry.downloadsRoot,
               institutionName:caseInfo.institutionName,
               caseId:caseInfo.caseId,
+              workflowId:ruleSections?result.workflowId:"case_summary",
               answer:result.answer,
+              sections:ruleSections||undefined,
+              workflowNotice:ruleSections?result.workflowNotice:undefined,
               sources:Array.isArray(result.sources)?result.sources:[],
               sourceRefs:Array.isArray(result.sourceRefs)?result.sourceRefs:[],
               provider:result.provider,
@@ -439,6 +453,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           caseId:caseInfo.caseId,
           limit:Math.max(1,Math.min(Number(request.limit||20),100))
         });
+      }
+      case MESSAGE.GET_AI_ARCHIVE_SUMMARY:
+      case MESSAGE.DELETE_AI_ARCHIVE_SUMMARY:
+      case MESSAGE.RESTORE_AI_ARCHIVE_SUMMARY: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:false});
+        const action={[MESSAGE.GET_AI_ARCHIVE_SUMMARY]:"ai_get_summary",[MESSAGE.DELETE_AI_ARCHIVE_SUMMARY]:"ai_delete_summary",
+          [MESSAGE.RESTORE_AI_ARCHIVE_SUMMARY]:"ai_restore_summary"}[request.type];
+        const result=await askNativeAgent({
+          action,
+          downloadsRoot:registry.downloadsRoot,
+          institutionName:caseInfo.institutionName,
+          caseId:caseInfo.caseId,
+          summaryId:String(request.summaryId||"").slice(0,120)
+        });
+        if(!result?.ok)throw new Error(result?.error||"Kaydedilen sonuç işlenemedi.");
+        return result;
       }
       case MESSAGE.GET_ARCHIVE_REGISTRY:
         return listArchiveRegistry({sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,limit:request.limit,forceRefresh:request.forceRefresh===true});

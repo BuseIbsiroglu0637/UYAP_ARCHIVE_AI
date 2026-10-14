@@ -37,6 +37,21 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
 
 `ask`: genel soru-cevap için ayrı eski akış.
 
+## Kaydedilen sonuçlar
+- Dosya Özeti, Önemli Tarihler, Ara Kararlar ve Yapılacaklar ve Taraflar
+  sonuçları her çalıştırmada yerel arşive kaydedilir
+  (`%LOCALAPPDATA%\UYAPArsiv\AI_Summaries\<dava>` ve
+  `UYAP_Arsiv/_ai/summaries/<dava>` aynası). Aynı içerik tekrar kaydedilmez.
+- Kayıt geçmişi türe göre süzülebilir; her kayıt yeniden açılabilir.
+  Dosya Özeti, Önemli Tarihler ve Ara Kararlar için PDF alınabilir;
+  Taraflar için PDF yoktur (`SAVED_PDF_WORKFLOWS`).
+- Liste yanıtı bölüm içeriği taşımaz (native mesaj sınırı); kural
+  görünümü açılırken tek kayıt `ai_get_summary` ile tam okunur.
+- Silme tek tek ve onaylıdır; 10 saniye "Geri al" sunulur. Silinen kayıt
+  merkezi klasörden ve aynadan `.trash` altına taşınır, kimliği
+  `_deleted.json`'a yazılır (aynadan geri gelmez), 7 gün sonra kalıcı
+  silinir. Arşiv evrakları, dava indeksi ve indirilmiş PDF'lere dokunulmaz.
+
 ## Güvenlik ve davranış
 - Açık `workflowId` Workspace, servis çalışanı, Native Agent ve sağlayıcıya
   taşınır. Başlıktaki "özet" kelimesinden işlem kimliği tahmin edilmez.
@@ -53,6 +68,7 @@ kabul testi ve LM Studio canlı testi yapılmadan üretime hazır kabul edilmez.
 ## Geliştirici testi
 ```powershell
 py -3 native/ai_context_contract_test.py
+py -3 native/saved_results_regression_test.py
 ```
 
 ## Canlı kabul testi (henüz yapılmadı)
