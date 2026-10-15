@@ -23,7 +23,13 @@
 
 **Eksik kanıt:** Kamuya açık sayfadan Kurum Portal'ın spesifik otomasyon maddeleri ve üçüncü taraf yazılım yetkisi bu incelemede doğrulanamadı. Güncel Kurum Portal kullanım sözleşmesinin yetkili şekilde edinilen bir örneği ve varsa entegrasyon teknik şartları incelenmeden GO verilmez.
 
-### C. Chrome Web Store ve ürün kimliği
+### C. Kurum Portal'ın ayrı “Kurumsal Web Servis” yolu
+
+**Resmî sayfada ayrıca belirtilen servis:** Kurumsal Web Servis, kurumların dava ve icra dosyası verilerini kendi sistemlerine entegre etmesine yönelik ayrı bir kanaldır. Sayfa, kullanım eşiğini kamu kurumları için **2.000'in üzerinde**, özel kurumlar/şirketler için **4.000'in üzerinde** dosya olarak tarif eder; özel TT VPN hattı ve önce test ortamında geliştirme şartından bahseder. [Kaynak K2]
+
+**Ürün yorumu:** Bu, ilk hedef kitle olan bireysel avukat ve 2–5 kişilik küçük bürolara otomatik bir hizmet hakkı veya genel amaçlı resmî API erişimi tanımaz. UYAP Archive AI, ileride yetkili büyük kurum için ayrı bir ürün hattı geliştirecekse özel sözleşme, yetkilendirme, ağ ve kurum tarafından onaylanan teknik şartlar edinilmelidir. Kurumsal entegrasyonun mevcut yazılımda kurulu veya izinli olduğu iddia edilmez.
+
+### D. Chrome Web Store ve ürün kimliği
 
 Chrome Web Store politikaları kullanıcı verisi, dar izin kapsamı, açık gizlilik bildirimleri ve kurumsal onay/ilişki varmış gibi davranmama gereklilikleri içerir. Özellikle uygulama adı, ikonları, web mağazası metni ve `tr.gov.uyap.archive_agent` Native Messaging host kimliği bağımsız ürün açıklamasıyla tutarlı hâle getirilmelidir. Teknik kimlik değiştirme Chrome/Edge bağlantısını bozabileceğinden migrasyon testi gerekir. [Kaynak C1]
 
@@ -66,7 +72,7 @@ Chrome Web Store politikaları kullanıcı verisi, dar izin kapsamı, açık giz
 1. Avukat Portal sözleşmesindeki hangi maddeler, kullanıcının kendi hesabında çalışan otomatik toplu evrak işlemlerini kapsıyor? Hız sınırı tek ölçüt mü?
 2. Üçüncü taraf ürün ile manuel dışa aktarılmış belgelerin **çevrimdışı yerel analizine** ilişkin ek lisans, veri veya güvenlik kısıtı var mı?
 3. Kurum Portal sözleşmesinde Avukat Portal'dan farklı otomasyon, veri aktarımı veya kurum içi yetkilendirme yükümlülükleri bulunuyor mu?
-4. Yazılı entegrasyon izni veya resmî arayüz varsa başvuru ve denetim yolu nedir?
+4. Bireysel avukat için resmî entegrasyon kanalı mevcut mu? Kurumsal Web Servis'in 2.000/4.000 üzeri dosya eşiği ve TT VPN/test şartları altında ayrıca kurumsal başvuru yolu nedir?
 5. Ürün adı, resmi UYAP logosu/markası, chrome uzantısı ve Native Messaging host kimliği bakımından kullanım sınırları nelerdir?
 
 ## 6. Karar protokolü / çıkış kapısı
@@ -81,7 +87,8 @@ Chrome Web Store politikaları kullanıcı verisi, dar izin kapsamı, açık giz
 
 [A1] UYAP Portal Yönetim sık sorulan sorular, Avukat Portal 9. madde açıklaması: https://portalyonetim.uyap.gov.tr/login.uyap  
 [A2] UYAP resmî Avukat Portal Kullanım Sözleşmesi kamuya açık aktarımı: https://kurum.uyap.gov.tr/main/avukat.jsp  
-[K1] UYAP Kurum Portal resmî tanıtımı ve başvuru sözleşmesi: https://www.esatis.uyap.gov.tr/main/kurum.jsp  
+[K1] UYAP Kurum Portal resmî tanıtımı ve başvuru sözleşmesi: https://kurum.uyap.gov.tr/main/kurum.jsp  
+[K2] UYAP Kurum Portal “Kurumsal Web Servis” tanıtımı (resmî sayfa içinde): https://kurum.uyap.gov.tr/main/kurum.jsp  
 [C1] Chrome Web Store Developer Program Policies: https://developer.chrome.com/docs/webstore/program-policies/policies
 
 Bu kaynaklar sürümünün daha sonra değişmeyeceğini veya ürünün otomasyonunun izinli olduğunu kanıtlamaz; nihai karar tarihli tam sözleşme ve hukukî değerlendirme ile verilir.
