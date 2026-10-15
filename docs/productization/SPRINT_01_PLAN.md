@@ -3,7 +3,7 @@
 **Dönem:** 14–21 Ekim 2026. Beş iş günlük üretim: 14, 15, 16, 19, 20 Ekim; 21 Ekim karar/onay günü.  
 **Hedef kitle:** Bireysel avukatlar ve 2–5 kişilik küçük hukuk büroları.  
 **Sprint tipi:** Karar, gereksinim, risk ve kabul tasarımı; üretime çıkış sprinti **değildir**.  
-**Durum:** PLANLANAN / ONAY BEKLİYOR. Hiçbir hukukî, gizlilik veya saha sertifikasyonu tamamlandı sayılmaz.
+**Durum:** DEVAM EDİYOR — DEC-S1-001 ürün kapsamı onaylandı; S1-03/S1-04 inceleme taslakları hazır, hukukî/gizlilik/saha sertifikasyonu tamamlanmadı.
 
 ## 1. Ürün hedefi ve kapsam sınırı
 
@@ -32,6 +32,19 @@
 - `docs/RELEASE_CHANNELS.md`: beta/stable imzalı paket ister; code signing, auto-updater, rollout backend henüz tamamlanmamış.
 - `docs/AI_SIX_WORKFLOWS.md`: bazı tarih/tebligat/rol akışları yerel kurallara taşınmış, OCR açık eksik ve canlı uzman kabulü bekliyor.
 - Daha eski `README.md` sürüm bilgisi 2.7.64; ürünleştirmede tek sürüm doğruluğu sağlanmalıdır.
+
+## 2A. Gerçekleşen kararlar ve doküman durumu — 15 Ekim 2026
+
+| Teslim | Durum | Kaynak |
+| --- | --- | --- |
+| **DEC-S1-001** Yerel arşiv + opsiyonel AI ürün kapsamı | **ONAYLANDI** (ürün sahibi kararı) | [S1-01](S1_PRODUCT_BRIEF.md), [S1-02](S1_MVP_SCOPE.md) |
+| **S1-01** Ürün tanımı | Kapsam ONAYLI; pazarlama metni/teknik ve hukukî kapanış açık | [S1_PRODUCT_BRIEF.md](S1_PRODUCT_BRIEF.md) |
+| **S1-02** MVP kapsamı | Ürün kapsamı ONAYLI; U1-U4 E2E doğrulama açık | [S1_MVP_SCOPE.md](S1_MVP_SCOPE.md) |
+| **S1-03** UYAP kullanım uygunluğu | İnceleme taslağı hazır; **portal otomasyonu ticari betada BLOCKED** | [S1_PORTAL_COMPLIANCE.md](S1_PORTAL_COMPLIANCE.md) |
+| **S1-04** KVKK ve veri güvenliği haritası | İlk kod temelli envanter hazır; hukukçu ve teknik güvenlik kabulü AÇIK | [S1_DATA_PRIVACY_MAP.md](S1_DATA_PRIVACY_MAP.md) |
+| S1-05–S1-08 | PLANLANDI | Henüz üretilmedi |
+
+**İlk P0 bulgular:** AI tanılama JSON'unda model yanıtından 1.200 karaktere kadar önizleme ve kaynak başlıkları bulunabilmesi; ticari yapılandırmada portal otomasyonunu kapatmanın henüz kanıtlanmamış olması; Windows/Chrome veri erişimi ve bulut AI aktarımına dair hukukî/teknik kapılar. Bunlar giderilmeden dış kullanıcı betası onaylanamaz.
 
 ## 3. Sprint teslimleri ve kabul ölçütleri
 
