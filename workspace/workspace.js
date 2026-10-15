@@ -664,6 +664,7 @@ async function loadArchivePage(){
     institutionName:selection?.institutionName||"",
     caseId:selection?.caseId||""
   };
+  state.archivePageData=[];state.archivePageTotal=0;
   state.archivePageLoading=true;state.archivePageError=null;renderArchiveRows();
   try{
     const result=await sendRuntime(MESSAGE.GET_ARCHIVE_REGISTRY,query);
