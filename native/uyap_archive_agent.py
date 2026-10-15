@@ -4969,8 +4969,12 @@ def _archive_page_filter(documents, message):
     Filtering/paging does not alter SQLite or the physical archive.
     """
     try:
-        offset = max(0, int(message.get("offset") or 0))
-        limit = min(100, max(1, int(message.get("limit") or 100)))
+        raw_offset = message.get("offset", 0)
+        raw_limit = message.get("limit", 100)
+        if any(isinstance(value, (dict, list, bool)) for value in (raw_offset, raw_limit)):
+            raise ValueError("Unsupported paging value")
+        offset = max(0, int(raw_offset if raw_offset is not None else 0))
+        limit = min(100, max(1, int(raw_limit if raw_limit is not None else 100)))
     except (ValueError, TypeError) as error:
         raise ValueError("ARCHIVE_PAGE_INVALID") from error
     search = str(message.get("search") or "").strip().casefold()[:200]
