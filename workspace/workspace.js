@@ -148,6 +148,7 @@ function refreshArchiveRegistryInBackground({forceRefresh=false}={}){
     if(!registry)return null;
     if(requestedSessionId!==state.selectedId)return registry;
     state.archiveRegistry=registry;state.archiveRegistryError=null;
+    if($("globalBanner")?.textContent.startsWith("Yerel arşiv"))setBanner("");
     if(forceRefresh)workspaceRegistryDirty=false;
     if(!state.selectedId){const archiveCases=archiveCaseEntries(),current=state.selectedArchiveKey;state.selectedArchiveKey=archiveCases.some(item=>item.key===current)?current:(archiveCases[0]?.key||null);}
     renderSessionPicker();renderJobs();renderRecentArchiveDocs();renderOverviewHealth();renderOverview();
@@ -673,6 +674,8 @@ async function loadArchivePage(){
       throw new Error("ARCHIVE_REGISTRY_PAGE_INVALID");
     state.archivePageData=result.documents;
     state.archivePageTotal=n(result.matchedFiles);
+    state.archiveRegistryError=null;
+    if($("globalBanner")?.textContent.startsWith("Yerel arşiv"))setBanner("");
     state.archivePageError=null;
     if(!state.archiveRegistry||!state.archiveRegistry.archiveExists){
       state.archiveRegistry={...result,documents:[]};
@@ -932,6 +935,9 @@ let archiveSearchDelay=null;
 $("archiveSearch").addEventListener("input",()=>{
   state.archivePage=0;
   if($("archiveScope").value!=="local"){renderArchiveRows();return;}
+  ++state.archivePageRequestId; // Discard pages fetched for the previous search.
+  state.archivePageData=[];state.archivePageTotal=0;state.archivePageLoading=true;
+  renderArchiveRows();
   clearTimeout(archiveSearchDelay);
   archiveSearchDelay=setTimeout(()=>void loadArchivePage(),350);
 });
