@@ -3,7 +3,7 @@
 **Dönem:** 14–21 Ekim 2026. Beş iş günlük üretim: 14, 15, 16, 19, 20 Ekim; 21 Ekim karar/onay günü.  
 **Hedef kitle:** Bireysel avukatlar ve 2–5 kişilik küçük hukuk büroları.  
 **Sprint tipi:** Karar, gereksinim, risk ve kabul tasarımı; üretime çıkış sprinti **değildir**.  
-**Durum:** DEVAM EDİYOR — DEC-S1-001 ürün kapsamı onaylandı; S1-03/S1-04 inceleme taslakları hazır, hukukî/gizlilik/saha sertifikasyonu tamamlanmadı.
+**Durum:** SPRINT 1 DOKÜMANTASYON TASLAKLARI 8/8 HAZIR — DEC-S1-001 ürün kapsamı onaylandı; Sprint Review, hukukî/gizlilik/teknik onaylar, gerçek saha testleri tamamlanmadı.
 
 ## 1. Ürün hedefi ve kapsam sınırı
 
@@ -44,7 +44,8 @@
 | **S1-04** KVKK ve veri güvenliği haritası | İlk kod temelli envanter hazır; hukukçu ve teknik güvenlik kabulü AÇIK | [S1_DATA_PRIVACY_MAP.md](S1_DATA_PRIVACY_MAP.md) |
 | **S1-05** Teknik mimari ADR | İlk mimari taslak HAZIR; teknik onay ve enforcement uygulanması AÇIK | [S1_ARCHITECTURE_ADR.md](S1_ARCHITECTURE_ADR.md) |
 | **S1-06** Gerçek Windows ve opsiyonel AI beta kabulü | Matris ve kanıt şablonu HAZIR; sahada **NOT RUN** | [S1_BETA_ACCEPTANCE.md](S1_BETA_ACCEPTANCE.md) / [şablon](S1_BETA_TEST_RUN_TEMPLATE.yaml) |
-| S1-07–S1-08 | PLANLANDI | Henüz üretilmedi |
+| **S1-07** Pilot kullanıcı planı | Görüşme protokolü, sentetik görevler ve anonim skor kartı TASLAK HAZIR; görüşme yapılmadı / dış beta BLOCKED | [S1_PILOT_PLAN.md](S1_PILOT_PLAN.md) |
+| **S1-08** Sprint 2 backlog ve karar kaydı | P0/P1 öncelikleri, kapasite tahminleri, açık kararlar ve review şablonu TASLAK HAZIR | [S1_BACKLOG_AND_DECISIONS.md](S1_BACKLOG_AND_DECISIONS.md) |
 
 **İlk P0 bulgular:** AI tanılama JSON'unda model yanıtından 1.200 karaktere kadar önizleme ve kaynak başlıkları bulunabilmesi; ticari yapılandırmada portal otomasyonunu kapatmanın henüz kanıtlanmamış olması; Windows/Chrome veri erişimi ve bulut AI aktarımına dair hukukî/teknik kapılar; ayrıca geniş kapsamlı IExpress payload paketlemesi nedeniyle kaynak kökünden hassas/gereksiz dosyanın dağıtıma girebilmesi ve imza üretim hattının henüz uygulanmamış olması. Bunlar giderilmeden dış kullanıcı betası onaylanamaz.
 
@@ -130,3 +131,11 @@ Bu kaynaklar hukukî veya teknik uygunluk **onayı** değildir. Güncel sözleş
 - Yeni ürün riski: `native/build_offline_setup.ps1` geniş `$PackageRoot` kopyası kullanıyor; imzalı ticari paket öncesi kesin allowlist ve tarama P0.
 - Platform desteği: Windows 11 ana beta platformu önerildi; Windows 10 standard destek sonu (14.10.2025) nedeniyle ancak güncel ESU ve açık destek kararıyla conditional.
 - Sonraki iş: S1-07 pilot kullanıcı araştırması, S1-08 Sprint 2 backlog'u; ardından Sprint Review GO / NO-GO.
+
+
+### 15 Ekim — S1-07 / S1-08 ve Review hazırlığı
+
+- **S1-07:** [Pilot Kullanıcı Planı](S1_PILOT_PLAN.md) oluşturuldu: iki aşamalı keşif (sentetik/anonim) ve yalnız güvenlik kapıları geçince kontrollü beta; 3–5 katılımcı yalnız hedeftir, henüz görüşme yapılmadı.
+- **S1-08:** [Sprint 2 Backlog'u](S1_BACKLOG_AND_DECISIONS.md) hazır: S2-01 portal beta kilidi, S2-02 paket allowlist, S2-03 güvenli tanılama, S2-04 yerel import E2E, S2-05 gerçek Win11 testi. Bir geliştirici için ilk üç P0'a odaklı ve kapasite korumalı plan önerilir.
+- **Doküman durumu:** Sekiz teslim taslağı mevcut; tüm belge/yasal/teknik kapıların kapanması veya Sprint Review onayı anlamına gelmez.
+- **Review kararı:** 21 Ekim tarihli GO / CONDITIONAL / NO-GO kararı [S1-08 karar tutanağı](S1_BACKLOG_AND_DECISIONS.md) ve gerçek kanıtlarla alınacak. Dış pilot için şu anda NO-GO.
