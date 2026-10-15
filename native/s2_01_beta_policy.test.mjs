@@ -52,6 +52,9 @@ test("beta worker has no automatic recovery, download routing or navigation side
   assert.match(worker, /if \(!LOCAL_ONLY_BETA\) void handleUyapNetworkRedirect/);
   assert.match(worker, /if \(!LOCAL_ONLY_BETA\) void handleUyapNetworkCompleted/);
   assert.match(worker, /case 'get_product_policy':/);
+  assert.match(worker, /const nativeStatus = await pingNativeAgent\(\);/);
+  assert.match(worker, /NATIVE_PRODUCT_PROFILE_MISMATCH/);
+  assert.match(read("background/native-agent.js"), /NATIVE_PRODUCT_PROFILE_MISMATCH/);
 });
 
 test("beta popup explains restrictions and keeps local archive browsing", () => {
