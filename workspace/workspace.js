@@ -144,7 +144,7 @@ function renderArchiveData(){
 function refreshArchiveRegistryInBackground({forceRefresh=false}={}){
   if(archiveRegistryRefreshTask)return archiveRegistryRefreshTask;
   const requestedSessionId=state.selectedId;
-  const task=sendRuntime(MESSAGE.GET_ARCHIVE_REGISTRY,{sessionId:requestedSessionId,summaryOnly:true,limit:1,forceRefresh}).then(registry=>{
+  const task=sendRuntime(MESSAGE.GET_ARCHIVE_REGISTRY,{sessionId:requestedSessionId,summaryOnly:true,limit:1,browseCache:true,forceRefresh}).then(registry=>{
     if(!registry)return null;
     if(requestedSessionId!==state.selectedId)return registry;
     state.archiveRegistry=registry;state.archiveRegistryError=null;
@@ -662,7 +662,7 @@ async function loadArchivePage(){
   const selection=selectedArchiveCase();
   const query={
     sessionId:state.selectedId,
-    limit:PAGE_SIZE,offset:state.archivePage*PAGE_SIZE,
+    limit:PAGE_SIZE,offset:state.archivePage*PAGE_SIZE,browseCache:true,
     search:$("archiveSearch").value.trim(),
     status:$("archiveStatus").value,
     extension:$("archiveType").value,
