@@ -88,7 +88,7 @@ function scheduleRecovery() {
 }
 
 chrome.runtime.onInstalled.addListener(() => { if (!LOCAL_ONLY_BETA) { void syncSessionGuardUi(); void scheduleRecovery(); } });
-chrome.runtime.onStartup.addListener(() => { if (!LOCAL_ONLY_BETA) { void syncSessionGuardUi(); void scheduleRecovery(); } void listArchiveRegistry({limit:1}).catch(()=>{}); });
+chrome.runtime.onStartup.addListener(() => { if (!LOCAL_ONLY_BETA) { void syncSessionGuardUi(); void scheduleRecovery(); void listArchiveRegistry({limit:1}).catch(()=>{}); } });
 async function handleOperationalAlarmSafely(alarm) {
   if (LOCAL_ONLY_BETA) return; // Old persisted queue/watchdog alarms never restart a portal job.
   try {
@@ -107,9 +107,7 @@ chrome.downloads.onChanged.addListener((delta) => { if (!LOCAL_ONLY_BETA) void h
 if (!LOCAL_ONLY_BETA) {
   void syncSessionGuardUi();
   void restoreArchiveDownloadUi().finally(() => { void syncSessionGuardUi(); void listArchiveRegistry({limit:1}).catch(()=>{}); return scheduleRecovery(); });
-} else {
-  void listArchiveRegistry({limit:1}).catch(()=>{}); // Local archive visibility remains available.
-}
+} // Beta reads local archives only after its Native Agent profile is verified.
 function handleUyapNavigation(details) {
   if (LOCAL_ONLY_BETA || details.frameId !== 0) return;
   void handleSessionAuthNavigation(details.tabId, details.url)
@@ -201,6 +199,18 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const run = async () => {
     assertPortalMessageAllowed(request?.type); // Before sender-specific and legacy entry paths.
+    if (LOCAL_ONLY_BETA && [
+      MESSAGE.GET_ARCHIVE_REGISTRY,
+      MESSAGE.SELECT_EXISTING_ARCHIVE,
+      MESSAGE.GET_SELECTED_ARCHIVE,
+      MESSAGE.OPEN_ARCHIVE_FOLDER,
+      MESSAGE.OPEN_FINAL_PACKAGE_FOLDER
+    ].includes(request?.type)) {
+      const nativeStatus = await pingNativeAgent();
+      if (!nativeStatus?.ok) {
+        throw new Error(nativeStatus?.errorCode || "NATIVE_PRODUCT_PROFILE_MISMATCH");
+      }
+    }
     if (request.type === 'capture_save') {
       const pending = await getPendingDownload();
       if (!pending || pending.attemptId !== request.attemptId || pending.documentId !== request.documentId ||
