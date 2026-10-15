@@ -1,0 +1,67 @@
+# S1-06 saha testi kanıt şablonu. Yalnız maskeli/sentetik bilgi ekleyin.
+# Bu dosyanın varlığı testin çalıştırıldığı anlamına gelmez.
+schema_version: 1
+test_id: BETA-INST-01
+status: NOT_RUN # NOT_RUN | BLOCKED | PASS | FAIL
+test_type: INTERNAL_ALPHA # INTERNAL_ALPHA | CONTROLLED_BETA
+test_date: null
+tester_role: null
+reviewer_role: null
+
+environment:
+  os_name: null
+  os_build: null
+  os_security_support_verified: null
+  esu_status: null # Yalnız Windows 10 için
+  browser_name: null
+  browser_version: null
+  extension_version: null
+  extension_id_fingerprint: null # Tam kimlik yerine onaylı hash/maske
+  agent_version: null
+  protocol_version: null
+
+artifact:
+  release_id: null
+  commit_sha: null
+  installer_sha256: null
+  installer_signature_valid: null
+  publisher_subject_masked: null
+  build_profile: null # alpha / signed_beta
+  package_allowlist_scan: null # PASS/FAIL, tarama raporu linki
+  native_agent_sha256: null
+
+verification:
+  precondition_completed: false
+  expected_result: null
+  observed_result_without_pii: null
+  native_ping: null
+  registry_chrome_edge_result: null
+  archive_before_sha256_manifest: null # Maskeli / erişim kontrollü
+  archive_after_sha256_manifest: null
+  archive_data_touched: null
+  portal_automation_disabled_and_tested: null
+  cloud_ai_disabled_and_tested: null
+  private_data_redaction_checked: null
+
+evidence:
+  synthetic_or_authorized_masked: SYNTHETIC
+  sanitized_log_reference: null
+  screenshot_sanitized_reference: null
+  test_video_reference: null
+  signature_check_reference: null
+  reviewer_approval_reference: null
+
+finding:
+  issue_url: null
+  severity: null # P0 / P1 / P2 / P3
+  reproduction_steps_no_pii: null
+  retest_reference: null
+
+decision:
+  product_owner_approval: false
+  security_privacy_approval: false
+  legal_review_if_relevant: false
+  close_reason: null
+
+# Not: GitHub'a gerçek dava evrakı, TCKN, UETS, lisans/API anahtarı,
+# tam yerel dosya yolu, hassas log veya dava isimli screenshot eklemeyin.
