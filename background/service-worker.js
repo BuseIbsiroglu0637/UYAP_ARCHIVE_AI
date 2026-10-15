@@ -472,7 +472,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return result;
       }
       case MESSAGE.GET_ARCHIVE_REGISTRY:
-        return listArchiveRegistry({sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,limit:request.limit,forceRefresh:request.forceRefresh===true});
+        return listArchiveRegistry({
+          sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,
+          limit:request.limit,offset:request.offset,summaryOnly:request.summaryOnly===true,
+          search:request.search||"",status:request.status||"",extension:request.extension||"",
+          institutionName:request.institutionName||"",caseId:request.caseId||"",
+          forceRefresh:request.forceRefresh===true
+        });
       case MESSAGE.SELECT_EXISTING_ARCHIVE:
         return selectExistingArchive();
       case MESSAGE.GET_SELECTED_ARCHIVE:
