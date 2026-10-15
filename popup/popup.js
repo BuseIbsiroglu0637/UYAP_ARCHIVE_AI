@@ -31,6 +31,7 @@ let casePickerTabId=null;
 let resumableSessions=[];
 let recentArchiveRegistry=null;
 let lastRecentArchiveCheck=0;
+let localOnlyBeta=false;
 const MANIFEST=chrome.runtime?.getManifest?.()||{};
 const VERSION=MANIFEST.version_name||MANIFEST.version||"2.9.0 RC15.9.38 ARCHIVE-SYNC-RACE-FIX";
 el.versionBadge.textContent=`v${VERSION}`;
@@ -309,6 +310,22 @@ function render(session){
   el.rebindButton.disabled=busy||["running","recovering"].includes(session?.status);
   el.newJobButton.disabled=busy;
 
+  if(localOnlyBeta){
+    // UI visibility only: the service worker and native agent also enforce the gate.
+    hideCasePicker();
+    el.loginRoutePanel.hidden=true;
+    el.resumeJobsPanel.hidden=true;
+    el.primaryButton.disabled=true;
+    el.primaryButton.textContent="Portal otomasyonu beta sürümünde kapalı";
+    el.rebindButton.disabled=true;
+    el.newJobButton.disabled=true;
+    setHealth("Yerel arşiv modu","good");
+    setStatus("Yerel arşiv kullanılabilir",
+      "UYAP otomatik tarama ve indirme bu ürün profilinde kapalıdır. Mevcut arşivinizi seçip Arşiv Merkezinde inceleyebilirsiniz.",
+      "info","BETA");
+    return;
+  }
+
   if(casePickerMode && !el.casePickerPanel.hidden){
     primaryAction="none"; el.primaryButton.textContent="Dosya seçimi açık"; el.primaryButton.disabled=true;
     setHealth("Dosya seçimi","good");
@@ -509,5 +526,9 @@ el.casePickerOpen.addEventListener("click",async()=>{
 el.kurumDirectLoginButton.addEventListener("click",()=>void sendRuntime(MESSAGE.OPEN_LOGIN_ROUTE,{sessionId:activeSession?.sessionId,route:"direct"}));
 el.kurumEdevletLoginButton.addEventListener("click",()=>void sendRuntime(MESSAGE.OPEN_LOGIN_ROUTE,{sessionId:activeSession?.sessionId,route:"edevlet"}));
 
+void sendRuntime("get_product_policy").then(policy=>{
+  localOnlyBeta=policy?.localOnly===true;
+  render(activeSession);
+}).catch((error)=>console.warn("Product policy could not be read",error));
 void refresh();
 setInterval(()=>void refresh(),4000);
