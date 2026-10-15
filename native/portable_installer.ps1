@@ -30,6 +30,7 @@ $ProtocolTest = Join-Path $PSScriptRoot 'portable_protocol_self_test.py'
 $SiteCustomizeTemplate = Join-Path $PSScriptRoot 'portable_sitecustomize.py'
 $AgentSource = Join-Path $PSScriptRoot 'uyap_archive_agent.py'
 $HostSelfTestSource = Join-Path $PSScriptRoot 'host_self_test.py'
+$BetaPolicySource = Join-Path $PSScriptRoot 'commercial_beta_policy.py'
 
 New-Item -ItemType Directory -Force -Path $AppRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $AgentRoot | Out-Null
@@ -252,6 +253,7 @@ function Configure-EmbeddedRuntime([string]$RuntimeDir) {
   [System.IO.File]::WriteAllLines($pth.FullName, $lines.ToArray(), [System.Text.Encoding]::ASCII)
   Copy-Item -LiteralPath $AgentSource -Destination (Join-Path $RuntimeDir 'uyap_archive_agent.py') -Force
   Copy-Item -LiteralPath $HostSelfTestSource -Destination (Join-Path $RuntimeDir 'host_self_test.py') -Force
+  Copy-Item -LiteralPath $BetaPolicySource -Destination (Join-Path $RuntimeDir 'commercial_beta_policy.py') -Force
   Copy-Item -LiteralPath $SiteCustomizeTemplate -Destination (Join-Path $RuntimeDir 'sitecustomize.py') -Force
 }
 
@@ -304,6 +306,7 @@ function Cleanup-LegacyArtifacts {
 
 function Install-PortableAgent {
   if (-not (Test-Path $AgentSource)) { throw 'uyap_archive_agent.py paket içinde bulunamadı.' }
+  if (-not (Test-Path $BetaPolicySource)) { throw 'commercial_beta_policy.py paket içinde bulunamadı.' }
   if (-not (Test-Path $SiteCustomizeTemplate)) { throw 'portable_sitecustomize.py paket içinde bulunamadı.' }
 
   $registryBefore = Read-RegistryState
