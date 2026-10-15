@@ -1,6 +1,6 @@
 # S1-01 | Ürün Tanım Belgesi — UYAP Archive AI
 
-**Belge durumu:** TASLAK / ÜRÜN SORUMLUSU ONAYI BEKLİYOR  
+**Belge durumu:** KAPSAM KARARI ONAYLANDI / HUKUKÎ VE TEKNİK KABUL BEKLİYOR  
 **Sprint:** Ürünleştirme Sprint 01 (14–21 Ekim 2026)  
 **Tarih:** 15 Ekim 2026  
 **Hedef segment:** Türkiye'de bireysel çalışan avukatlar ve 2–5 kişilik küçük hukuk büroları  
@@ -11,7 +11,7 @@
 
 **Çalışma adı:** UYAP Archive AI (ticari marka ve resmî kurumla karışma riski bakımından ayrıca incelenecek).
 
-**Bir cümlelik değer önerisi (öneri):**  
+**Bir cümlelik değer önerisi (taslak; metnin nihai onayı bekliyor):**  
 “Yetkili biçimde edinilen dava evraklarını bilgisayarında güvenle düzenle, dosya bütünlüğünü doğrula, aradığını hızla bul ve yalnız kaynağı görülebilen analizlerle incele.”
 
 **Ürün türü:** Windows üzerinde çalışan yerel-öncelikli hukuk dosyası arşivleme ve belge inceleme aracı. Chrome/Edge uzantısı ile Native Agent mimarisine dayanır; mevcut arşiv motoru yapay zekâ sunucusuna ve lisans sunucusuna bağımlı olmamalıdır.
@@ -61,9 +61,9 @@
 
 | Özellik | Sprint 1 kararı | Kabul yaklaşımı |
 | --- | --- | --- |
-| Yerel arşiv içe alma ve dava klasörleri | ÖNERİLEN ÇEKİRDEK | Portal erişimi gerekmeden sentetik veya kullanıcı izniyle edinilmiş belgelerde E2E |
-| SHA-256 ve dosya eşleşme kanıtı | ÖNERİLEN ÇEKİRDEK | Yanlış dosya/eksik dosya için açık hata; yanlış dava bağlanması = 0 |
-| Evrak arama, filtreleme ve zaman çizelgesi | ÖNERİLEN ÇEKİRDEK | Temel kullanıcı görevleri yardım almadan tamamlanır |
+| Yerel arşiv içe alma ve dava klasörleri | KAPSAMDA ONAYLANDI / UYGULAMA KABULÜ BEKLİYOR | Portal erişimi gerekmeden sentetik veya kullanıcı izniyle edinilmiş belgelerde E2E |
+| SHA-256 ve dosya eşleşme kanıtı | KAPSAMDA ONAYLANDI / UYGULAMA KABULÜ BEKLİYOR | Yanlış dosya/eksik dosya için açık hata; yanlış dava bağlanması = 0 |
+| Evrak arama, filtreleme ve zaman çizelgesi | KAPSAMDA ONAYLANDI / UYGULAMA KABULÜ BEKLİYOR | Temel kullanıcı görevleri yardım almadan tamamlanır |
 | Kurulum, onarım ve güvenli kaldırma | BETA ÖN KOŞUL | Gerçek Win10/11, Chrome/Edge, arşiv veri kaybı 0 |
 | Kaynaklı Dosya Özeti | KOŞULLU | Kapsam/atıf açık; uzman onayı ve canlı kalite testi |
 | Önemli Tarihler, Ara Kararlar, Taraflar, Tebligatlar | KOŞULLU / AYRI KABUL | Hukuk uzmanı testleri, uydurma kesin tarih ve rol yok |
@@ -108,10 +108,10 @@
 | Karar | Durum | Sorumlu rol | Sonraki adım |
 | --- | --- | --- | --- |
 | Bireysel avukat + 2–5 kişilik büro hedefi | KABUL EDİLDİ (ürün sahibi kullanıcı tercihi) | Ürün sahibi | İlk görüşme senaryosuna aktar |
-| Yerel arşiv öncelikli konumlandırma | ONAY BEKLİYOR | Ürün sahibi | Kapsam onayı |
+| Yerel arşiv öncelikli konumlandırma | ONAYLANDI (15.10.2026) | Ürün sahibi | Yerel çekirdek beta kabul planı |
 | Windows + Chrome/Edge beta | ÖNERİ | Ürün sahibi / teknik | İlk pilot ortamını seç |
 | Portal otomasyonu ticari betada kapalı | GÜVENLİK İÇİN BLOKE / UYGUNLUK İNCELEMESİ | Hukuk ve ürün | Güncel UYAP sözleşmesi / resmî görüş |
-| AI hukuki süre ve karar anlatımı | UZMAN KABULÜ BEKLİYOR | Hukuk uzmanı | Sentetik + izinli vaka doğrulama |
+| AI opsiyonel modül olarak ayrı kabul şartına tabi | ONAYLANDI (15.10.2026), hukukî çıktı kabulü BEKLİYOR | Hukuk uzmanı | Sentetik + izinli vaka doğrulama |
 | Ticari marka / Native Host kimliği | AÇIK | Ürün/marka/teknik | Resmî ürün izlenimi riskini gider |
 | Lisans türü ve fiyat | AÇIK | Ürün sahibi | Pilot ödeme isteği araştırması |
 | Lisans sunucusu & bulut AI | AÇIK | Teknik/KVKK | Ayrı veri akışı ve izin gereksinimleri |
@@ -123,10 +123,10 @@
 - [x] Tek cümle değer önerisi taslağı yazıldı.
 - [x] V1 çekirdeği ile koşullu/harici özellikler ayrıldı.
 - [x] Altın yol ve ölçülebilir pilot hedefleri yazıldı.
-- [ ] Ürün sahibi değer vaadini, çekirdek sınırı ve koşullu AI kapsamında **onayladı**.
+- [x] Ürün sahibi **yerel arşiv + opsiyonel AI** kapsamını 15 Ekim 2026'da onayladı; değer vaadinin nihai pazarlama metni ayrıca gözden geçirilecek.
 - [ ] Portal uygunluğu için hukukçu/ilgili kurum karar yolu netleştirildi.
 
-**Statü:** TASLAK / İNCELEMEDE. Bu dosyanın GitHub'a eklenmesi S1-01 kabulünün tamamlandığı anlamına gelmez.
+**Statü:** Ürün kapsamı ONAYLANDI; marka/değer vaadi metni, teknik gerçekleştirim ve portal hukukî uygunluğu açık. Sprint S1-01'in bütün kapanış şartları henüz bitmedi.
 
 ## İlişkili işler
 
@@ -136,3 +136,11 @@
 - [Windows installer kabulü #4](../../issues/4)
 - [Tanılama veri maskesi #6](../../issues/6)
 - [AI geliştirme PR #10](../../pull/10)
+
+
+## 11. Karar kaydı — DEC-S1-001
+
+- **15 Ekim 2026, ürün sahibi onayı:** İlk beta çekirdeği yerel içe aktarma + arşiv doğrulama + arama; kaynaklı AI isteğe bağlı, kendi kabul testine bağlı.
+- **Ticari sınır:** UYAP/Kurum UYAP otomasyonunun ticari açılması, resmî kullanım sözleşmesi/izin ve hukukî değerlendirme tamamlanmadan BLOKE.
+- **Değişmeyenler:** İmzalı dağıtım, KVKK veri haritası, uzman AI incelemesi, pilot ve saha kabulü açık. Bu karar yayınlama yetkisi vermez.
+- **Bağlantılar:** [S1-02](S1_MVP_SCOPE.md), [S1-03](S1_PORTAL_COMPLIANCE.md), [S1-04](S1_DATA_PRIVACY_MAP.md).
