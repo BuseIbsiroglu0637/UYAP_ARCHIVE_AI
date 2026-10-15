@@ -13,7 +13,7 @@ const DEFAULT_SETTINGS={loginNotification:true,completionNotification:true,probl
 const PAGE_SIZE=100;
 
 const $=id=>document.getElementById(id);
-const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",aiWorkflowId:"ask",aiContext:null,aiService:null,aiIndex:null,aiCases:[],aiSelectedCaseKey:null,aiSummaries:[],aiCurrentResult:null,timelineDocs:[],account:null,device:null};
+const state={sessions:[],selectedId:null,selectedArchiveKey:null,summary:null,report:null,archiveRegistry:null,problems:null,agent:null,view:"overview",archivePage:0,archivePageData:[],archivePageTotal:0,archivePageLoading:false,archivePageError:null,archivePageRequestId:0,archiveRegistryError:null,problemTab:"review",selectedProblemKeys:new Set(),settings:{...DEFAULT_SETTINGS},onboardingStep:0,aiPrompt:"",aiWorkflowId:"ask",aiContext:null,aiService:null,aiIndex:null,aiCases:[],aiSelectedCaseKey:null,aiSummaries:[],aiCurrentResult:null,timelineDocs:[],account:null,device:null};
 let toastTimer=null;
 let archiveRegistryRefreshTask=null;
 let workspaceLiveRefreshTask=null;
@@ -137,22 +137,28 @@ async function loadSessions({preserve=true}={}){
 }
 function renderArchiveData(){
   const docs=archiveRowsForScope(),typeSelect=$("archiveType"),currentType=typeSelect?.value||"";
-  if(typeSelect){const types=[...new Set(docs.map(d=>(d.extension||d.contentKind||"").toString().toLowerCase()).filter(Boolean))].sort();typeSelect.innerHTML='<option value="">Tüm türler</option>'+types.map(t=>`<option value="${esc(t)}">${esc(t.replace(/^\./,"").toUpperCase())}</option>`).join("");typeSelect.value=types.includes(currentType)?currentType:"";}
+  const localScope=$("archiveScope")?.value==="local";
+  if(typeSelect){const types=[...new Set([...(localScope?[".pdf",".udf",".xml",".jpg",".jpeg",".png",".tif",".tiff",".doc",".docx",".zip",".html",".bin"]:[]),...docs.map(d=>(d.extension||d.contentKind||"").toString().toLowerCase()),currentType].filter(Boolean))].sort();typeSelect.innerHTML='<option value="">Tüm türler</option>'+types.map(t=>`<option value="${esc(t)}">${esc(t.replace(/^\./,"").toUpperCase())}</option>`).join("");typeSelect.value=types.includes(currentType)?currentType:"";}
   renderArchiveCaseIndexTable();renderArchiveRows();
 }
 function refreshArchiveRegistryInBackground({forceRefresh=false}={}){
   if(archiveRegistryRefreshTask)return archiveRegistryRefreshTask;
   const requestedSessionId=state.selectedId;
-  const task=sendRuntime(MESSAGE.GET_ARCHIVE_REGISTRY,{sessionId:requestedSessionId,limit:20000,forceRefresh}).then(registry=>{
+  const task=sendRuntime(MESSAGE.GET_ARCHIVE_REGISTRY,{sessionId:requestedSessionId,summaryOnly:true,limit:1,forceRefresh}).then(registry=>{
     if(!registry)return null;
     if(requestedSessionId!==state.selectedId)return registry;
-    state.archiveRegistry=registry;
+    state.archiveRegistry=registry;state.archiveRegistryError=null;
     if(forceRefresh)workspaceRegistryDirty=false;
     if(!state.selectedId){const archiveCases=archiveCaseEntries(),current=state.selectedArchiveKey;state.selectedArchiveKey=archiveCases.some(item=>item.key===current)?current:(archiveCases[0]?.key||null);}
     renderSessionPicker();renderJobs();renderRecentArchiveDocs();renderOverviewHealth();renderOverview();
     if(state.view==="archive"&&($("archiveScope")?.value||"local")==="local")renderArchiveData();
     return registry;
-  }).catch(()=>null).finally(()=>{if(archiveRegistryRefreshTask===task)archiveRegistryRefreshTask=null;});
+  }).catch(error=>{
+    state.archiveRegistryError=String(error?.message||error);
+    setBanner("Yerel arşiv özeti okunamadı: "+state.archiveRegistryError,"bad");
+    if(state.view==="archive")renderArchiveRows();
+    return null;
+  }).finally(()=>{if(archiveRegistryRefreshTask===task)archiveRegistryRefreshTask=null;});
   archiveRegistryRefreshTask=task;
   return task;
 }
@@ -600,7 +606,7 @@ async function renderAiWorkspace(){
 async function ensureReport(){if(state.report||!state.selectedId)return state.report;if(!state.selectedId)return null;state.report=await sendRuntime(MESSAGE.GET_REPORT_DATA,{sessionId:state.selectedId});return state.report;}
 function archiveRowsForScope(){
   if($("archiveScope")?.value==="session")return Array.isArray(state.report?.documents)?state.report.documents:[];
-  const docs=Array.isArray(state.archiveRegistry?.documents)?state.archiveRegistry.documents:[],selected=selectedArchiveCase();if(!selected)return docs;return docs.filter(d=>archiveCaseKey({institutionName:d.institutionName||archiveCaseDescriptor(d).court,caseId:d.caseId||archiveCaseDescriptor(d).caseId})===selected.key);
+  return Array.isArray(state.archivePageData)?state.archivePageData:[];
 }
 function archiveRowStatusLabel(status){
   if(status==="archived")return"Fiziksel arşivde";
@@ -638,19 +644,62 @@ async function loadArchive(){
   if(scope==="session"){
     const report=await ensureReport();
     if(!report){$("archiveRows").textContent="";$("archiveEmpty").hidden=false;return;}
-  }else{
-    try{state.archiveRegistry=await refreshArchiveRegistryInBackground()||state.archiveRegistry;}
-    catch(error){state.archiveRegistry={documents:[],uniqueFiles:0,presentFiles:0,missingFiles:0,error:String(error)};showToast(String(error).replace(/^Error:\s*/,""),true);}
+    renderArchiveData();
+    return;
   }
+  await refreshArchiveRegistryInBackground();
   renderArchiveData();
+  await loadArchivePage();
+}
+async function loadArchivePage(){
+  if(($("archiveScope")?.value||"local")!=="local")return;
+  const requestId=++state.archivePageRequestId;
+  const selection=selectedArchiveCase();
+  const query={
+    sessionId:state.selectedId,
+    limit:PAGE_SIZE,offset:state.archivePage*PAGE_SIZE,
+    search:$("archiveSearch").value.trim(),
+    status:$("archiveStatus").value,
+    extension:$("archiveType").value,
+    institutionName:selection?.institutionName||"",
+    caseId:selection?.caseId||""
+  };
+  state.archivePageLoading=true;state.archivePageError=null;renderArchiveRows();
+  try{
+    const result=await sendRuntime(MESSAGE.GET_ARCHIVE_REGISTRY,query);
+    if(requestId!==state.archivePageRequestId)return;
+    if(!result||!Array.isArray(result.documents)||!Number.isFinite(Number(result.matchedFiles)))
+      throw new Error("ARCHIVE_REGISTRY_PAGE_INVALID");
+    state.archivePageData=result.documents;
+    state.archivePageTotal=n(result.matchedFiles);
+    state.archivePageError=null;
+    if(!state.archiveRegistry||!state.archiveRegistry.archiveExists){
+      state.archiveRegistry={...result,documents:[]};
+      if(!state.selectedId){
+        const available=archiveCaseEntries();
+        state.selectedArchiveKey=available.some(item=>item.key===state.selectedArchiveKey)?state.selectedArchiveKey:(available[0]?.key||null);
+        renderSessionPicker();renderJobs();
+      }
+    }
+  }catch(error){
+    if(requestId!==state.archivePageRequestId)return;
+    state.archivePageData=[];state.archivePageTotal=0;
+    state.archivePageError=String(error?.message||error);
+    setBanner("Yerel arşiv sayfası okunamadı: "+state.archivePageError,"bad");
+  }finally{
+    if(requestId===state.archivePageRequestId){state.archivePageLoading=false;renderArchiveRows();}
+  }
 }
 function renderArchiveRows(){
   renderArchiveCaseIndexTable();
   const scope=$("archiveScope")?.value||"local",docs=archiveRowsForScope();
   const q=$("archiveSearch").value.trim().toLocaleLowerCase("tr-TR"),status=$("archiveStatus").value,type=$("archiveType").value;
-  const filtered=docs.filter(d=>{const statusMatch=!status||(status==="local_present"?archiveRowHasPhysicalFile(d):d.status===status);return statusMatch&&(!type||(d.extension||d.contentKind||"").toString().toLowerCase()===type)&&(!q||`${d.documentTitle||""} ${d.originalFilename||""} ${d.caseId||""} ${d.targetPath||""}`.toLocaleLowerCase("tr-TR").includes(q));});
-  const pages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));state.archivePage=Math.min(state.archivePage,pages-1);
-  const slice=filtered.slice(state.archivePage*PAGE_SIZE,(state.archivePage+1)*PAGE_SIZE),tbody=$("archiveRows");tbody.textContent="";
+  const local=scope==="local";
+  const filtered=local?docs:docs.filter(d=>{const statusMatch=!status||(status==="local_present"?archiveRowHasPhysicalFile(d):d.status===status);return statusMatch&&(!type||(d.extension||d.contentKind||"").toString().toLowerCase()===type)&&(!q||`${d.documentTitle||""} ${d.originalFilename||""} ${d.caseId||""} ${d.targetPath||""}`.toLocaleLowerCase("tr-TR").includes(q));});
+  const total=local?state.archivePageTotal:filtered.length;
+  const pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+  if(!local)state.archivePage=Math.min(state.archivePage,pages-1);
+  const slice=local?filtered:filtered.slice(state.archivePage*PAGE_SIZE,(state.archivePage+1)*PAGE_SIZE),tbody=$("archiveRows");tbody.textContent="";
   for(const d of slice){
     const tr=document.createElement("tr"),title=d.documentTitle||d.originalFilename||"Adsız evrak",ext=(d.extension||d.contentKind||"-").toString().replace(/^\./,"").toUpperCase();
     const caseId=d.caseId||state.summary?.caseId||"-",runInfo=Number(d.runCount||0)>1?`<span class="cell-sub">${Number(d.runCount).toLocaleString("tr-TR")} çalışmada görüldü</span>`:"";
@@ -658,8 +707,14 @@ function renderArchiveRows(){
     tr.innerHTML=`<td><span class="cell-title">${esc(title)}</span>${d.warnings?.length?`<span class="cell-sub">⚠ ${esc(d.warnings.join(" • "))}</span>`:""}${runInfo}</td><td>${esc(caseId)}</td><td>${esc(ext)}</td><td>${esc(archiveRowStatusLabel(d.status))}</td><td title="${esc(target)}">${esc(shortPath(target,60))}</td><td>${esc(d.documentDate||formatDate(d.updatedAt||d.completedAt))}</td>`;
     tbody.append(tr);
   }
-  $("archiveEmpty").hidden=filtered.length>0;$("archivePageInfo").textContent=filtered.length?`${filtered.length.toLocaleString("tr-TR")} kayıt • ${state.archivePage+1}/${pages}. sayfa`:`0 kayıt`;
-  $("archivePrev").disabled=state.archivePage<=0;$("archiveNext").disabled=state.archivePage>=pages-1;
+  const readingError=local?(state.archivePageError||state.archiveRegistryError):null;
+  $("archiveEmpty").hidden=!(readingError||(!state.archivePageLoading&&total===0));
+  $("archiveEmpty").textContent=readingError?
+    "Arşiv okunamadı: "+readingError:
+    state.archivePageLoading?"Yerel arşiv yükleniyor…":"Bu filtrelerle eşleşen arşiv kaydı yok.";
+  $("archivePageInfo").textContent=state.archivePageLoading?"Arşiv yükleniyor…":
+    readingError?"Okuma hatası":total?`${total.toLocaleString("tr-TR")} kayıt • ${state.archivePage+1}/${pages}. sayfa`:"0 kayıt";
+  $("archivePrev").disabled=state.archivePageLoading||state.archivePage<=0;$("archiveNext").disabled=state.archivePageLoading||state.archivePage>=pages-1;
   const r=state.archiveRegistry||{};
   if(scope==="local"){
     $("arPresent").textContent=n(r.presentFiles).toLocaleString("tr-TR");$("arReview").textContent="-";$("arPartial").textContent=(n(r.partialFiles)+n(r.reviewFiles)).toLocaleString("tr-TR");$("arMissing").textContent=n(r.missingFiles).toLocaleString("tr-TR");
@@ -871,7 +926,17 @@ $("globalSearch").addEventListener("keydown",event=>{if(event.key!=="Enter")retu
 $("sessionPicker").addEventListener("change",async()=>{const value=$("sessionPicker").value||"";if(value.startsWith("archive::")){state.selectedId=null;state.selectedArchiveKey=decodeURIComponent(value.slice(9));}else{state.selectedId=value||null;state.selectedArchiveKey=null;}await loadSelectedSummary();showView(state.view);});
 $("refreshButton").addEventListener("click",async()=>{await loadSessions({preserve:true});state.report=null;state.problems=null;workspaceReportDirty=true;workspaceRegistryDirty=true;lastWorkspaceReportRefreshAt=0;lastWorkspaceRegistryRefreshAt=0;await refreshWorkspaceLiveState();if(state.view==="health")await runHealthCheck();showToast("Veriler yenilendi.");});
 $("jobSearch").addEventListener("input",renderJobs);$("jobStatusFilter").addEventListener("change",renderJobs);$("jobGrouping").addEventListener("change",()=>{renderJobs();renderRecentJobs();});
-$("archiveScope").addEventListener("change",()=>{state.archivePage=0;$("archiveStatus").value=$("archiveScope").value==="session"?"verified":"archived";if($("archiveScope").value==="local")workspaceRegistryDirty=true;else workspaceReportDirty=true;void loadArchive();});$("archiveSearch").addEventListener("input",()=>{state.archivePage=0;renderArchiveRows();});$("archiveStatus").addEventListener("change",()=>{state.archivePage=0;renderArchiveRows();});$("archiveType").addEventListener("change",()=>{state.archivePage=0;renderArchiveRows();});$("archivePrev").addEventListener("click",()=>{state.archivePage=Math.max(0,state.archivePage-1);renderArchiveRows();});$("archiveNext").addEventListener("click",()=>{state.archivePage+=1;renderArchiveRows();});
+$("archiveScope").addEventListener("change",()=>{state.archivePage=0;$("archiveStatus").value=$("archiveScope").value==="session"?"verified":"local_present";if($("archiveScope").value==="local")workspaceRegistryDirty=true;else workspaceReportDirty=true;void loadArchive();});
+let archiveSearchDelay=null;
+$("archiveSearch").addEventListener("input",()=>{
+  state.archivePage=0;
+  if($("archiveScope").value!=="local"){renderArchiveRows();return;}
+  clearTimeout(archiveSearchDelay);
+  archiveSearchDelay=setTimeout(()=>void loadArchivePage(),350);
+});
+for(const id of ["archiveStatus","archiveType"]){$(id).addEventListener("change",()=>{state.archivePage=0;if($("archiveScope").value==="local")void loadArchivePage();else renderArchiveRows();});}
+$("archivePrev").addEventListener("click",()=>{state.archivePage=Math.max(0,state.archivePage-1);if($("archiveScope").value==="local")void loadArchivePage();else renderArchiveRows();});
+$("archiveNext").addEventListener("click",()=>{state.archivePage+=1;if($("archiveScope").value==="local")void loadArchivePage();else renderArchiveRows();});
 $("problemTabs").querySelectorAll("[data-problem-tab]").forEach(b=>b.addEventListener("click",()=>{state.problemTab=b.dataset.problemTab;state.selectedProblemKeys.clear();$("problemTabs").querySelectorAll("button").forEach(x=>x.classList.toggle("active",x===b));renderProblemList();}));$("problemSearch").addEventListener("input",renderProblemList);$("problemCategory").addEventListener("change",renderProblemList);$("selectAllProblems").addEventListener("click",()=>{const p=state.problems||{};let rows=state.problemTab==="review"?(p.review||[]):state.problemTab==="deferred"?(p.deferred||[]):[];const q=$("problemSearch").value.trim().toLocaleLowerCase("tr-TR"),cat=$("problemCategory").value;rows=rows.filter(i=>(!cat||i.category===cat)&&(!q||`${i.title||""} ${i.errorCode||""}`.toLocaleLowerCase("tr-TR").includes(q)));rows.forEach(i=>state.selectedProblemKeys.add(i.key));renderProblemList();});
 $("retrySelectedProblems").addEventListener("click",async()=>{if(!state.selectedId||!state.selectedProblemKeys.size)return;const button=$("retrySelectedProblems");button.disabled=true;button.textContent="Yeniden başlatılıyor…";try{const result=await sendRuntime(MESSAGE.RETRY_SELECTED_PROBLEMS,{sessionId:state.selectedId,keys:[...state.selectedProblemKeys],queue:state.problemTab==="deferred"?"deferred":"review"});state.summary=result.session||state.summary;const resumed=result.autoResumed===true;const msg=state.problemTab==="deferred"?`${n(result.expedited)} kayıt öne alındı${resumed?" ve iş yeniden başlatıldı":""}.`:(n(result.revalidated)>0?`${n(result.revalidated)} kayıt yerel dosyadan yeniden doğrulandı; ${n(result.queued)} kayıt yeniden indirme kuyruğuna alındı${resumed?" ve iş yeniden başlatıldı":""}.`:`${n(result.queued)} kayıt yeniden deneme kuyruğuna alındı${resumed?" ve iş yeniden başlatıldı":""}.`);showToast(msg);state.selectedProblemKeys.clear();state.problems=null;await loadProblems();renderOverview();}catch(e){showToast(String(e).replace(/^Error:\s*/,""),true);}finally{updateProblemSelection();}});
 $("repairQueueButton").addEventListener("click",async()=>{if(!state.selectedId)return;const ok=confirm("Yalnız tamamlanmamış çalışma durumları yeniden kuyruğa alınacak. Doğrulanmış dosyalar ve fiziksel arşiv korunacak. Devam edilsin mi?");if(!ok)return;try{state.summary=await sendRuntime(MESSAGE.RESET_RUNTIME,{sessionId:state.selectedId});showToast(`${n(state.summary.lastRuntimeResetCount)} tamamlanmamış kayıt yeniden kuyruğa alındı.`);state.problems=null;await loadProblems();renderOverview();}catch(e){showToast(String(e).replace(/^Error:\s*/,""),true);}});
