@@ -175,3 +175,14 @@ DEC-S1-001 (kapsam onaylı)
 - **Pilot:** 3–5 görüşme **hedef**, gerçekleşince n/N ve gözlem kanıtı kaydedilecek.
 
 **Plan bir üretim veya teknik sertifikasyon beyanı değildir. S2-01–S2-05 işlerinin hiçbiri henüz başlatılmadı ya da DONE değildir.**
+
+## 11. 15 Ekim 2026 — S2-01 teknik başlangıç kaydı
+
+**Uygulama durumu:** `CODED / REVIEW PENDING`, ayrı [taslak PR #17](https://github.com/BuseIbsiroglu0637/UYAP_ARCHIVE_AI/pull/17). **Sprint Review kararı hâlâ PENDING**, bu kayıt ürün sahibinin tüm Sprint 2 kapsamı veya müşteri beta yayınını onayladığını göstermez.
+
+- `feature/s2-01-local-beta-gate` dalı, ürün temeli `feature/phase-1-product-foundation` üzerinden oluşturuldu; `develop` henüz ilgili release sözleşmesini taşımıyor.
+- S2-01'de extension runtime mesajları, otomatik kurtarma, portal tarama, native indirme/senkron/finalleme eylemleri beta profili için fail-closed koşuluna bağlandı; popup portal seçenekleri kapalıyken yerel arşiv seçenekleri korunuyor.
+- Kanal kimliği JS/Python/release-contract arasında doğrulanıyor. İmzalama pipeline'ı yoksa beta paketleme reddediliyor; mevcut manifest hâlâ portal yetkileri içerdiğinden beta artefaktı bilinçli olarak **BLOCKED**.
+- Kaynakta derlenen profil **şu an `rc`**. Böylece eski RC davranışı değişmedi; ticari beta test edildi/kuruldu iddiası yapılmaz.
+- PR #17 son commit `8c77ddf9` için GitHub offline ve Windows yaşam döngüsü CI **PASS**. Bu gerçek Windows beta kurulum, paket allowlist, erişim izni veya uzman hukukî kabulü yerine geçmez.
+- **Sıradaki P0:** S2-02 güvenli paket allowlist'i; sonra S2-03 tanı redaction. Beta yayın şartları ayrıca S1-06'da kalır.
