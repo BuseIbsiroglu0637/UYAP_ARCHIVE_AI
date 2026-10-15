@@ -1,6 +1,7 @@
 import {runOperation, getOperation, clearOperation, runNewJob, resumeSavedSession, getSourceDiagnostic, getFormatCensus, listKurumCases, openKurumCase} from "./scan-manager.js";
 import { isUyapDownload } from "../shared/download-origin.js";
 import { CLICK_DOWNLOAD_TIMEOUT_MS, MESSAGE } from "../shared/constants.js";
+import { RELEASE_CHANNEL, portalAutomationDisabled, assertPortalMessageAllowed } from "../shared/commercial-beta-policy.mjs";
 import {captureSaveRequest} from './save-capture.js';
 import {pingNativeAgent, askNativeAgent} from './native-agent.js';
 import {restoreArchiveDownloadUi} from './download-ui.js';
@@ -45,6 +46,7 @@ import {
   syncSessionGuardUi
 } from "./download-manager.js";
 
+const LOCAL_ONLY_BETA = portalAutomationDisabled();
 let recoveryTask = null;
 function trustedKurumContextSender(sender = {}) {
   if (sender.id !== chrome.runtime.id || !Number.isInteger(sender.tab?.id) || !Number.isInteger(sender.frameId)) return false;
@@ -76,6 +78,7 @@ async function testProductNotification() {
 }
 
 function scheduleRecovery() {
+  if (LOCAL_ONLY_BETA) return Promise.resolve(null);
   if (!recoveryTask) {
     recoveryTask = recoverSession()
       .catch((error) => logOperationalError("RECOVERY_SCHEDULE_FAILED", error))
@@ -84,9 +87,10 @@ function scheduleRecovery() {
   return recoveryTask;
 }
 
-chrome.runtime.onInstalled.addListener(() => { void syncSessionGuardUi(); void scheduleRecovery(); });
-chrome.runtime.onStartup.addListener(() => { void syncSessionGuardUi(); void listArchiveRegistry({limit:1}).catch(()=>{}); void scheduleRecovery(); });
+chrome.runtime.onInstalled.addListener(() => { if (!LOCAL_ONLY_BETA) { void syncSessionGuardUi(); void scheduleRecovery(); } });
+chrome.runtime.onStartup.addListener(() => { if (!LOCAL_ONLY_BETA) { void syncSessionGuardUi(); void scheduleRecovery(); } void listArchiveRegistry({limit:1}).catch(()=>{}); });
 async function handleOperationalAlarmSafely(alarm) {
+  if (LOCAL_ONLY_BETA) return; // Old persisted queue/watchdog alarms never restart a portal job.
   try {
     await handleAlarm(alarm);
   } catch (error) {
@@ -98,12 +102,16 @@ async function handleOperationalAlarmSafely(alarm) {
   }
 }
 chrome.alarms.onAlarm.addListener((alarm) => void handleOperationalAlarmSafely(alarm));
-chrome.downloads.onCreated.addListener((item) => void handleDownloadCreated(item));
-chrome.downloads.onChanged.addListener((delta) => void handleDownloadChanged(delta));
-void syncSessionGuardUi();
-void restoreArchiveDownloadUi().finally(() => { void syncSessionGuardUi(); void listArchiveRegistry({limit:1}).catch(()=>{}); return scheduleRecovery(); });
+chrome.downloads.onCreated.addListener((item) => { if (!LOCAL_ONLY_BETA) void handleDownloadCreated(item); });
+chrome.downloads.onChanged.addListener((delta) => { if (!LOCAL_ONLY_BETA) void handleDownloadChanged(delta); });
+if (!LOCAL_ONLY_BETA) {
+  void syncSessionGuardUi();
+  void restoreArchiveDownloadUi().finally(() => { void syncSessionGuardUi(); void listArchiveRegistry({limit:1}).catch(()=>{}); return scheduleRecovery(); });
+} else {
+  void listArchiveRegistry({limit:1}).catch(()=>{}); // Local archive visibility remains available.
+}
 function handleUyapNavigation(details) {
-  if (details.frameId !== 0) return;
+  if (LOCAL_ONLY_BETA || details.frameId !== 0) return;
   void handleSessionAuthNavigation(details.tabId, details.url)
     .then((authHandled) => authHandled ? true : attemptResumeLoginSession(details.tabId))
     .then((resumed) => resumed ? true : recoverRunningSessionAfterNavigation(details.tabId))
@@ -135,15 +143,16 @@ chrome.webNavigation.onHistoryStateUpdated?.addListener(handleUyapNavigation, uy
 // traffic; it only shortens correlation waits and detects auth redirects earlier.
 const uyapWebRequestFilter = {urls:["https://*.uyap.gov.tr/*", "https://uyap.gov.tr/*"]};
 chrome.webRequest?.onBeforeRequest?.addListener((details) => {
-  void observeUyapNetworkRequest(details).catch(()=>{});
+  if (!LOCAL_ONLY_BETA) void observeUyapNetworkRequest(details).catch(()=>{});
 }, uyapWebRequestFilter);
 chrome.webRequest?.onBeforeRedirect?.addListener((details) => {
-  void handleUyapNetworkRedirect(details).catch((error) => logOperationalError("NETWORK_REDIRECT_RECOVERY_FAILED", error));
+  if (!LOCAL_ONLY_BETA) void handleUyapNetworkRedirect(details).catch((error) => logOperationalError("NETWORK_REDIRECT_RECOVERY_FAILED", error));
 }, uyapWebRequestFilter);
 chrome.webRequest?.onCompleted?.addListener((details) => {
-  void handleUyapNetworkCompleted(details).catch((error) => logOperationalError("NETWORK_COMPLETION_RECOVERY_FAILED", error));
+  if (!LOCAL_ONLY_BETA) void handleUyapNetworkCompleted(details).catch((error) => logOperationalError("NETWORK_COMPLETION_RECOVERY_FAILED", error));
 }, uyapWebRequestFilter);
 chrome.tabs.onRemoved?.addListener((tabId) => {
+  if (LOCAL_ONLY_BETA) return;
   void handleSessionTabUnavailable(tabId)
     .catch((error) => logOperationalError("TAB_RECOVERY_FAILED", error));
 });
@@ -153,12 +162,14 @@ chrome.notifications?.onClicked?.addListener((notificationId) => {
     .catch((error) => logOperationalError("NOTIFICATION_FOCUS_FAILED", error));
 });
 chrome.notifications?.onButtonClicked?.addListener((notificationId, buttonIndex) => {
+  if (LOCAL_ONLY_BETA) return;
   void openLoginRouteFromNotification(notificationId, buttonIndex)
     .catch((error) => logOperationalError("LOGIN_ROUTE_NOTIFICATION_FAILED", error));
 });
 
 
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  if (LOCAL_ONLY_BETA) { suggest(); return; }
   getPendingDownload()
     .then(async (pending) => {
       const fresh = pending && Date.now() - pending.createdAt < Math.max(CLICK_DOWNLOAD_TIMEOUT_MS, Number(pending.clickTimeoutMs || 0));
@@ -189,6 +200,7 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const run = async () => {
+    assertPortalMessageAllowed(request?.type); // Before sender-specific and legacy entry paths.
     if (request.type === 'capture_save') {
       const pending = await getPendingDownload();
       if (!pending || pending.attemptId !== request.attemptId || pending.documentId !== request.documentId ||
@@ -211,6 +223,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Only extension UI pages may mutate the queue or request filesystem actions.
     if (sender.tab && !sender.url?.startsWith(chrome.runtime.getURL(''))) throw new Error('MESSAGE_NOT_AUTHORIZED');
     switch (request.type) {
+      case 'get_product_policy':
+        return {kind:"UYAP_PRODUCT_POLICY",schemaVersion:1,releaseChannel:RELEASE_CHANNEL,localOnly:LOCAL_ONLY_BETA,portalAutomationAllowed:!LOCAL_ONLY_BETA};
       case 'ping_agent':
         return pingNativeAgent();
       case "get_operation":
