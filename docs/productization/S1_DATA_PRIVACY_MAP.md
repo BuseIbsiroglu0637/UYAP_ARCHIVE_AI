@@ -128,12 +128,12 @@ Kanıtlar sentetik veya maskelenmiş vaka veri setleriyle oluşturulmalı; canl�
 
 **Kod ve ürün kaynakları** (`feature/ai-six-workflows`; `develop` içinde aynı davranışın bulunduğu varsayılmaz)
 
-- [AI policy](../../config/ai-policy.json): local gateway, provider seçenekleri, varsayılan kapalı ve kaynak kuralı.
-- [AI index](../../native/ai_local_index.py): kaynak doğrulama, `ai_documents` ve `ai_chunks` metin alanı.
-- [Native Agent](../../native/uyap_archive_agent.py): `ai-diagnostic-latest.json` alanları ve summary klasörleri.
-- [AI provider](../../native/ai_provider.py): local LM Studio veya OpenAI çağrısı.
-- [Chrome manifest](../../manifest.json): izinler, uyap/supabase host erişimi.
-- [Hesap config](../../account/account-config.js): `enabled:false` ve gelecekte Supabase hesabı.
+- [AI policy](https://github.com/BuseIbsiroglu0637/UYAP_ARCHIVE_AI/blob/feature/ai-six-workflows/config/ai-policy.json): local gateway, provider seçenekleri, varsayılan kapalı ve kaynak kuralı.
+- [AI index](https://github.com/BuseIbsiroglu0637/UYAP_ARCHIVE_AI/blob/feature/ai-six-workflows/native/ai_local_index.py): kaynak doğrulama, `ai_documents` ve `ai_chunks` metin alanı.
+- [Native Agent](https://github.com/BuseIbsiroglu0637/UYAP_ARCHIVE_AI/blob/feature/ai-six-workflows/native/uyap_archive_agent.py): `ai-diagnostic-latest.json` alanları ve summary klasörleri.
+- [AI provider](https://github.com/BuseIbsiroglu0637/UYAP_ARCHIVE_AI/blob/feature/ai-six-workflows/native/ai_provider.py): local LM Studio veya OpenAI çağrısı.
+- [Chrome manifest](https://github.com/BuseIbsiroglu0637/UYAP_ARCHIVE_AI/blob/feature/ai-six-workflows/manifest.json): izinler, uyap/supabase host erişimi.
+- [Hesap config](https://github.com/BuseIbsiroglu0637/UYAP_ARCHIVE_AI/blob/feature/ai-six-workflows/account/account-config.js): `enabled:false` ve gelecekte Supabase hesabı.
 - [Issue #6](../../issues/6): tanı loglarının güvenli maskeleme gereksinimi.
 
 Bu kaynakların hangi dala ait olduğu önemlidir; PR birleştirmesi ve sürüm kabulünden önce ref'ler doğrulanmalıdır.
