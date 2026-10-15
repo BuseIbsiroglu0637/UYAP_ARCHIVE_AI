@@ -433,7 +433,7 @@ async function refresh(){
     [activeSession,operation]=await Promise.all([sendRuntime(MESSAGE.GET_ACTIVE_SESSION),sendRuntime(MESSAGE.GET_OPERATION)]);
     if(Date.now()-lastRecentArchiveCheck>60000){
       lastRecentArchiveCheck=Date.now();
-      sendRuntime(MESSAGE.GET_ARCHIVE_REGISTRY,{limit:8}).then(value=>{recentArchiveRegistry=value;renderRecentArchive();}).catch(()=>{});
+      sendRuntime(MESSAGE.GET_ARCHIVE_REGISTRY,{limit:8,browseCache:true}).then(value=>{recentArchiveRegistry=value;renderRecentArchive();}).catch(()=>{});
     }
     if(Date.now()-lastAgentCheck>15000){lastAgentCheck=Date.now();sendRuntime("ping_agent").then(v=>{agentHealth=v;render(activeSession);}).catch(()=>{agentHealth={ok:false};render(activeSession);});}
     render(activeSession);
