@@ -35,11 +35,14 @@ if (-not $JsPolicy.Contains($JsChannelDeclaration) -or -not $PyPolicy.Contains($
 # portal host permissions. Current RC retains its historical behavior. Until a
 # dedicated beta manifest is built and reviewed, distributing beta is blocked.
 if ($ReleaseChannel -eq 'beta' -or $ReleaseChannel -eq 'stable') {
+  if ($ReleaseChannels.distributionCapabilities.codeSigningPipelineImplemented -ne $true) {
+    throw 'Unsigned commercial beta/stable build blocked: production code signing is not implemented.'
+  }
   $ExtensionManifestPath = Join-Path $PackageRoot 'manifest.json'
   $ExtensionManifest = Get-Content -LiteralPath $ExtensionManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-  $PortalHosts = @($ExtensionManifest.host_permissions | Where-Object { [string]$_ -match 'uyap\\.gov\\.tr' })
+  $PortalHosts = @($ExtensionManifest.host_permissions | Where-Object { [string]$_ -match 'uyap\.gov\.tr' })
   $PortalContent = @($ExtensionManifest.content_scripts | Where-Object {
-    (@($_.matches) -join ';') -match 'uyap\\.gov\\.tr'
+    (@($_.matches) -join ';') -match 'uyap\.gov\.tr'
   })
   if ($PortalHosts.Count -gt 0 -or $PortalContent.Count -gt 0) {
     throw 'Commercial local-only release cannot contain UYAP portal host permissions or content scripts.'
