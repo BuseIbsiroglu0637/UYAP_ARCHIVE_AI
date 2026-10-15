@@ -475,6 +475,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return listArchiveRegistry({
           sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,
           limit:request.limit,offset:request.offset,summaryOnly:request.summaryOnly===true,
+          browseCache:request.browseCache===true,
           search:request.search||"",status:request.status||"",extension:request.extension||"",
           institutionName:request.institutionName||"",caseId:request.caseId||"",
           forceRefresh:request.forceRefresh===true
