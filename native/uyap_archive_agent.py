@@ -27,6 +27,11 @@ import zipfile
 import zlib
 from collections import Counter
 from pathlib import Path, PurePosixPath
+from commercial_beta_policy import (
+    RELEASE_CHANNEL as NATIVE_RELEASE_CHANNEL,
+    assert_native_action_allowed,
+    portal_automation_disabled,
+)
 
 AGENT_VERSION = "2.7.64"
 PROTOCOL_VERSION = 2
@@ -5062,8 +5067,10 @@ def format_audit(message):
 
 def dispatch(message):
     action = message.get("action")
+    assert_native_action_allowed(action)  # old/forged extension messages cannot bypass beta channel
     if action == "ping":
-        return {"ok": True, "version": AGENT_VERSION, "protocolVersion":PROTOCOL_VERSION, "echo":message.get('probe'),
+        return {"ok": True, "releaseChannel": NATIVE_RELEASE_CHANNEL,
+                "portalAutomationAllowed": not portal_automation_disabled(), "version": AGENT_VERSION, "protocolVersion":PROTOCOL_VERSION, "echo":message.get('probe'),
                 "capabilities": ["sqlite", "sha256", "magic_bytes", "atomic_move", "quarantine", "attempt_journal", "attempt_owner_replay_v1", "validation_perf_v1", "persistent_session_v1", "final_integrity_v1", "source_adapter_v1", "chunked_archive_v1", "download_completion_guard_v1", "pdf_structure_v2", "uyap_pdf_control_suffix_1a04_v1", "bulk_reliability_v1", "legitimate_html_document_v1", "legitimate_html_document_v2", "image_document_v1", "uyap_streaming_udf_v1", "quarantine_revalidation_v1", "uyap_pdf_belgenet_suffix_v1", "uyap_pdf_avision_suffix_v1", "pdf_producer_comment_suffix_v1", "unified_document_sniffer_v1", "uyap_raw_xml_udf_v1", "format_lab_v1", "office_container_detection_v1", "bigtiff_detection_v1", "archive_registry_v1", "user_html_exclusion_v1", "visible_final_package_v1", "archive_root_rediscovery_v1", "sqlite_wal_dual_lane_v1", "sqlite_scandir_hotpath_v1", "jpeg_uyap_compatible_v1", "jpeg_windows_decoder_fallback_v1", "jpeg_windows_wic_decoder_v1", "document_type_truth_v1", "uyap_exact_content_truth_v1", "jpeg_uyap_trailing_preserve_v1", "html_circuit_deadline_v1", "source_path_self_heal_v1", "content_hash_reconciliation_v1", "verified_root_orphan_cleanup_v1", "opaque_binary_archive_v1", "finalization_validation_proof_v2", "duplicate_path_fresh_owner_v1", "portable_archive_resume_v1", "legacy_loose_archive_import_v2"]}
     if action == "select_existing_archive":
         return select_existing_archive(message)
