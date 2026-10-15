@@ -21,6 +21,7 @@ export const PORTAL_AUTOMATION_MESSAGES = Object.freeze([
   "retry_selected_problems",
   "confirm_html_exclusion",
   "retry_failed",
+  "repackage_archive", // Currently invokes Native finalize_archive; redesign before local-beta use.
   "open_login_route",
   "source_diagnostic",
   "format_lab_report",
