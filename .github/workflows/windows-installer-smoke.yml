@@ -6,6 +6,7 @@ on:
       - develop
       - 'feature/**'
       - 'fix/**'
+      - 'perf/**'
   pull_request:
     branches:
       - develop
@@ -24,6 +25,8 @@ jobs:
           python-version: '3.11'
       - name: S2-04 large archive pagination regression
         run: python native/s2_04_paged_archive_regression_test.py
+      - name: S2-05 read-only archive snapshot cache regression
+        run: python native/s2_05_archive_snapshot_cache_regression_test.py
       - name: Release identity
         run: python native/current_release_identity_test.py
       - name: Clean-install host contract
