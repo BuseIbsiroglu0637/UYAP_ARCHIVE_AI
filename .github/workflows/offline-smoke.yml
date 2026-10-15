@@ -30,6 +30,10 @@ jobs:
       - name: JavaScript syntax
         shell: bash
         run: find . -type f \( -name '*.js' -o -name '*.mjs' \) -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check
+      - name: S2-01 Native commercial beta policy regression
+        run: python native/s2_01_beta_policy_regression_test.py
+      - name: S2-01 browser policy regression
+        run: node --test native/s2_01_beta_policy.test.mjs
       - name: Release identity
         run: python native/current_release_identity_test.py
       - name: Phase 1 product contract and module boundaries
