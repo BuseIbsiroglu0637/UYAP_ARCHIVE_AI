@@ -7555,7 +7555,7 @@ export async function getCachedKurumCaseOpenContext(caseId) {
 
 export async function listArchiveRegistry({
   sessionId=null,downloadsRoot=null,limit=100,offset=0,summaryOnly=false,
-  search="",status="",extension="",institutionName="",caseId="",forceRefresh=false
+  search="",status="",extension="",institutionName="",caseId="",forceRefresh = false
 }={}) {
   let root=downloadsRoot;
   if(!root&&sessionId) {
@@ -7586,7 +7586,7 @@ export async function listArchiveRegistry({
     if(filterKey!==cached.filterKey)return null;
     return cached.result;
   };
-  const immediate=forceRefresh?null:cachedResult();
+  const immediate=forceRefresh ? null : cachedResult();
   if(immediate)return immediate;
 
   // Serialize expensive disk scans on the dedicated native registry lane.
