@@ -21,6 +21,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: S2-01 Native commercial beta policy regression
+        run: python native/s2_01_beta_policy_regression_test.py
       - name: Release identity
         run: python native/current_release_identity_test.py
       - name: Clean-install host contract
