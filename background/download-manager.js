@@ -7555,7 +7555,7 @@ export async function getCachedKurumCaseOpenContext(caseId) {
 
 export async function listArchiveRegistry({
   sessionId=null,downloadsRoot=null,limit=100,offset=0,summaryOnly=false,
-  search="",status="",extension="",institutionName="",caseId="",forceRefresh = false
+  search="",status="",extension="",institutionName="",caseId="",browseCache=false,forceRefresh = false
 }={}) {
   let root=downloadsRoot;
   if(!root&&sessionId) {
@@ -7575,6 +7575,7 @@ export async function listArchiveRegistry({
   const safeLimit=Math.min(100,Math.max(1,Number(limit)||100));
   const safeOffset=Math.max(0,Math.floor(Number(offset)||0));
   const filters={limit:safeLimit,offset:safeOffset,summaryOnly:summaryOnly===true,
+    browseCache:browseCache===true,forceRefresh:forceRefresh===true,
     search:String(search||"").slice(0,200),status:String(status||""),
     extension:String(extension||""),institutionName:String(institutionName||""),caseId:String(caseId||"")};
   const rootKey=String(root||"");
