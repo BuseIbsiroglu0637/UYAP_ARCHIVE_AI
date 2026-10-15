@@ -6,6 +6,7 @@ on:
       - develop
       - 'feature/**'
       - 'fix/**'
+      - 'perf/**'
   pull_request:
     branches:
       - main
@@ -33,6 +34,8 @@ jobs:
         run: find . -type f \( -name '*.js' -o -name '*.mjs' \) -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check
       - name: S2-04 large archive pagination regression
         run: python native/s2_04_paged_archive_regression_test.py
+      - name: S2-05 read-only archive snapshot cache regression
+        run: python native/s2_05_archive_snapshot_cache_regression_test.py
       - name: Release identity
         run: python native/current_release_identity_test.py
       - name: Phase 1 product contract and module boundaries
