@@ -42,9 +42,11 @@
 | **S1-02** MVP kapsamı | Ürün kapsamı ONAYLI; U1-U4 E2E doğrulama açık | [S1_MVP_SCOPE.md](S1_MVP_SCOPE.md) |
 | **S1-03** UYAP kullanım uygunluğu | İnceleme taslağı hazır; **portal otomasyonu ticari betada BLOCKED** | [S1_PORTAL_COMPLIANCE.md](S1_PORTAL_COMPLIANCE.md) |
 | **S1-04** KVKK ve veri güvenliği haritası | İlk kod temelli envanter hazır; hukukçu ve teknik güvenlik kabulü AÇIK | [S1_DATA_PRIVACY_MAP.md](S1_DATA_PRIVACY_MAP.md) |
-| S1-05–S1-08 | PLANLANDI | Henüz üretilmedi |
+| **S1-05** Teknik mimari ADR | İlk mimari taslak HAZIR; teknik onay ve enforcement uygulanması AÇIK | [S1_ARCHITECTURE_ADR.md](S1_ARCHITECTURE_ADR.md) |
+| **S1-06** Gerçek Windows ve opsiyonel AI beta kabulü | Matris ve kanıt şablonu HAZIR; sahada **NOT RUN** | [S1_BETA_ACCEPTANCE.md](S1_BETA_ACCEPTANCE.md) / [şablon](S1_BETA_TEST_RUN_TEMPLATE.yaml) |
+| S1-07–S1-08 | PLANLANDI | Henüz üretilmedi |
 
-**İlk P0 bulgular:** AI tanılama JSON'unda model yanıtından 1.200 karaktere kadar önizleme ve kaynak başlıkları bulunabilmesi; ticari yapılandırmada portal otomasyonunu kapatmanın henüz kanıtlanmamış olması; Windows/Chrome veri erişimi ve bulut AI aktarımına dair hukukî/teknik kapılar. Bunlar giderilmeden dış kullanıcı betası onaylanamaz.
+**İlk P0 bulgular:** AI tanılama JSON'unda model yanıtından 1.200 karaktere kadar önizleme ve kaynak başlıkları bulunabilmesi; ticari yapılandırmada portal otomasyonunu kapatmanın henüz kanıtlanmamış olması; Windows/Chrome veri erişimi ve bulut AI aktarımına dair hukukî/teknik kapılar; ayrıca geniş kapsamlı IExpress payload paketlemesi nedeniyle kaynak kökünden hassas/gereksiz dosyanın dağıtıma girebilmesi ve imza üretim hattının henüz uygulanmamış olması. Bunlar giderilmeden dış kullanıcı betası onaylanamaz.
 
 ## 3. Sprint teslimleri ve kabul ölçütleri
 
@@ -120,3 +122,11 @@
   https://developer.chrome.com/docs/webstore/user_data
 
 Bu kaynaklar hukukî veya teknik uygunluk **onayı** değildir. Güncel sözleşmeler ve gerçek dağıtım modeli yetkili uzmanlar tarafından doğrulanmalıdır.
+
+### 15 Ekim — S1-05 / S1-06 hazırlık notu
+
+- Teknik hedef mimarisi **taslak** olarak [S1-05](S1_ARCHITECTURE_ADR.md) belgesinde modellendi. Yerel arşiv/AI/lisans/kurulum ayırma kararlarının **kod karşılığı henüz tamamlanmadı**.
+- Gerçek Windows/Chrome/Edge test matrisi [S1-06](S1_BETA_ACCEPTANCE.md) içine, her testin `NOT RUN` durumu korunarak yazıldı. [Kanıt şablonu](S1_BETA_TEST_RUN_TEMPLATE.yaml) hazır.
+- Yeni ürün riski: `native/build_offline_setup.ps1` geniş `$PackageRoot` kopyası kullanıyor; imzalı ticari paket öncesi kesin allowlist ve tarama P0.
+- Platform desteği: Windows 11 ana beta platformu önerildi; Windows 10 standard destek sonu (14.10.2025) nedeniyle ancak güncel ESU ve açık destek kararıyla conditional.
+- Sonraki iş: S1-07 pilot kullanıcı araştırması, S1-08 Sprint 2 backlog'u; ardından Sprint Review GO / NO-GO.
