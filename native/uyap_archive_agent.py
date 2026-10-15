@@ -604,7 +604,7 @@ def select_existing_archive(message):
         selection = completed.stdout.decode("utf-8-sig", errors="replace").strip()
     root = resolve_existing_archive_selection(selection)
     saved = save_selected_archive_root(root)
-    result = list_archive_registry({"downloadsRoot": str(root), "limit": int(message.get("limit") or 10000)})
+    result = list_archive_registry({"downloadsRoot": str(root), "limit": 100, "summaryOnly": True})
     return {**result, **saved, "ok": True, "selected": True, "portableResumeEnabled": True}
 
 
@@ -4962,9 +4962,61 @@ def _archive_root_candidates(supplied_root=None):
     return unique
 
 
+def _archive_page_filter(documents, message):
+    """Bound Native Messaging responses; filter before offset so all pages remain reachable.
+
+    This helper is pure and used with synthetic records by regression tests.
+    Filtering/paging does not alter SQLite or the physical archive.
+    """
+    try:
+        offset = max(0, int(message.get("offset") or 0))
+        limit = min(100, max(1, int(message.get("limit") or 100)))
+    except (ValueError, TypeError) as error:
+        raise ValueError("ARCHIVE_PAGE_INVALID") from error
+    search = str(message.get("search") or "").strip().casefold()[:200]
+    status = str(message.get("status") or "").strip().lower()
+    extension = str(message.get("extension") or "").strip().lower()
+    institution = str(message.get("institutionName") or "").strip().casefold()
+    case_id = str(message.get("caseId") or "").strip().replace("_", "/").casefold()
+    summary_only = message.get("summaryOnly") is True
+    physical_statuses = {"archived", "verified", "skipped", "review", "partial"}
+
+    def matches(item):
+        if institution and str(item.get("institutionName") or "").casefold() != institution:
+            return False
+        if case_id and str(item.get("caseId") or "").replace("_", "/").casefold() != case_id:
+            return False
+        if status:
+            actual = str(item.get("status") or "").lower()
+            if status == "local_present":
+                if actual not in physical_statuses:
+                    return False
+            elif actual != status:
+                return False
+        if extension and str(item.get("extension") or "").lower() != extension:
+            return False
+        if search:
+            haystack = " ".join(str(item.get(key) or "") for key in (
+                "documentTitle", "originalFilename", "caseId", "targetPath"
+            )).casefold()
+            if search not in haystack:
+                return False
+        return True
+
+    filtered = [item for item in documents if matches(item)]
+    return {
+        "documents": [] if summary_only else filtered[offset:offset + limit],
+        "matchedFiles": len(filtered),
+        "pageOffset": offset,
+        "pageLimit": limit,
+        "hasMore": not summary_only and offset + limit < len(filtered),
+        "summaryOnly": summary_only,
+    }
+
+
 def list_archive_registry(message):
     supplied_root = message.get("downloadsRoot")
-    limit = max(1, min(int(message.get("limit") or 10000), 20000))
+    # Native Messaging responses are limited to 1 MiB; never send 12k documents at once.
     roots = []
     candidate_roots = _archive_root_candidates(supplied_root)
     for candidate in candidate_roots:
@@ -4981,7 +5033,8 @@ def list_archive_registry(message):
             "duplicateRunLinks": 0, "presentFiles": 0, "missingFiles": 0,
             "partialFiles": 0, "reviewFiles": 0, "physicalDiscoveredFiles": 0,
             "metadataVerifiedFiles": 0, "physicalReadyFiles": 0, "staleMetadataFiles": 0,
-            "totalCases": 0, "caseIndex": [], "registryWarnings": [], "documents": []
+            "totalCases": 0, "caseIndex": [], "registryWarnings": [],
+            **_archive_page_filter([], message)
         }
 
     rows = []
@@ -5393,9 +5446,10 @@ def list_archive_registry(message):
         "physicalDiscoveredFiles": len(physical_only),
         "metadataVerifiedFiles": metadata_verified_files, "physicalReadyFiles": physical_ready_files,
         "staleMetadataFiles": stale_metadata_files,
-        "totalCases": len(case_index), "caseIndex": case_index,
+        "totalCases": len(case_index), "caseIndex": case_index[:100],
+        "caseIndexTruncated": len(case_index) > 100,
         "registryWarnings": registry_warnings,
-        "documents": docs[:limit]
+        **_archive_page_filter(docs, message)
     }
 
 def discard_review_html(message):
