@@ -5018,7 +5018,75 @@ def _archive_page_filter(documents, message):
     }
 
 
+# S2-05: This is an in-process, short-lived browsing snapshot, not a
+# persistent index or integrity proof. It never writes into UYAP_Arsiv.
+_ARCHIVE_BROWSE_CACHE_TTL_SECONDS = 120
+_archive_browse_snapshot = None
+
+
+def _archive_registry_snapshot_fingerprint(supplied_root):
+    """Cheap invalidation for SQLite/WAL updates and top-level root changes.
+
+    Individual nested file edits are intentionally covered by the short TTL and
+    explicit refresh, not by a recursive stat walk that would recreate the
+    35-second bottleneck. Never reuse this cache as a download/AI integrity gate.
+    """
+    evidence = []
+    for root in _archive_root_candidates(supplied_root):
+        archive = root / "UYAP_Arsiv"
+        evidence.append(str(archive).casefold())
+        for path in (
+            archive, archive / "_archive.db", archive / "_archive.db-wal",
+            archive / "_archive.db-shm", archive / "_incoming"
+        ):
+            try:
+                stat = path.stat()
+                evidence.append((int(stat.st_mtime_ns), int(stat.st_size), int(getattr(stat, "st_ino", 0))))
+            except OSError:
+                evidence.append(None)
+    return tuple(evidence)
+
+
 def list_archive_registry(message):
+    """Return one bounded page. Reuse a private in-memory snapshot only for UI browsing."""
+    global _archive_browse_snapshot
+    browsing = message.get("browseCache") is True
+    now = time.monotonic()
+    key = str(message.get("downloadsRoot") or "").casefold()
+    signature = _archive_registry_snapshot_fingerprint(message.get("downloadsRoot")) if browsing else None
+    entry = _archive_browse_snapshot if browsing else None
+    hit = bool(
+        entry is not None
+        and message.get("forceRefresh") is not True
+        and entry["key"] == key and entry["fingerprint"] == signature
+        and 0 <= now - entry["builtAt"] <= _ARCHIVE_BROWSE_CACHE_TTL_SECONDS
+    )
+    if hit:
+        snapshot = entry["snapshot"]
+        age = max(0, int(now - entry["builtAt"]))
+    else:
+        snapshot = _build_archive_registry_snapshot(message)
+        age = 0
+        if browsing:
+            # Store only successful, read-only snapshots. Failed scans are never cached.
+            if snapshot.get("ok") is True:
+                _archive_browse_snapshot = {
+                    "key": key,
+                    "fingerprint": _archive_registry_snapshot_fingerprint(message.get("downloadsRoot")),
+                    "builtAt": time.monotonic(),
+                    "snapshot": snapshot
+                }
+            else:
+                _archive_browse_snapshot = None
+    # The full archive never crosses the native-messaging boundary.
+    result = {name: value for name, value in snapshot.items() if name != "documents"}
+    result.update(_archive_page_filter(snapshot.get("documents") or [], message))
+    result["snapshotCached"] = hit
+    result["snapshotAgeSeconds"] = age
+    return result
+
+
+def _build_archive_registry_snapshot(message):
     supplied_root = message.get("downloadsRoot")
     # Native Messaging responses are limited to 1 MiB; never send 12k documents at once.
     roots = []
@@ -5038,7 +5106,7 @@ def list_archive_registry(message):
             "partialFiles": 0, "reviewFiles": 0, "physicalDiscoveredFiles": 0,
             "metadataVerifiedFiles": 0, "physicalReadyFiles": 0, "staleMetadataFiles": 0,
             "totalCases": 0, "caseIndex": [], "registryWarnings": [],
-            **_archive_page_filter([], message)
+            "documents": []
         }
 
     rows = []
@@ -5453,7 +5521,7 @@ def list_archive_registry(message):
         "totalCases": len(case_index), "caseIndex": case_index[:100],
         "caseIndexTruncated": len(case_index) > 100,
         "registryWarnings": registry_warnings,
-        **_archive_page_filter(docs, message)
+        "documents": docs
     }
 
 def discard_review_html(message):
