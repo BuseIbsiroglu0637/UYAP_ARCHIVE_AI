@@ -18,6 +18,34 @@ $ChannelProperty = $ReleaseChannels.channels.PSObject.Properties[$ReleaseChannel
 if ($null -eq $ChannelProperty) { throw ('Bilinmeyen release channel: ' + $ReleaseChannel) }
 $ChannelPolicy = $ChannelProperty.Value
 if ([string]$ChannelPolicy.environment -ne $ReleaseEnvironment) { throw 'Release channel/environment sozlesmesi uyusmuyor.' }
+# S2-01: one release channel across the extension and the native host.
+# Product switches cannot be taken from chrome.storage or installer user input.
+$JsPolicyPath = Join-Path $PackageRoot 'shared\commercial-beta-policy.mjs'
+$PyPolicyPath = Join-Path $PackageRoot 'native\commercial_beta_policy.py'
+if (-not (Test-Path $JsPolicyPath) -or -not (Test-Path $PyPolicyPath)) { throw 'S2-01 release policy module missing; packaging blocked.' }
+$JsPolicy = Get-Content -LiteralPath $JsPolicyPath -Raw -Encoding UTF8
+$PyPolicy = Get-Content -LiteralPath $PyPolicyPath -Raw -Encoding UTF8
+$JsChannelDeclaration = 'export const RELEASE_CHANNEL = "' + $ReleaseChannel + '";'
+$PyChannelDeclaration = 'RELEASE_CHANNEL = "' + $ReleaseChannel + '"'
+if (-not $JsPolicy.Contains($JsChannelDeclaration) -or -not $PyPolicy.Contains($PyChannelDeclaration)) {
+  throw 'Release channel mismatch between release-contract.json and JS/Python policy modules.'
+}
+
+# A local-only commercial beta must not inject portal content scripts or retain
+# portal host permissions. Current RC retains its historical behavior. Until a
+# dedicated beta manifest is built and reviewed, distributing beta is blocked.
+if ($ReleaseChannel -eq 'beta' -or $ReleaseChannel -eq 'stable') {
+  $ExtensionManifestPath = Join-Path $PackageRoot 'manifest.json'
+  $ExtensionManifest = Get-Content -LiteralPath $ExtensionManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $PortalHosts = @($ExtensionManifest.host_permissions | Where-Object { [string]$_ -match 'uyap\\.gov\\.tr' })
+  $PortalContent = @($ExtensionManifest.content_scripts | Where-Object {
+    (@($_.matches) -join ';') -match 'uyap\\.gov\\.tr'
+  })
+  if ($PortalHosts.Count -gt 0 -or $PortalContent.Count -gt 0) {
+    throw 'Commercial local-only release cannot contain UYAP portal host permissions or content scripts.'
+  }
+}
+
 $PackageDirName = 'UYAP_Archive_AI_' + $ReleaseId
 Write-Host ('Release contract: ' + $ReleaseId + ' / ' + $ReleaseChannel + ' / ' + $ReleaseEnvironment)
 if ($ChannelPolicy.signedBuildRequired -eq $true) { Write-Warning 'Bu kanal imzali build gerektirir. Phase 2 code-signing kapisi kapanmadan bu cikti production-ready sayilmaz.' }
