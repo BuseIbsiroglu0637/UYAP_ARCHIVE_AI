@@ -3,19 +3,19 @@
 **Sprint:** Ürünleştirme Sprint 01  
 **Hedef kitle:** Bireysel avukat ve 2–5 kişilik küçük büro  
 **Tarih:** 15 Ekim 2026  
-**Durum:** ÜRÜN SAHİBİ İNCELEMESİNDE. Kabul edilmiş veya müşteriye sunulan bir kapsam değildir.  
+**Durum:** MVP ÜRÜN KAPSAMI ONAYLANDI (15.10.2026). TEKNİK / HUKUKÎ KABUL BEKLİYOR; müşteriye sunulmuş sürüm değildir.  
 **Bağlam:** [S1-01 Ürün Brief'i](S1_PRODUCT_BRIEF.md), [Sprint 01 Planı](SPRINT_01_PLAN.md).
 
 ## 1. V1 karar matrisi
 
 | Kimlik | İşlev | Karar önerisi | Mevcut gözlem | Çıkış kapısı |
 | --- | --- | --- | --- | --- |
-| M-01 | Yetkili edinilmiş belgelerden yerel arşiv / içe alma | DAHİL | Taşınabilir/eski arşiv seçimi ve fiziksel doğrulama mevcut; genel dışa aktarım içe alma alt akışı ürün için ayrıca test edilmeli | Kullanıcı hak/izin kontrolü; sadece yerel arşive güvenli alma ve doğru dava eşleme |
+| M-01 | Yetkili edinilmiş belgelerden yerel arşiv / içe alma | KAPSAMDA ONAYLANDI | Taşınabilir/eski arşiv seçimi ve fiziksel doğrulama mevcut; genel dışa aktarım içe alma alt akışı ürün için ayrıca test edilmeli | Kullanıcı hak/izin kontrolü; sadece yerel arşive güvenli alma ve doğru dava eşleme |
 | M-02 | SHA-256, boyut, eksik ve mükerrer belge | DAHİL | Kodda kapsamlı fiziksel doğrulama bulunuyor | Yanlış pozitif verified = 0; sessiz overwrite = 0; reddedilen kanıt görünür |
 | M-03 | Dava / evrak listesi ve arama | DAHİL | Workspace var | Dosya bazlı gezinme ve açma; kategori / tarih arama testi |
 | M-04 | Zaman çizelgesi ve sorun merkezi | DAHİL | Workspace modülleri var | Gerçek dosya–görsel ekran tutarlılığı ve hata gerekçesi |
 | M-05 | İmzalı Windows kurulum, onarım, geri alma | BETA ÖN KOŞUL | Dev kurulum/CI mevcut; gerçek imzalı kabul yok | Win10+Win11 Chrome+Edge, repair/rollback/uninstall kanıtı |
-| M-06 | Belge üzerinden kaynaklı dosya özeti | KOŞULLU DAHİL | Yerel model / provider akışları mevcut | Kapsam belirtimi, hukuk uzmanı kaynak/yanlış iddia kabulü |
+| M-06 | Belge üzerinden kaynaklı dosya özeti | OPSİYONEL / AYRI KABUL ŞARTI | Yerel model / provider akışları mevcut | Kapsam belirtimi, hukuk uzmanı kaynak/yanlış iddia kabulü |
 | M-07 | Önemli Tarihler, Taraflar, Ara Kararlar | AYRI ONAY KAPISI | Kural tabanlı iş akışları geliştirilmiş | Sentetik + izinli veri seti, yanlış kesinlik sıfır, belirsizliği göster |
 | M-08 | Tebligatlar ve hukukî süreler | AYRI YÜKSEK RİSK KAPISI | Kural tabanlı analiz var | Hukuk uzmanı ile tebliğ/başlangıç/resmî tatil/adli tatil ve yanlış yönlendirme senaryoları |
 | M-09 | UYAP/Kurum UYAP portal otomatik tarama/indirme | TİCARİ BETA BLOKE | Geliştirmeler var | Güncel portal sözleşmesi + gerekli izin + bağımsız hukukî güvenlik onayı |
@@ -86,11 +86,20 @@
 
 ## 5. Çıktı ve açık kararlar
 
-**Ürün sahibinden beklenen karar:**
-1. İlk beta **yerel içe alma + doğrulama + arama** çekirdeğiyle başlasın mı?
-2. Kaynaklı AI, ilk etapta bağımsız ve opsiyonel bir modül olarak kalsın mı?
-3. Portal otomasyonu uygunluk onayı gelene kadar ticari beta dışında tutulsun mu?
+**Ürün sahibinin 15 Ekim 2026 kararı (DEC-S1-001):**
+1. **ONAY:** İlk beta çekirdeği yerel içe alma + doğrulama + arama.
+2. **ONAY:** Kaynaklı AI bağımsız, kullanıcı tarafından etkinleştirilen, uzman ve güvenlik kabulüne bağlı opsiyonel modül.
+3. **SINIR KABULÜ:** Portal otomatik tarama/indirme ticari beta dışında ve kullanım sözleşmesi/izin değerlendirmesi bitene kadar BLOCKED. Bu tek başına dış hukukî izin vermez.
 
 **S1-02 kabul kriteri:** Yukarıdaki üç kapsam kararı yazılı onaylanır, U1–U4 akışları teknik uygulanabilirlik incelemesinden geçer ve kapsam dışında bırakılan özellikler sürüm belgesine işlenir.
 
-**Durum:** TASLAK; müşteri kabulü ve entegrasyon değişikliği henüz yapılmadı.
+**Durum:** Kapsam onaylandı; U1–U4 E2E teknik uygunluğu, ürün uygulaması, hukukî inceleme ve müşteri kabulü henüz tamamlanmadı.
+
+
+## 6. Kapsam onayı ve sürüm kapısı
+
+- **Karar:** DEC-S1-001, 15.10.2026, ürün sahibi. Local-first + opsiyonel AI ürün yaklaşımı.
+- **Beta içerik prensibi:** AI devre dışı olsa da temel arşiv kullanılabilir olmalı; AI çıktı ekranları belge kanıtı ve metin indeksi kapsama oranını sunmalı.
+- **Portal otomasyonu:** Kod tabanında mevcut olsa dahi pilot/ticari dağıtımda etkinleştirme için ayrı GO kararı gerekir; mevcut kodda otomasyonun teknik olarak kapatıldığı **doğrulanmış değildir**, S1-05/S1-06 kabulüne eklenmeli.
+- **Teknik mevcut durum:** Bazı yerel arşiv/migrasyon akışları mevcut; genel dosya içe aktarma bütün olası klasör tipleri için doğrulanmış değildir.
+- **İlgili teslimler:** [S1-03](S1_PORTAL_COMPLIANCE.md), [S1-04](S1_DATA_PRIVACY_MAP.md).
