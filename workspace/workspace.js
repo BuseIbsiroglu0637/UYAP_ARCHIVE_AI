@@ -642,13 +642,17 @@ function renderArchiveCaseIndexTable(){
 }
 async function loadArchive(){
   const scope=$("archiveScope")?.value||"local";
+  const viewRequestId=++state.archivePageRequestId;
+  state.archivePageData=[];state.archivePageTotal=0;state.archivePageLoading=scope==="local";
   if(scope==="session"){
     const report=await ensureReport();
     if(!report){$("archiveRows").textContent="";$("archiveEmpty").hidden=false;return;}
     renderArchiveData();
     return;
   }
+  renderArchiveRows(); // Never show a previous case while the next case summary loads.
   await refreshArchiveRegistryInBackground();
+  if(viewRequestId!==state.archivePageRequestId)return;
   renderArchiveData();
   await loadArchivePage();
 }
@@ -927,7 +931,7 @@ $("aiSend").addEventListener("click",async()=>{
   }
 });
 $("globalSearch").addEventListener("keydown",event=>{if(event.key!=="Enter")return;const q=$("globalSearch").value.trim();$("jobSearch").value=q;showView("jobs");renderJobs();});
-$("sessionPicker").addEventListener("change",async()=>{const value=$("sessionPicker").value||"";if(value.startsWith("archive::")){state.selectedId=null;state.selectedArchiveKey=decodeURIComponent(value.slice(9));}else{state.selectedId=value||null;state.selectedArchiveKey=null;}await loadSelectedSummary();showView(state.view);});
+$("sessionPicker").addEventListener("change",async()=>{const value=$("sessionPicker").value||"";if(value.startsWith("archive::")){state.selectedId=null;state.selectedArchiveKey=decodeURIComponent(value.slice(9));}else{state.selectedId=value||null;state.selectedArchiveKey=null;}state.archivePage=0;++state.archivePageRequestId;state.archivePageData=[];state.archivePageTotal=0;await loadSelectedSummary();showView(state.view);});
 $("refreshButton").addEventListener("click",async()=>{await loadSessions({preserve:true});state.report=null;state.problems=null;workspaceReportDirty=true;workspaceRegistryDirty=true;lastWorkspaceReportRefreshAt=0;lastWorkspaceRegistryRefreshAt=0;await refreshWorkspaceLiveState();if(state.view==="health")await runHealthCheck();showToast("Veriler yenilendi.");});
 $("jobSearch").addEventListener("input",renderJobs);$("jobStatusFilter").addEventListener("change",renderJobs);$("jobGrouping").addEventListener("change",()=>{renderJobs();renderRecentJobs();});
 $("archiveScope").addEventListener("change",()=>{state.archivePage=0;$("archiveStatus").value=$("archiveScope").value==="session"?"verified":"local_present";if($("archiveScope").value==="local")workspaceRegistryDirty=true;else workspaceReportDirty=true;void loadArchive();});
