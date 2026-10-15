@@ -1,3 +1,4 @@
+import { RELEASE_CHANNEL, portalAutomationDisabled } from "../shared/commercial-beta-policy.mjs";
 const HOST_NAME = "tr.gov.uyap.archive_agent";
 const REQUIRED_CAPABILITY = "validation_perf_v1";
 const REQUIRED_FINAL_CAPABILITY = "final_integrity_v1";
@@ -266,6 +267,15 @@ function versionAtLeast(value, minimum = MIN_AGENT_VERSION) {
 
 export async function pingNativeAgent() {
   const result = await askNativeAgent({action:'ping'});
+  if (result.ok && portalAutomationDisabled() &&
+      (result.releaseChannel !== RELEASE_CHANNEL || result.portalAutomationAllowed !== false)) {
+    return {
+      ok:false,
+      errorCode:"NATIVE_PRODUCT_PROFILE_MISMATCH",
+      error:"Yerel ajan bu beta sürümünün güvenlik profiliyle eşleşmiyor. Onaylı beta ajanı kurulmadan kullanılamaz.",
+      version:result.version
+    };
+  }
   if (result.ok && !versionAtLeast(result.version)) {
     return {
       ok:false,
