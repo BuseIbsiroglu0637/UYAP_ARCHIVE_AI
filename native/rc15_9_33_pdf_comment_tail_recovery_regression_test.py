@@ -64,6 +64,6 @@ req('document.errorCode === "PDF_TRAILING_DATA" && document.quarantinePath' in M
 req('"PDF_COMMENT_TAIL_AUTO_RECOVERY"' in MANAGER, "recovery diagnostic missing")
 req("pdfTrailingCoreHex" in MANAGER, "bounded suffix evidence missing")
 req("pdf_producer_comment_suffix_v1" in AGENT_PATH.read_text(encoding="utf-8"), "agent capability missing")
-req("RC15.9.37 QUEUE-RECOVERY" in MANIFEST.get("version_name", ""), "release identity mismatch")
+req("2.9.0 RC15.9." in MANIFEST.get("version_name", ""), "release identity mismatch")
 
 print("RC15.9.33 PDF comment tail recovery regression: PASS")

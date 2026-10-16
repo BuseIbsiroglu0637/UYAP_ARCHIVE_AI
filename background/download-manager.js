@@ -25,11 +25,12 @@ import { askNativeAgent, pingNativeAgent, getNativeBridgeStats } from "./native-
 import {sendToFrame, uyapFrames, getFrameClientStats} from './frame-client.js';
 import {validateDownloadRequest} from '../shared/request-policy.js';
 import { clearRecoveredPacingError, nextPacingState, pacingDelayMs, shouldRunDeferredRetry, summarizePerformance, updatePerformanceMetrics } from '../shared/performance-policy.js';
-import { attemptStrategyForDocument, appendRetryStrategyHistory, contentEndpointCooldownMs, htmlRetryDecision, isIncompleteContentError, isIsolatedContentError, nextRetryStrategy, retryStrategySupported } from '../shared/failure-policy.js';
+import { attemptStrategyForDocument, appendRetryStrategyHistory, contentEndpointCooldownMs, htmlRetryDecision, isIncompleteContentError, isIsolatedContentError, isLocalTargetError, nextRetryStrategy, retryStrategySupported } from '../shared/failure-policy.js';
 import { suppressArchiveDownloadUi, restoreArchiveDownloadUi, handleArchiveDownloadUiAlarm, forgetManagedDownload } from './download-ui.js';
 import { FINAL_RECOVERY_MAX_PASSES, planFinalRecovery } from '../shared/final-recovery.js';
 import { showLoginRequiredNotification, clearLoginRequiredNotification, showArchiveCompletionNotification, showArchiveProblemNotification } from './session-notifications.js';
 import { classifyAuthRoute, isUyapHostUrl } from '../shared/auth-routes.js';
+import { DIAGNOSTIC_SCHEMA_VERSION, diagnosticReference, normalizeDiagnosticEvent, sanitizeDiagnosticMetadata, sanitizeDiagnosticText as sanitizePrivacyText } from "../shared/diagnostic-policy.js";
 
 const ACTIVE_SESSION_KEY = "activeSessionId";
 const PENDING_DOWNLOAD_KEY = "pendingDownload";
@@ -55,6 +56,9 @@ const completingDownloads = new Set();
 const preservedNativeRetryDownloads = new Set();
 const TRANSIENT_NATIVE_ERROR_CODE = "NATIVE_AGENT_UNAVAILABLE";
 const MAX_NATIVE_OPERATION_RETRIES = 3;
+const SOURCE_PATH_SYSTEMIC_THRESHOLD = 3;
+const SOURCE_PATH_SYSTEMIC_WINDOW_MS = 2 * 60_000;
+const SOURCE_PATH_SYSTEMIC_PAUSE_REASON = "SOURCE_PATH_SYSTEMIC";
 const NATIVE_OPERATION_ERROR_CODES = new Set(["NATIVE_DB_BUSY", "NATIVE_FILE_BUSY", "NATIVE_OPERATION_FAILED"]);
 const ARCHIVE_REGISTRY_CACHE_TTL_MS = 60_000;
 let archiveRegistryCache = null;
@@ -918,51 +922,60 @@ const DIAGNOSTIC_EVENT_EXPORT_LIMIT = 1000;
 const DIAGNOSTIC_PROBLEM_LIMIT = 500;
 
 function compactDiagnosticDetail(detail = {}) {
-  const allowed = {};
-  for (const [key, value] of Object.entries(detail || {})) {
-    if (value === undefined || value === null) continue;
-    if (typeof value === "string") allowed[key] = value.slice(0, 500);
-    else if (typeof value === "number" || typeof value === "boolean") allowed[key] = value;
-    else if (Array.isArray(value)) allowed[key] = value.slice(0, 12).map((item) => String(item).slice(0, 120));
-  }
-  return allowed;
+  return sanitizeDiagnosticMetadata(detail);
 }
 
 async function recordDiagnosticEvent(sessionId, type, detail = {}) {
   if (!sessionId || !type) return;
   try {
     const atMs = Date.now();
+    const sourceDetail = {...(detail || {})};
+    const rawDocumentIdentity = sourceDetail.documentId || sourceDetail.sourceDocumentId || null;
+    delete sourceDetail.documentId;
+    delete sourceDetail.sourceDocumentId;
+
+    if (rawDocumentIdentity) {
+      sourceDetail.documentRef = await diagnosticReference(sessionId, rawDocumentIdentity);
+    }
+
+    const level = sourceDetail.level
+      || (sourceDetail.errorCode || sourceDetail.error ? "error" : /(?:FAILED|REJECTED|TIMEOUT|AMBIGUOUS|EXHAUSTED|BLOCKED)/.test(String(type)) ? "warn" : "info");
+    delete sourceDetail.level;
+
+    const normalized = normalizeDiagnosticEvent({
+      timestamp: new Date(atMs).toISOString(),
+      level,
+      component: "archive-engine",
+      event: type,
+      release: chrome.runtime.getManifest().version_name || chrome.runtime.getManifest().version || null,
+      sessionRef: "<session>",
+      errorCode: sourceDetail.errorCode || null,
+      durationMs: sourceDetail.durationMs ?? null,
+      retryCount: sourceDetail.retryCount ?? sourceDetail.attempts ?? null,
+      metadata: sourceDetail
+    });
+
     await diagnosticStore.put({
       sessionId,
       atMs,
-      at: new Date(atMs).toISOString(),
-      type: String(type).slice(0, 80),
-      ...compactDiagnosticDetail(detail)
+      at: normalized.timestamp,
+      type: normalized.event,
+      schemaVersion: normalized.schemaVersion,
+      level: normalized.level,
+      component: normalized.component,
+      release: normalized.release,
+      errorCode: normalized.errorCode,
+      durationMs: normalized.durationMs,
+      retryCount: normalized.retryCount,
+      ...normalized.metadata
     });
   } catch {
-    // Test kaydı yardımcı bir katmandır; ana kuyruğu asla durdurmamalıdır.
+    // Tanılama yardımcı bir katmandır; ana kuyruğu asla durdurmamalıdır.
   }
 }
 
 function sanitizeDiagnosticText(value, maxLength = 400) {
-  return String(value ?? "")
-    .replace(/https?:\/\/[^\s]+/gi, "[URL]")
-    .replace(/[A-Za-z]:[\\/][^\r\n]+/g, "[PATH]")
-    .replace(/\b\d{8,30}\b/g, "[ID]")
-    .slice(0, maxLength);
-}
-
-async function diagnosticReference(sessionId, value) {
-  const input = `${sessionId}|${String(value ?? "")}`;
-  try {
-    const bytes = new TextEncoder().encode(input);
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    return Array.from(new Uint8Array(digest)).slice(0, 10).map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  } catch {
-    let hash = 2166136261;
-    for (const char of input) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 16777619); }
-    return `fallback-${(hash >>> 0).toString(16).padStart(8, "0")}`;
-  }
+  return sanitizePrivacyText(value, maxLength);
 }
 
 function runtimeFootprintSample() {
@@ -3866,6 +3879,11 @@ export async function startSession(sessionId, tabId = null) {
     loginNotificationFallback: false,
     loginNotificationError: null,
     sessionGuardStatus: "HEALTHY",
+    queueError: null,
+    sourcePathMissingSystemicStreak: 0,
+    sourcePathMissingLastDocumentKey: null,
+    sourcePathMissingLastAt: null,
+    sourcePathMissingRecentDocuments: [],
     recoveryCount: 0,
     healthyVerifiedSinceRecovery: 0,
     consecutiveStartFailures: 0,
@@ -5198,6 +5216,7 @@ export async function handleDownloadChanged(delta) {
       attemptId: document.attemptId,
       sessionId: document.sessionId,
       filename: item?.filename || document.actualFilename,
+      downloadsRoot: pipelineSession?.downloadsRoot || null,
       stagingPath: document.stagingPath,
       targetPath: document.targetPath,
       extension: document.extension,
@@ -5362,6 +5381,14 @@ export async function handleDownloadChanged(delta) {
     } else if (agent.valid) {
       attemptOk = true;
       invalidateArchiveRegistryCache();
+      await resetSourcePathSystemicSignal(document.sessionId);
+      if (agent.sourcePathRecovered) {
+        await recordDiagnosticEvent(document.sessionId, "SOURCE_PATH_STAGING_RECOVERED", {
+          documentId: document.documentId || null,
+          mode: agent.sourcePathRecoveryMode || "known-downloads-root-staging",
+          browserDownloadId: item?.id || null
+        });
+      }
       await documentStore.update(document.key, {
         status: STATUS.VERIFIED,
         warnings: Array.isArray(agent.warnings) ? agent.warnings : [],
@@ -5404,6 +5431,8 @@ export async function handleDownloadChanged(delta) {
         provisionalUnmatchedPath: null,
         contentHashReconciled: Boolean(agent.contentHashReconciled),
         contentHashReuseMode: agent.contentHashReuseMode || null,
+        targetPathShortened: agent.targetPathShortened === true,
+        targetPathLength: Number.isFinite(agent.targetPathLength) ? agent.targetPathLength : null,
         localHashReconcilePending: false,
         localArchiveMatchState: document.localArchiveMatchState === "ambiguous_hash_pending"
           ? (agent.contentHashReconciled ? "content_hash_reconciled" : "content_hash_distinct")
@@ -5504,6 +5533,7 @@ export async function handleDownloadChanged(delta) {
       const browserFileSize = Number.isFinite(Number(agent.browserFileSize)) ? Number(agent.browserFileSize) : (item?.fileSize ?? null);
       const browserTotalBytes = Number.isFinite(Number(agent.browserTotalBytes)) ? Number(agent.browserTotalBytes) : (item?.totalBytes ?? null);
       const observedInvalidSize = Number.isFinite(Number(agent.observedSize)) ? Number(agent.observedSize) : null;
+      const sourcePathChecks = agent.sourcePathRecoveryChecks || {};
       await documentStore.update(document.key, {
         actualFilename: agent.quarantinePath || item?.filename || null,
         actualSize: observedInvalidSize ?? browserFileSize,
@@ -5511,6 +5541,10 @@ export async function handleDownloadChanged(delta) {
         browserFileSize,
         browserTotalBytes,
         observedInvalidSize,
+        sourcePathRecoveryMode: agent.sourcePathRecoveryMode || null,
+        sourcePathRecoveryKnownRootExists: sourcePathChecks["known-downloads-root-staging"]?.exists === true,
+        sourcePathRecoveryBrowserRootExists: sourcePathChecks["browser-reported-root-staging"]?.exists === true,
+        sourcePathRecoverySelectedRootExists: sourcePathChecks["selected-archive-root-staging"]?.exists === true,
         quarantinePath: agent.quarantinePath || null,
         invalidRetryHint: agent.retryHint || null,
         invalidSha256: agent.invalidSha256 || null,
@@ -5530,8 +5564,21 @@ export async function handleDownloadChanged(delta) {
         pdfStartXref: Number.isFinite(Number(agent.pdfStartXref)) ? Number(agent.pdfStartXref) : null,
         pdfXrefKind: agent.pdfXrefKind || null,
         pdfValidatorMode: Object.prototype.hasOwnProperty.call(agent, 'pdfTailWindow') ? 'v2' : (agent.errorCode === 'TRUNCATED_PDF' ? 'legacy' : null),
+        targetPathLength: Number.isFinite(agent.targetPathLength) ? agent.targetPathLength : null,
+        targetDirLength: Number.isFinite(agent.targetDirLength) ? agent.targetDirLength : null,
+        targetPathLimit: Number.isFinite(agent.targetPathLimit) ? agent.targetPathLimit : null,
+        fileErrorWinError: Number.isFinite(agent.fileErrorWinError) ? agent.fileErrorWinError : null,
+        fileErrorPathLength: Number.isFinite(agent.fileErrorPathLength) ? agent.fileErrorPathLength : null,
         completedAt: new Date().toISOString()
       });
+      if (effectiveErrorCode === "SOURCE_FILE_MISSING") {
+        await recordDiagnosticEvent(document.sessionId, "SOURCE_PATH_RECOVERY_PROBE_MISSED", {
+          documentId: document.documentId || null,
+          knownRootExists: sourcePathChecks["known-downloads-root-staging"]?.exists === true,
+          browserRootExists: sourcePathChecks["browser-reported-root-staging"]?.exists === true,
+          selectedRootExists: sourcePathChecks["selected-archive-root-staging"]?.exists === true
+        });
+      }
       if (effectiveErrorCode === "HTML_RESPONSE") {
         const sessionBeforeProbe = await sessionStore.get(document.sessionId);
         const htmlOrdinal = Math.max(1, Number(sessionBeforeProbe?.consecutiveHtmlFailures || 0) + 1);
@@ -5565,7 +5612,12 @@ export async function handleDownloadChanged(delta) {
           return;
         }
       }
-      await handleFailure(document, effectiveErrorCode, effectiveErrorDetail);
+      const sourcePathCircuit = effectiveErrorCode === "SOURCE_FILE_MISSING"
+        ? await maybePauseForSystemicSourcePathMissing(document, item, agent)
+        : {tripped:false};
+      if (!sourcePathCircuit.tripped) {
+        await handleFailure(document, effectiveErrorCode, effectiveErrorDetail);
+      }
       if (effectiveErrorCode === "HTML_RESPONSE") await handleHtmlFailure(document.sessionId, document.key);
     }
     await applyAttemptPerformance(document.sessionId, {
@@ -5718,6 +5770,92 @@ async function migrateTerminalHtmlReviewState(sessionId) {
   return changed;
 }
 
+function hasCompleteBrowserByteProof(item, agent = {}) {
+  const state = String(agent.browserState || item?.state || "");
+  const fileSize = Number.isFinite(Number(agent.browserFileSize))
+    ? Number(agent.browserFileSize)
+    : (Number.isFinite(Number(item?.fileSize)) ? Number(item.fileSize) : null);
+  const totalBytes = Number.isFinite(Number(agent.browserTotalBytes))
+    ? Number(agent.browserTotalBytes)
+    : (Number.isFinite(Number(item?.totalBytes)) ? Number(item.totalBytes) : null);
+  return state === "complete" &&
+    Number.isFinite(fileSize) && fileSize > 0 &&
+    Number.isFinite(totalBytes) && totalBytes > 0 &&
+    fileSize === totalBytes;
+}
+
+async function maybePauseForSystemicSourcePathMissing(document, item, agent = {}) {
+  if (!hasCompleteBrowserByteProof(item, agent)) return {tripped:false, streak:0, proof:false};
+  const session = await sessionStore.get(document.sessionId);
+  if (!session || session.status !== SESSION_STATUS.RUNNING) return {tripped:false, streak:0, proof:true};
+
+  const nowMs = Date.now();
+  const previousAtMs = Date.parse(String(session.sourcePathMissingLastAt || ""));
+  const withinWindow = Number.isFinite(previousAtMs) && (nowMs - previousAtMs) <= SOURCE_PATH_SYSTEMIC_WINDOW_MS;
+  const sameDocument = session.sourcePathMissingLastDocumentKey === document.key;
+  const previousStreak = withinWindow ? Math.max(0, Number(session.sourcePathMissingSystemicStreak || 0)) : 0;
+  const streak = sameDocument ? previousStreak : previousStreak + 1;
+  const seen = Array.isArray(session.sourcePathMissingRecentDocuments)
+    ? session.sourcePathMissingRecentDocuments.filter((value) => value && value !== document.key).slice(-4)
+    : [];
+  seen.push(document.key);
+
+  await sessionStore.update(document.sessionId, {
+    sourcePathMissingSystemicStreak: streak,
+    sourcePathMissingLastDocumentKey: document.key,
+    sourcePathMissingLastAt: new Date(nowMs).toISOString(),
+    sourcePathMissingRecentDocuments: seen.slice(-5)
+  });
+  await recordDiagnosticEvent(document.sessionId, "SOURCE_PATH_SYSTEMIC_SIGNAL", {
+    documentId: document.documentId || null,
+    errorCode: "SOURCE_FILE_MISSING",
+    streak,
+    threshold: SOURCE_PATH_SYSTEMIC_THRESHOLD,
+    browserBytesComplete: true
+  });
+
+  if (streak < SOURCE_PATH_SYSTEMIC_THRESHOLD) return {tripped:false, streak, proof:true};
+
+  await documentStore.update(document.key, {
+    status: STATUS.RETRY_WAIT,
+    errorCode: "SOURCE_FILE_MISSING",
+    errorMessage: "Tarayıcı indirmeyi tamamladı ancak yerel ajan dosyayı göremedi. Aynı sistemik hata farklı evraklarda tekrarlandığı için iş otomatik olarak duraklatıldı.",
+    retryAt: null,
+    retryQueuedAt: null,
+    retryClass: "systemic_source_path_pause",
+    retryExhausted: false
+  });
+  await clearSessionRuntimeAlarms(document.sessionId);
+  await sessionStore.update(document.sessionId, {
+    status: SESSION_STATUS.PAUSED,
+    pauseReason: SOURCE_PATH_SYSTEMIC_PAUSE_REASON,
+    pausedAt: new Date(nowMs).toISOString(),
+    sessionGuardStatus: "SOURCE_PATH_SYSTEMIC",
+    queueError: "Chrome indirmeyi tamamlıyor ancak Native Agent dosya yolunu göremiyor. Tekrar indirme zinciri durduruldu; yol görünürlüğü düzeltilip işe devam edilmesi gerekiyor.",
+    sourcePathMissingCircuitOpenedAt: new Date(nowMs).toISOString(),
+    sourcePathMissingCircuitTrips: Math.max(0, Number(session.sourcePathMissingCircuitTrips || 0)) + 1
+  });
+  await recordDiagnosticEvent(document.sessionId, "SOURCE_PATH_SYSTEMIC_PAUSED", {
+    documentId: document.documentId || null,
+    errorCode: "SOURCE_FILE_MISSING",
+    streak,
+    threshold: SOURCE_PATH_SYSTEMIC_THRESHOLD,
+    browserBytesComplete: true
+  });
+  return {tripped:true, streak, proof:true};
+}
+
+async function resetSourcePathSystemicSignal(sessionId) {
+  const session = await sessionStore.get(sessionId);
+  if (!session || !Number(session.sourcePathMissingSystemicStreak || 0)) return;
+  await sessionStore.update(sessionId, {
+    sourcePathMissingSystemicStreak: 0,
+    sourcePathMissingLastDocumentKey: null,
+    sourcePathMissingLastAt: null,
+    sourcePathMissingRecentDocuments: []
+  });
+}
+
 async function handleFailure(document, errorCode, errorMessage = null) {
   const latest = await documentStore.get(document.key) || document;
   const attempts = latest.attempts ?? 0;
@@ -5729,11 +5867,13 @@ async function handleFailure(document, errorCode, errorMessage = null) {
   const nextStrategy = nextRetryStrategy(latest, errorCode);
   const strategyRequired = retryStrategySupported(errorCode);
   const isolatedContentFailure = isIsolatedContentError(errorCode);
+  const localTargetFailure = isLocalTargetError(errorCode);
 
   // Deterministic per-document format/signature failures do not improve by
   // downloading the same bytes three more times. Quarantine once, surface the
   // record for review, and immediately let the rest of the queue continue.
-  if (isolatedContentFailure || htmlDecision?.retry === false || retryDelay === null || (strategyRequired && !nextStrategy)) {
+  // The same holds for a local archive target that cannot be written.
+  if (isolatedContentFailure || localTargetFailure || htmlDecision?.retry === false || retryDelay === null || (strategyRequired && !nextStrategy)) {
     await documentStore.update(document.key, {
       status: STATUS.REVIEW_REQUIRED,
       errorCode,
@@ -6492,6 +6632,7 @@ function problemCategory(errorCode = "", document = null) {
   if (["PDF_TRAILING_DATA", "TRUNCATED_PDF"].includes(code)) return "PDF yapı sorunu";
   if (["TRUNCATED_TIFF", "DOWNLOAD_SIZE_MISMATCH", "DOWNLOAD_NOT_COMPLETE", "SOURCE_FILE_MISSING", "DOWNLOAD_INTERRUPTED", "DOWNLOAD_STALLED"].includes(code)) return "Eksik / kesilmiş indirme";
   if (code === "LOCAL_ARCHIVE_AMBIGUOUS") return "Yerel arşiv eşleşmesi";
+  if (isLocalTargetError(code)) return "Arşiv klasörü yolu / yazma";
   if (["NATIVE_AGENT_UNAVAILABLE", "TRANSFER_INTEGRITY_FAILED"].includes(code) || NATIVE_OPERATION_ERROR_CODES.has(code)) return "Yerel ajan / dosya doğrulama";
   if (["DOWNLOAD_START_FAILED", "NATIVE_DOWNLOAD_NOT_CORRELATED", "CLICK_DOWNLOAD_TIMEOUT"].includes(code)) return "İndirme başlatma";
   return "Diğer";
@@ -6500,6 +6641,8 @@ function problemCategory(errorCode = "", document = null) {
 function problemRecommendedAction(document = {}) {
   const code = String(document.errorCode || "");
   if (code === "LOCAL_ARCHIVE_AMBIGUOUS") return "Yerel arşivi kontrol et";
+  if (code === "TARGET_PATH_TOO_LONG") return "Daha kısa bir arşiv klasörü seç";
+  if (code === "TARGET_PATH_UNAVAILABLE") return "Arşiv klasörü erişimini kontrol et";
   if ((code === "NATIVE_AGENT_UNAVAILABLE" || NATIVE_OPERATION_ERROR_CODES.has(code)) && Number.isInteger(document.downloadId) && document.stagingPath && document.actualFilename) {
     return "Yeniden doğrula";
   }
@@ -7410,63 +7553,64 @@ export async function getCachedKurumCaseOpenContext(caseId) {
 }
 
 
-export async function listArchiveRegistry({ sessionId = null, downloadsRoot = null, limit = 10000, forceRefresh = false } = {}) {
-  let root = downloadsRoot;
-  if (!root && sessionId) {
-    const session = await sessionStore.get(sessionId);
-    root = session?.downloadsRoot || null;
+export async function listArchiveRegistry({
+  sessionId=null,downloadsRoot=null,limit=100,offset=0,summaryOnly=false,
+  search="",status="",extension="",institutionName="",caseId="",browseCache=false,forceRefresh = false
+}={}) {
+  let root=downloadsRoot;
+  if(!root&&sessionId) {
+    const session=await sessionStore.get(sessionId);
+    root=session?.downloadsRoot||null;
   }
-  if (!root) {
-    const stored = await chrome.storage.local.get(LAST_DOWNLOADS_ROOT_KEY);
-    root = stored[LAST_DOWNLOADS_ROOT_KEY] || null;
+  if(!root) {
+    const stored=await chrome.storage.local.get(LAST_DOWNLOADS_ROOT_KEY);
+    root=stored[LAST_DOWNLOADS_ROOT_KEY]||null;
   }
-  if (!root) {
-    const sessions = await sessionStore.all();
-    const withRoot = sessions
-      .filter((session) => session?.downloadsRoot)
-      .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
-    root = withRoot[0]?.downloadsRoot || null;
+  if(!root) {
+    const sessions=await sessionStore.all();
+    const withRoot=sessions.filter(session=>session?.downloadsRoot)
+      .sort((a,b)=>Date.parse(b.updatedAt||b.createdAt||0)-Date.parse(a.updatedAt||a.createdAt||0));
+    root=withRoot[0]?.downloadsRoot||null;
   }
-  const safeLimit = Math.min(20000, Math.max(1, Number(limit) || 10000));
-  const rootKey = String(root || "");
-  const cachedResult = () => {
-    const cached = archiveRegistryCache;
-    if (!cached || Date.now() - cached.atMs > ARCHIVE_REGISTRY_CACHE_TTL_MS) return null;
-    if (rootKey !== cached.rootKey && rootKey !== cached.resolvedRootKey) return null;
-    const documents = Array.isArray(cached.result?.documents) ? cached.result.documents : [];
-    if (cached.limit < safeLimit && documents.length >= cached.limit) return null;
-    return {...cached.result, documents:documents.slice(0, safeLimit)};
+  const safeLimit=Math.min(100,Math.max(1,Number(limit)||100));
+  const safeOffset=Math.max(0,Math.floor(Number(offset)||0));
+  const filters={limit:safeLimit,offset:safeOffset,summaryOnly:summaryOnly===true,
+    browseCache:browseCache===true,forceRefresh:forceRefresh===true,
+    search:String(search||"").slice(0,200),status:String(status||""),
+    extension:String(extension||""),institutionName:String(institutionName||""),caseId:String(caseId||"")};
+  const rootKey=String(root||"");
+  const filterKey=JSON.stringify(filters);
+  const cachedResult=()=>{
+    const cached=archiveRegistryCache;
+    if(!cached||Date.now()-cached.atMs>ARCHIVE_REGISTRY_CACHE_TTL_MS)return null;
+    if(rootKey!==cached.rootKey&&rootKey!==cached.resolvedRootKey)return null;
+    if(filterKey!==cached.filterKey)return null;
+    return cached.result;
   };
-  const immediate = forceRefresh ? null : cachedResult();
-  if (immediate) return immediate;
+  const immediate=forceRefresh ? null : cachedResult();
+  if(immediate)return immediate;
 
-  // Popup ve Workspace aynı anda istekte bulunduğunda pahalı _archive.db
-  // taramalarını sıraya yığma. Tek taramaya katıl; gerekirse ardından yalnız
-  // bir daha geniş tarama başlat.
-  while (archiveRegistryInFlight) {
-    await archiveRegistryInFlight.promise;
-    if (!forceRefresh) {
-      const joined = cachedResult();
-      if (joined) return joined;
+  // Serialize expensive disk scans on the dedicated native registry lane.
+  while(archiveRegistryInFlight) {
+    try{await archiveRegistryInFlight.promise;}catch{/* Retry this independent request. */}
+    if(!forceRefresh) {
+      const joined=cachedResult();
+      if(joined)return joined;
     }
   }
-
-  const request = {rootKey, limit:safeLimit, promise:null};
-  request.promise = (async () => {
-    // Native Agent arşiv kökünü, tarayıcı kaydı sıfırlanmış olsa da keşfedebilir.
-    const result = await askNativeAgent({action:"list_archive_registry", downloadsRoot:root, limit:safeLimit});
-    if (!result?.ok) throw new Error(result?.error || "Yerel arşiv kayıtları okunamadı.");
-    archiveRegistryCache = {
-      rootKey,
-      resolvedRootKey:String(result.downloadsRoot || root || ""),
-      limit:safeLimit,
-      atMs:Date.now(),
-      result
-    };
-    if (result.archiveExists && result.downloadsRoot) await chrome.storage.local.set({[LAST_DOWNLOADS_ROOT_KEY]:result.downloadsRoot});
-    return {...result, documents:Array.isArray(result.documents)?result.documents.slice(0,safeLimit):[]};
+  const request={promise:null};
+  request.promise=(async()=>{
+    const result=await askNativeAgent({action:"list_archive_registry",downloadsRoot:root,...filters});
+    if(!result?.ok)throw new Error(result?.error||result?.errorCode||"Yerel arşiv kayıtları okunamadı.");
+    if(!Array.isArray(result.documents)||!Array.isArray(result.caseIndex))
+      throw new Error("ARCHIVE_REGISTRY_RESPONSE_INVALID");
+    archiveRegistryCache={rootKey,resolvedRootKey:String(result.downloadsRoot||root||""),
+      filterKey,atMs:Date.now(),result};
+    if(result.archiveExists&&result.downloadsRoot)
+      await chrome.storage.local.set({[LAST_DOWNLOADS_ROOT_KEY]:result.downloadsRoot});
+    return result;
   })().finally(()=>{if(archiveRegistryInFlight===request)archiveRegistryInFlight=null;});
-  archiveRegistryInFlight = request;
+  archiveRegistryInFlight=request;
   return request.promise;
 }
 
@@ -7476,7 +7620,7 @@ export async function selectExistingArchive() {
   if (active && [SESSION_STATUS.RUNNING, SESSION_STATUS.RECOVERING].includes(active.status)) {
     throw new Error("Çalışan iş sırasında arşiv kökü değiştirilemez. Önce işi duraklatın.");
   }
-  const result = await askNativeAgent({action:"select_existing_archive", limit:10000});
+  const result = await askNativeAgent({action:"select_existing_archive", limit:100});
   if (!result?.ok) throw new Error(result?.error || "Mevcut arşiv seçilemedi.");
   if (result.cancelled) return result;
   if (!result.downloadsRoot || !result.archiveRoot) throw new Error("Seçilen arşiv kökü doğrulanamadı.");
@@ -7830,6 +7974,16 @@ async function diagnosticDocumentView(sessionId, document) {
     browserFileSize: Number.isFinite(Number(document.browserFileSize)) ? Number(document.browserFileSize) : null,
     browserTotalBytes: Number.isFinite(Number(document.browserTotalBytes)) ? Number(document.browserTotalBytes) : null,
     observedInvalidSize: Number.isFinite(Number(document.observedInvalidSize)) ? Number(document.observedInvalidSize) : null,
+    sourcePathRecoveryMode: document.sourcePathRecoveryMode || null,
+    sourcePathRecoveryKnownRootExists: document.sourcePathRecoveryKnownRootExists === true,
+    sourcePathRecoveryBrowserRootExists: document.sourcePathRecoveryBrowserRootExists === true,
+    sourcePathRecoverySelectedRootExists: document.sourcePathRecoverySelectedRootExists === true,
+    targetPathLength: Number.isFinite(document.targetPathLength) ? document.targetPathLength : null,
+    targetDirLength: Number.isFinite(document.targetDirLength) ? document.targetDirLength : null,
+    targetPathLimit: Number.isFinite(document.targetPathLimit) ? document.targetPathLimit : null,
+    targetPathShortened: document.targetPathShortened === true,
+    fileErrorWinError: Number.isFinite(document.fileErrorWinError) ? document.fileErrorWinError : null,
+    fileErrorPathLength: Number.isFinite(document.fileErrorPathLength) ? document.fileErrorPathLength : null,
     actualMime: document.actualMime || null,
     pdfValidatorMode: document.pdfValidatorMode || null,
     pdfTrailingBytes: Number.isFinite(Number(document.pdfTrailingBytes)) ? Number(document.pdfTrailingBytes) : null,
@@ -7954,14 +8108,17 @@ export async function getDiagnosticData(sessionId = null) {
   const pendingDocument = pending?.key ? await documentStore.get(pending.key).catch(() => null) : null;
 
   return {
-    schemaVersion: 1,
-    kind: "UYAP_TEST_DIAGNOSTIC",
+    schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+    kind: "UYAP_PRIVACY_LIGHT_DIAGNOSTIC",
     generatedAt: new Date().toISOString(),
     privacy: {
+      localOnlyByDefault: true,
+      cloudUploadByDefault: false,
       rawDocumentTitlesIncluded: false,
+      rawDocumentIdentifiersIncluded: false,
       rawCaseOrCourtIncluded: false,
       rawUrlsOrTokensIncluded: false,
-      note: "Belge kimlikleri tanılama dosyasında oturuma özgü kısaltılmış SHA-256 referansına dönüştürülür."
+      note: "Tanılama olayları privacy-light şemada tutulur; belge kimlikleri yalnız oturuma özgü kısaltılmış referans olarak dışa aktarılır."
     },
     extension: {
       name: manifest.name,

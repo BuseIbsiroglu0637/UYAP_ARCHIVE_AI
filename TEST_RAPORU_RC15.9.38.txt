@@ -1,0 +1,70 @@
+UYAP Archive AI — RC15.9.38 FINAL RELEASE CANDIDATE TEST RAPORU
+Tarih: 13.10.2026
+
+SÜRÜM KİMLİĞİ
+- Extension: 2.9.0 RC15.9.38 ARCHIVE-SYNC-RACE-FIX
+- Native Agent: 2.7.68
+- Native protocol: 2
+- Branch: feature/archive-case-ai
+
+BU RAPORUN KAPSAMI
+Bu belge kaynak/CI tabanlı release-candidate doğrulamasıdır.
+Gerçek UYAP üretim ortamı ve gerçek Windows 10/11 acceptance testlerinin yerine geçmez.
+
+KRİTİK DÜZELTMELER
+- SOURCE_FILE_MISSING için sınırlı kaynak görünürlük polling'i: 100/250/500/1000 ms.
+- Chrome tamamlandı sinyali sonrası yalnız kesin/bilinen kaynak yollarında güvenli kurtarma.
+- sourcePathRecoveryChecks Native Agent yanıtına eklenerek path kurtarma tanılaması görünür hale getirildi.
+- Üç farklı evrakta sistemik SOURCE_FILE_MISSING tekrarında kuyruk devre kesici ile duraklatılır.
+- Aynı evrakların körlemesine tekrar tekrar indirilmesi sınırlandırılır.
+- AI dava özeti ayrı case_summary_v1 akışında deterministik kaynak seçimiyle çalışır.
+- Başarılı dosya özetleri yerel geçmişte saklanır; A4/PDF çıktı akışı mevcuttur.
+- Tanılama kayıtları ham hukuk evrakı/snippet saklamadan privacy-light kalır.
+
+OTOMATİK CI SONUÇLARI
+PASS — Offline source and regression smoke
+- Python syntax / compileall
+- JavaScript / MJS syntax
+- Release identity
+- Phase 1 product contract ve module boundaries
+- Privacy-light diagnostics contract
+- DB migration ve rollback contract
+- Release channel / packaging contract
+- AI context contract
+- rc15_9_8_source_path_self_heal_regression_test.py
+- rc15_9_11_state_race_security_regression_test.py
+- rc15_9_32_kurum_frame_context_auth_regression_test.py
+- rc15_9_35_workspace_live_sync_regression_test.py
+
+PASS — Windows installer lifecycle smoke
+- Release identity
+- Clean-install host contract
+- Agent lifecycle / rollback contract
+- Portable installer contract
+- Release-channel packaging contract
+- PowerShell installer parser/syntax
+
+RELEASE DOKÜMANTASYONU
+PASS — BUILD_INFO.txt Native Agent 2.7.68 ile hizalı.
+PASS — RC15.9.38_KURULUM_VE_TEST.txt uzantı + Native Agent 2.7.68 kurulumunu doğru anlatıyor.
+PASS — config/release-contract.json Native Agent 2.7.68 / minimum 2.7.68 / protocol 2.
+PASS — Eski 2.7.64 ve “bu paket ajan içermez” ifadeleri release dokümantasyonundan temizlendi.
+
+FINAL RC İÇİN MANUEL KAPILAR
+[BEKLİYOR] Windows'ta amd64 offline setup üretimi.
+[BEKLİYOR] Temiz/repair kurulum sonrası 2/2 Native Messaging ping.
+[BEKLİYOR] Chrome uzantı Reload sonrası gerçek UYAP canlı canary.
+[BEKLİYOR] Eksik evrak senaryosunda SOURCE_FILE_MISSING devre kesici ve polling davranışı.
+[BEKLİYOR] Dosya Özeti geçmişi + PDF çıktı kısa kabul testi.
+
+PAKETLEME KOMUTU
+PowerShell:
+  powershell -ExecutionPolicy Bypass -File .\native\build_offline_setup.ps1 -Arch amd64
+
+Beklenen çıktı:
+  UYAP_Archive_AI_RC15.9.38_Setup_amd64.exe
+
+KARAR
+Kaynak/CI kapıları: PASS.
+Final release candidate paketleme: HAZIR.
+Production-ready / signed installer kabulü: gerçek Windows/UYAP acceptance ve imzalama kapıları tamamlanmadan iddia edilmez.

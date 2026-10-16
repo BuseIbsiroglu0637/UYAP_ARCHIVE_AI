@@ -22,8 +22,9 @@ manager = (ROOT / "background" / "download-manager.js").read_text(encoding="utf-
 service = (ROOT / "background" / "service-worker.js").read_text(encoding="utf-8")
 agent_source = (HERE / "uyap_archive_agent.py").read_text(encoding="utf-8")
 
-req("RC15.9.37 QUEUE-RECOVERY" in manifest.get("version_name", ""), "release identity")
-req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
+req("2.9.0 RC15.9." in manifest.get("version_name", ""), "release identity")
+contract = json.loads((ROOT / "config" / "release-contract.json").read_text(encoding="utf-8"))
+req(agent.AGENT_VERSION == contract["nativeAgent"]["version"], agent.AGENT_VERSION)
 req("setInterval(()=>void refreshWorkspaceLiveState(),WORKSPACE_LIVE_REFRESH_MS)" in workspace,
     "Workspace live refresh timer missing")
 req("GET_ACTIVE_SESSION" in workspace[workspace.index("async function refreshWorkspaceLiveState"):],
@@ -35,7 +36,9 @@ req("forceRefresh = false" in manager and "forceRefresh ? null : cachedResult()"
     "archive registry cache cannot be bypassed")
 req("invalidateArchiveRegistryCache();" in manager, "archive mutations do not invalidate registry cache")
 req("forceRefresh:request.forceRefresh===true" in service, "service worker does not forward force refresh")
-req("local_path = _registry_row_path(root, row)" in agent_source,
+# S2-06: the snapshot memoizes _registry_row_path per (root, local_path, target_path).
+req("local_path = _registry_row_path(root, row)" in agent_source
+    or ("local_path = row_path(root, row)" in agent_source and "_registry_row_path(root, row, probe)" in agent_source),
     "case index still uses stale absolute local_path")
 req('if os.name != "nt" and re.match' not in agent_source[agent_source.index("case_groups = {}"):agent_source.index("physical_only = []")],
     "Windows-only stale path branch still present in case index")
@@ -51,7 +54,8 @@ with tempfile.TemporaryDirectory() as temporary:
     req(len(registry["caseIndex"]) == 1, registry["caseIndex"])
     case = registry["caseIndex"][0]
     req(case["caseId"] == "2026/221", case)
-    req(case["presentCount"] == 1 and case["problemCount"] == 1, case)
+    req(case["presentCount"] == 1 and case["problemCount"] == 0, case)
+    req(case["documentCount"] == 0 and case["unregisteredPhysicalCount"] == 1, case)
 
 # A copied DB row must resolve through target_path even when local_path points at the old PC.
 with tempfile.TemporaryDirectory() as temporary:

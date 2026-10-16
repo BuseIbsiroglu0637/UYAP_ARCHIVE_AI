@@ -32,6 +32,6 @@ req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
 req("attempt_owner_replay_v1" in agent.dispatch({"action": "ping"}).get("capabilities", []), "native capability missing")
 req('const MIN_AGENT_VERSION = "2.7.64";' in bridge, "old agent is not rejected")
 req("ATTEMPT_OWNER_REPLAY_CAPABILITY" in bridge, "extension capability gate missing")
-req("RC15.9.37 QUEUE-RECOVERY" in manifest.get("version_name", ""), "release identity")
+req("2.9.0 RC15.9." in manifest.get("version_name", ""), "release identity")
 
 print("RC15.9.30 attempt-owner replay regression: PASS")

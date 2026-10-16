@@ -1,0 +1,74 @@
+name: Offline source and regression smoke
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  offline-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python syntax
+        run: python -m compileall -q native
+      - name: JavaScript syntax
+        shell: bash
+        run: find . -type f \( -name '*.js' -o -name '*.mjs' \) -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check
+      - name: S2-04 large archive pagination regression
+        run: python native/s2_04_paged_archive_regression_test.py
+      - name: S2-05 read-only archive snapshot cache regression
+        run: python native/s2_05_archive_snapshot_cache_regression_test.py
+      - name: S2-06 registry scan without per-row resolve
+        run: python native/s2_06_registry_fast_scan_regression_test.py
+      - name: Release identity
+        run: python native/current_release_identity_test.py
+      - name: Phase 1 product contract and module boundaries
+        run: python native/phase1_product_contract_test.py
+      - name: Privacy-light diagnostics contract
+        run: node native/phase1_diagnostics_policy_test.mjs
+      - name: DB migration and rollback contract
+        run: python native/phase1_db_migration_contract_test.py
+      - name: Release channel and packaging contract
+        run: python native/phase1_release_channel_contract_test.py
+      - name: AI context contract
+        run: python native/ai_context_contract_test.py
+      - name: AI provider defaults to the local model
+        run: python native/ai_local_default_provider_test.py
+      - name: Important dates and case catalog regression
+        run: python native/important_dates_regression_test.py
+      - name: Court orders (Ara Kararlar ve Yapılacaklar) regression
+        run: python native/court_orders_regression_test.py
+      - name: Parties (Taraflar) regression
+        run: python native/parties_regression_test.py
+      - name: Case summary v2 regression
+        run: python native/case_summary_v2_regression_test.py
+      - name: Saved results (save / delete / restore) regression
+        run: python native/saved_results_regression_test.py
+      - name: PDF reader (vendored pypdf + stream fallback) regression
+        run: python native/pdf_reader_regression_test.py
+      - name: Tebligatlar (UETS mazbata, tebliğ-based last days) regression
+        run: python native/tebligat_regression_test.py
+      - name: Offline targeted regression tests
+        run: |
+          python native/rc15_9_8_source_path_self_heal_regression_test.py
+          python native/rc15_9_11_state_race_security_regression_test.py
+          python native/rc15_9_32_kurum_frame_context_auth_regression_test.py
+          python native/rc15_9_35_workspace_live_sync_regression_test.py

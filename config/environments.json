@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "defaultEnvironment": "prod",
+  "profiles": {
+    "dev": {
+      "allowedReleaseChannels": [
+        "alpha",
+        "beta",
+        "rc"
+      ],
+      "localFirst": true,
+      "cloudServicesEnabledByDefault": false,
+      "rawDocumentsCloudAllowedByDefault": false,
+      "aiEnabledByDefault": false,
+      "diagnostics": {
+        "level": "debug",
+        "includeRawLegalData": false,
+        "schemaVersion": 2,
+        "cloudUploadByDefault": false,
+        "maxEventPayloadBytes": 4096
+      },
+      "signingPolicy": "development-build"
+    },
+    "stage": {
+      "allowedReleaseChannels": [
+        "beta",
+        "rc"
+      ],
+      "localFirst": true,
+      "cloudServicesEnabledByDefault": false,
+      "rawDocumentsCloudAllowedByDefault": false,
+      "aiEnabledByDefault": false,
+      "diagnostics": {
+        "level": "operational",
+        "includeRawLegalData": false,
+        "schemaVersion": 2,
+        "cloudUploadByDefault": false,
+        "maxEventPayloadBytes": 4096
+      },
+      "signingPolicy": "signed-build-required"
+    },
+    "prod": {
+      "allowedReleaseChannels": [
+        "rc",
+        "stable"
+      ],
+      "localFirst": true,
+      "cloudServicesEnabledByDefault": false,
+      "rawDocumentsCloudAllowedByDefault": false,
+      "aiEnabledByDefault": false,
+      "diagnostics": {
+        "level": "privacy-light",
+        "includeRawLegalData": false,
+        "schemaVersion": 2,
+        "cloudUploadByDefault": false,
+        "maxEventPayloadBytes": 4096
+      },
+      "signingPolicy": "signed-build-required"
+    }
+  },
+  "runtimeOverridePolicy": {
+    "allowed": [
+      "account.enabled",
+      "account.supabaseUrl",
+      "account.publishableKey",
+      "account.apiBaseUrl",
+      "account.offlineGraceDays"
+    ],
+    "forbidden": [
+      "service_role",
+      "secretKey",
+      "privateKey",
+      "rawDocumentUploadByDefault"
+    ]
+  }
+}

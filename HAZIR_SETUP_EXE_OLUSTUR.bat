@@ -3,7 +3,7 @@ setlocal
 chcp 65001 >nul
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PS=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo UYAP Archive AI RC15.9.37 - OFFLINE SETUP.EXE OLUSTURUCU
+echo UYAP Archive AI - RELEASE-CONTRACT TABANLI OFFLINE SETUP.EXE OLUSTURUCU
 echo.
 echo Bu adim GELISTIRICI bilgisayarinda bir kez calistirilir.
 echo Resmi Python.org x64 runtime indirilir ve SHA-256 ile dogrulanir.

@@ -1,5 +1,7 @@
 import importlib.util
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -13,7 +15,7 @@ def req(cond, msg):
         raise AssertionError(msg)
 
 ping = agent.dispatch({'action':'ping','probe':'rc1598'})
-req(ping.get('version') == '2.7.64', ping)
+req(ping.get('version') == '2.7.68', ping)
 req('source_path_self_heal_v1' in ping.get('capabilities', []), ping)
 
 with tempfile.TemporaryDirectory() as td:
@@ -51,9 +53,95 @@ with tempfile.TemporaryDirectory() as td:
     req(result.get('errorCode') == 'SOURCE_FILE_MISSING', result)
     req(result.get('retryHint') == 'fresh_redownload', result)
 
+    # Chrome may briefly report a stale filename after onDeterminingFilename
+    # has already routed the completed bytes into the attempt staging path.
+    # The native agent must recover only that exact staging file under the
+    # already-known downloads root rather than burning all retries.
+    stale_browser_path = root / 'stale-browser-name' / 'evrak_123456.udf'
+    candidate = root / staging_rel
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_bytes(b'not-a-valid-udf-but-physically-present')
+    recovered = agent.dispatch({
+        'action':'validate_download',
+        'attemptId':'attempt-stale-browser-path',
+        'sessionId':session,
+        'filename':str(stale_browser_path),
+        'downloadsRoot':str(root),
+        'stagingPath':staging_rel,
+        'targetPath':f'UYAP_Arsiv/Test/2026_1/Evrak/{docid}.udf',
+        'extension':'.udf',
+        'browserState':'complete',
+        'browserExists':True,
+        'browserFileSize':candidate.stat().st_size,
+        'browserTotalBytes':candidate.stat().st_size,
+        'document':{
+            'documentId':docid,
+            'sourceSystem':'UYAP',
+            'caseId':'2026/1',
+            'documentTitle':'Test',
+            'bindingMethod':'native-uyap-exact-source-id',
+            'correlationMode':'exact',
+            'correlationCandidateCount':1,
+            'attempts':1,
+        }
+    })
+    req(recovered.get('sourcePathRecovered') is True, recovered)
+    req(recovered.get('sourcePathRecoveryMode') == 'known-downloads-root-staging', recovered)
+    req(recovered.get('errorCode') != 'SOURCE_FILE_MISSING', recovered)
+
+    delayed_doc = 'doc-delayed'
+    delayed_rel = f'UYAP_Arsiv/_incoming/{session}/{delayed_doc}.part'
+    delayed_candidate = root / delayed_rel
+    delayed_candidate.parent.mkdir(parents=True, exist_ok=True)
+    delayed_bytes = b'delayed-source-visible-after-browser-complete'
+
+    def materialize_delayed_source():
+        time.sleep(0.30)
+        delayed_candidate.write_bytes(delayed_bytes)
+
+    writer = threading.Thread(target=materialize_delayed_source, daemon=True)
+    writer.start()
+    delayed = agent.dispatch({
+        'action':'validate_download',
+        'attemptId':'attempt-delayed-source',
+        'sessionId':session,
+        'filename':str(root / 'stale-browser-name' / 'evrak_777777.udf'),
+        'downloadsRoot':str(root),
+        'stagingPath':delayed_rel,
+        'targetPath':f'UYAP_Arsiv/Test/2026_1/Evrak/{delayed_doc}.udf',
+        'extension':'.udf',
+        'browserState':'complete',
+        'browserExists':True,
+        'browserFileSize':len(delayed_bytes),
+        'browserTotalBytes':len(delayed_bytes),
+        'document':{
+            'documentId':delayed_doc,
+            'sourceSystem':'UYAP',
+            'caseId':'2026/1',
+            'documentTitle':'Delayed Test',
+            'bindingMethod':'native-uyap-exact-source-id',
+            'correlationMode':'exact',
+            'correlationCandidateCount':1,
+            'attempts':1,
+        }
+    })
+    writer.join(timeout=2)
+    req(delayed.get('sourcePathRecovered') is True, delayed)
+    req(delayed.get('sourcePathRecoveryMode') == 'known-downloads-root-staging', delayed)
+    req(delayed.get('errorCode') != 'SOURCE_FILE_MISSING', delayed)
+    checks = delayed.get('sourcePathRecoveryChecks') or {}
+    req((checks.get('known-downloads-root-staging') or {}).get('waitedMs', 0) >= 100, delayed)
+
 js = (HERE.parent / 'background' / 'download-manager.js').read_text(encoding='utf-8')
 req('SOURCE_PATH_RECOVERY_QUEUED' in js, 'missing compatibility recovery event')
 req('nativePathMissingResponse' in js, 'missing compatibility bridge classifier')
+req('downloadsRoot: pipelineSession?.downloadsRoot || null' in js, 'native validation must receive the known archive root')
+req('SOURCE_PATH_STAGING_RECOVERED' in js, 'successful path recovery must remain diagnosable')
+req('SOURCE_PATH_SYSTEMIC_THRESHOLD = 3' in js, 'systemic source-path threshold missing')
+req('SOURCE_PATH_SYSTEMIC_PAUSED' in js, 'systemic source-path pause event missing')
+req('SOURCE_PATH_SYSTEMIC_PAUSE_REASON' in js, 'systemic source-path pause reason missing')
+req('maybePauseForSystemicSourcePathMissing' in js, 'systemic source-path circuit helper missing')
+req('sourcePathMissingSystemicStreak: 0' in js, 'manual resume must reset the circuit streak')
 policy = (HERE.parent / 'shared' / 'failure-policy.js').read_text(encoding='utf-8')
 req("'SOURCE_FILE_MISSING'" in policy, 'SOURCE_FILE_MISSING not retryable')
 

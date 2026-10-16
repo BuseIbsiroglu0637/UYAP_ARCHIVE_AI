@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": 1,
+  "databaseName": "uyap-profesyonel-arsiv-v1",
+  "currentVersion": 6,
+  "minimumSupportedSourceVersion": 0,
+  "strategy": "additive-idempotent",
+  "downgrade": {
+    "supported": false,
+    "reason": "IndexedDB schema downgrade is not performed in place."
+  },
+  "rollback": {
+    "applicationRollbackAllowedWhenDatabaseVersionUnchanged": true,
+    "destructiveMigrationRequiresBackup": true,
+    "preMigrationBackupImplementedForDestructiveChanges": false,
+    "rule": "A future migration that deletes/renames stores, indexes or persisted fields must not ship until a tested backup/restore path exists."
+  },
+  "knownTransformations": [
+    {
+      "when": "oldVersion < 5",
+      "id": "normalize-document-derived-index-fields",
+      "destructive": false,
+      "fields": ["warningFlag", "retryPriority"]
+    },
+    {
+      "when": "oldVersion <= 6",
+      "id": "ensure-current-stores-and-indexes",
+      "destructive": false
+    }
+  ],
+  "releaseGate": {
+    "migrationPlanRequired": true,
+    "upgradeTestRequired": true,
+    "rollbackCompatibilityTestRequired": true,
+    "backupRestoreTestRequiredForDestructiveMigration": true
+  }
+}

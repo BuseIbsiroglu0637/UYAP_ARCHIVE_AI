@@ -25,10 +25,12 @@ import html
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
+from ai_local_index import (archive_case_scope_id as ai_archive_case_scope_id, build_index as ai_build_index, build_archive_case_index as ai_build_archive_case_index, inspect_archive_case as ai_inspect_archive_case, index_status as ai_index_status, search_index as ai_search_index)
+from ai_provider import provider_status as ai_provider_status, answer_from_local_index as ai_answer_from_local_index
 from collections import Counter
 from pathlib import Path, PurePosixPath
 
-AGENT_VERSION = "2.7.64"
+AGENT_VERSION = "2.7.68"
 PROTOCOL_VERSION = 2
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
@@ -43,6 +45,454 @@ RESPONSE_ID_SAMPLE_LIMIT = 100
 ARCHIVE_PART_MANIFEST = "_part-manifest.json"
 JPEG_UYAP_TRAILING_MAX_BYTES = 2 * 1024 * 1024
 PORTABLE_RESUME_CONFIG = "portable-resume-root.json"
+
+
+AI_DIAGNOSTIC_FILE = "ai-diagnostic-latest.json"
+
+
+def _ai_diagnostic_path():
+    base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
+    root = (Path(base) if base else Path.home() / ".local" / "share") / "UYAPArsiv"
+    return root / AI_DIAGNOSTIC_FILE
+
+
+def _write_ai_diagnostic(message, result):
+    try:
+        path = _ai_diagnostic_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        query = str(message.get("query") or "")
+        folded = query.casefold()
+        query_class = "summary" if ("özet" in folded or "ozet" in folded) else "freeform"
+        diagnostic = result.get("diagnostic") if isinstance(result, dict) and isinstance(result.get("diagnostic"), dict) else {}
+        payload = {
+            "schemaVersion": 1,
+            "kind": "UYAP_AI_DIAGNOSTIC",
+            "recordedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "action": "ai_answer",
+            "sessionId": str(message.get("sessionId") or ""),
+            "queryClass": query_class,
+            "queryStored": False,
+            "ok": bool(isinstance(result, dict) and result.get("ok") is True),
+            "errorCode": result.get("errorCode") if isinstance(result, dict) else "NATIVE_INVALID_RESULT",
+            "error": result.get("error") if isinstance(result, dict) else "Native AI sonucu nesne değil.",
+            "provider": (diagnostic.get("provider") or (result.get("provider") if isinstance(result, dict) else None)),
+            "model": (diagnostic.get("model") or (result.get("model") if isinstance(result, dict) else None)),
+            "retrievalMode": (diagnostic.get("retrievalMode") or (result.get("retrievalMode") if isinstance(result, dict) else None)),
+            "groundingMode": (diagnostic.get("groundingMode") or (result.get("groundingMode") if isinstance(result, dict) else None)),
+            "selectionPolicy": (diagnostic.get("selectionPolicy") or (result.get("selectionPolicy") if isinstance(result, dict) else None)),
+            "selectedSources": diagnostic.get("selectedSources") or (result.get("sources") if isinstance(result, dict) else []),
+            "sourceRefs": result.get("sourceRefs") if isinstance(result, dict) else [],
+            "missingSections": result.get("missingSections") if isinstance(result, dict) else None,
+            "unsupportedRoles": result.get("unsupportedRoles") if isinstance(result, dict) else None,
+            "invalidSourceRefs": result.get("invalidSourceRefs") if isinstance(result, dict) else None,
+            "uncitedClaims": result.get("uncitedClaims") if isinstance(result, dict) else None,
+            "providerOutputPreview": diagnostic.get("providerOutputPreview"),
+            "providerResponseId": diagnostic.get("providerResponseId") or (result.get("providerResponseId") if isinstance(result, dict) else None),
+            "usage": diagnostic.get("usage") or (result.get("usage") if isinstance(result, dict) else None),
+            "privacy": {
+                "rawDocumentsStored": False,
+                "rawSourceSnippetsStored": False,
+                "queryStored": False,
+                "providerOutputPreviewMaxChars": 1200,
+            },
+        }
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporary, path)
+        return str(path)
+    except Exception:
+        return None
+
+
+AI_SUMMARY_SCHEMA_VERSION = 2
+AI_SUMMARY_MAX_ANSWER_CHARS = 24_000
+AI_SUMMARY_MAX_SOURCES = 8
+
+
+def _safe_summary_component(value, fallback):
+    text = re.sub(r"[^0-9A-Za-zÇĞİÖŞÜçğıöşü._-]+", "_", str(value or "").strip())
+    text = text.strip("._-")[:100]
+    return text or fallback
+
+
+def _ai_summary_scope_name(institution_name, case_id):
+    return ai_archive_case_scope_id(institution_name, case_id).replace(":", "-")
+
+
+def _central_ai_summary_directory(institution_name, case_id):
+    override = os.environ.get("UYAP_AI_SUMMARY_STORE_ROOT")
+    if override:
+        root = Path(override).expanduser()
+    else:
+        base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
+        root = (Path(base) if base else Path.home() / ".local" / "share") / "UYAPArsiv" / "AI_Summaries"
+    folder = root / _ai_summary_scope_name(institution_name, case_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder.resolve()
+
+
+def _archive_ai_summary_directory(downloads_root, institution_name, case_id, create=True):
+    if not downloads_root:
+        return None
+    try:
+        root = Path(downloads_root).resolve(strict=True)
+        archive_root = (root / "UYAP_Arsiv").resolve(strict=True)
+        folder = archive_root / "_ai" / "summaries" / _ai_summary_scope_name(institution_name, case_id)
+        if create:
+            folder.mkdir(parents=True, exist_ok=True)
+        resolved = folder.resolve()
+        resolved.relative_to(archive_root)
+        return resolved
+    except (OSError, ValueError):
+        return None
+
+
+# Saved results: Dosya Özeti plus the rule views (Önemli Tarihler, Ara Kararlar
+# ve Yapılacaklar, Taraflar). One store, one record kind; "workflowId" tells them
+# apart (records written before it existed are case summaries). Rule views keep
+# their section data so a saved record reopens and prints exactly as shown.
+AI_SAVED_WORKFLOWS = {
+    "case_summary": ("summary", "Dosya Özeti"),
+    "important_dates": ("dates", "Önemli Tarihler"),
+    "court_orders": ("orders", "Ara Kararlar ve Yapılacaklar"),
+    "parties": ("parties", "Taraflar"),
+    "tebligat": ("tebligat", "Tebligatlar"),
+}
+AI_RULE_SECTION_SCHEMAS = {"important_dates": "important_dates_v2", "court_orders": "court_orders_v1",
+                           "parties": "parties_v1", "tebligat": "tebligat_v1"}
+AI_RESULT_MAX_SECTIONS_CHARS = 400_000
+AI_RESULT_MAX_SOURCES = 200
+AI_SAVED_TRASH_DAYS = 7
+_AI_DELETED_LOG = "_deleted.json"
+_AI_TRASH = ".trash"
+
+
+def _public_summary(payload, path=None, include_sections=True):
+    workflow_id = str(payload.get("workflowId") or "case_summary")
+    rule = workflow_id != "case_summary"
+    row = {
+        "summaryId": str(payload.get("summaryId") or ""),
+        "schemaVersion": int(payload.get("schemaVersion") or AI_SUMMARY_SCHEMA_VERSION),
+        "createdAt": payload.get("createdAt"),
+        "institutionName": payload.get("institutionName"),
+        "caseId": payload.get("caseId"),
+        "workflowId": workflow_id,
+        "workflowTitle": payload.get("workflowTitle") or AI_SAVED_WORKFLOWS.get(workflow_id, ("", "Dosya Özeti"))[1],
+        # A rule view's text and sections can be large; lists carry only metadata.
+        "answer": payload.get("answer") if include_sections or not rule else None,
+        "sources": payload.get("sources") or [],
+        "sourceRefs": payload.get("sourceRefs") or [],
+        "provider": payload.get("provider"),
+        "model": payload.get("model"),
+        "retrievalMode": payload.get("retrievalMode"),
+        "selectionPolicy": payload.get("selectionPolicy"),
+        "sectionsSchema": payload.get("sectionsSchema"),
+        "workflowNotice": payload.get("workflowNotice"),
+        "hasSections": bool(payload.get("sections")),
+        "path": str(path) if path else payload.get("path"),
+        "storage": payload.get("storage") or "central_local",
+    }
+    if include_sections and rule:
+        row["sections"] = payload.get("sections") or []
+    return row
+
+
+def _summary_payloads_from(folder):
+    if folder is None or not folder.is_dir():
+        return []
+    rows = []
+    for path in sorted(folder.glob("*.json"), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if payload.get("kind") != "UYAP_AI_SAVED_SUMMARY":
+                continue
+            rows.append((payload, path))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return rows
+
+
+def _write_summary_payload(folder, payload):
+    folder.mkdir(parents=True, exist_ok=True)
+    filename = _safe_summary_component(payload.get("summaryId"), "summary") + ".json"
+    target = folder / filename
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, target)
+    return target
+
+
+def _deleted_ids(folder):
+    """Ids the user deleted. Kept so an archive mirror copy can never bring a record back."""
+    try:
+        data = json.loads((folder / _AI_DELETED_LOG).read_text(encoding="utf-8"))
+        deleted = data.get("deleted") if isinstance(data, dict) else None
+        return {str(key): value for key, value in deleted.items()} if isinstance(deleted, dict) else {}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+
+def _write_deleted_ids(folder, deleted):
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / _AI_DELETED_LOG
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps({"schemaVersion": 1, "deleted": deleted}, ensure_ascii=False, indent=2),
+                         encoding="utf-8")
+    os.replace(temporary, target)
+
+
+def _move_saved_record(source_folder, target_folder, summary_id):
+    """Move every copy of one record between a folder and its trash; returns the new paths."""
+    moved = []
+    for payload, path in _summary_payloads_from(source_folder):
+        if str(payload.get("summaryId") or "") != summary_id:
+            continue
+        target_folder.mkdir(parents=True, exist_ok=True)
+        target = target_folder / path.name
+        os.replace(path, target)
+        os.utime(target, None)  # trash age counts from the deletion
+        moved.append((payload, target))
+    return moved
+
+
+def _purge_saved_trash(folder):
+    if folder is None:
+        return
+    trash = folder / _AI_TRASH
+    if not trash.is_dir():
+        return
+    cutoff = time.time() - AI_SAVED_TRASH_DAYS * 86400
+    for path in trash.glob("*.json"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
+
+
+def save_ai_summary(message):
+    downloads_root = message.get("downloadsRoot")
+    institution_name = str(message.get("institutionName") or "").strip()
+    case_id = str(message.get("caseId") or "").strip()
+    answer = str(message.get("answer") or "").strip()
+    workflow_id = str(message.get("workflowId") or "case_summary").strip()
+    if workflow_id not in AI_SAVED_WORKFLOWS:
+        raise ValueError("Bu AI iş akışının sonucu kaydedilemez")
+    rule = workflow_id != "case_summary"
+    if not institution_name or not case_id:
+        raise ValueError("AI özet kaydı için kurum ve dosya no gerekli")
+    if not answer:
+        raise ValueError("Kaydedilecek AI özeti boş")
+    answer = answer[:AI_SUMMARY_MAX_ANSWER_CHARS]
+    sections = None
+    if rule:
+        raw_sections = message.get("sections")
+        if not isinstance(raw_sections, list) or not raw_sections:
+            raise ValueError("Kaydedilecek sonuç bölümleri boş")
+        encoded = json.dumps(raw_sections, ensure_ascii=False)
+        if len(encoded) > AI_RESULT_MAX_SECTIONS_CHARS:
+            raise ValueError("Kaydedilecek sonuç çok büyük")
+        sections = json.loads(encoded)
+    max_sources = AI_RESULT_MAX_SOURCES if rule else AI_SUMMARY_MAX_SOURCES
+    raw_sources = message.get("sources") or []
+    sources = []
+    if isinstance(raw_sources, list):
+        for item in raw_sources[:max_sources]:
+            if not isinstance(item, dict):
+                continue
+            sources.append({
+                "sourceRef": str(item.get("sourceRef") or "")[:32],
+                "title": str(item.get("title") or "")[:300],
+                "documentType": str(item.get("documentType") or "")[:64] or None,
+                "documentDate": str(item.get("documentDate") or "")[:40] or None,
+                "selectionReason": str(item.get("selectionReason") or "")[:240] or None,
+                "summaryRole": str(item.get("summaryRole") or "")[:80] or None,
+            })
+    source_refs = [str(value)[:32] for value in (message.get("sourceRefs") or [])[:max_sources]]
+    digest_fields = {"answer": answer, "sourceRefs": source_refs, "institutionName": institution_name, "caseId": case_id}
+    if rule:
+        digest_fields["workflowId"] = workflow_id
+    summary_hash = hashlib.sha256(json.dumps(digest_fields, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    central = _central_ai_summary_directory(institution_name, case_id)
+    deleted = _deleted_ids(central)
+
+    for payload, path in _summary_payloads_from(central):
+        if payload.get("summaryHash") == summary_hash:
+            return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True,
+                    "summary": _public_summary(payload, path, include_sections=False)}
+
+    # Backward compatibility: if an earlier build saved only inside the archive
+    # tree, import that record into the stable central store on the next save.
+    archive_folder = _archive_ai_summary_directory(downloads_root, institution_name, case_id, create=False)
+    for payload, _path in _summary_payloads_from(archive_folder):
+        if payload.get("summaryHash") == summary_hash and str(payload.get("summaryId") or "") not in deleted:
+            payload = {**payload, "schemaVersion": AI_SUMMARY_SCHEMA_VERSION, "storage": "central_local"}
+            target = _write_summary_payload(central, payload)
+            return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": True,
+                    "summary": _public_summary(payload, target, include_sections=False)}
+
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    prefix, title = AI_SAVED_WORKFLOWS[workflow_id]
+    summary_id = base_id = f"{prefix}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{summary_hash[:12]}"
+    copy = 1
+    while summary_id in deleted:  # never reuse the id of a record the user deleted
+        copy += 1
+        summary_id = f"{base_id}-{copy}"
+    payload = {
+        "schemaVersion": AI_SUMMARY_SCHEMA_VERSION,
+        "kind": "UYAP_AI_SAVED_SUMMARY",
+        "summaryId": summary_id,
+        "summaryHash": summary_hash,
+        "createdAt": now,
+        "institutionName": institution_name,
+        "caseId": case_id,
+        "workflowId": workflow_id,
+        "workflowTitle": title,
+        "answer": answer,
+        "sources": sources,
+        "sourceRefs": source_refs,
+        "provider": str(message.get("provider") or "")[:80] or None,
+        "model": str(message.get("model") or "")[:160] or None,
+        "retrievalMode": str(message.get("retrievalMode") or "")[:80] or None,
+        "selectionPolicy": str(message.get("selectionPolicy") or "")[:120] or None,
+        "storage": "central_local",
+        "privacy": {
+            "localOnly": True,
+            "rawDocumentsStored": False,
+            "rawSourceSnippetsStored": False,
+        },
+    }
+    if rule:
+        payload.update({
+            "sectionsSchema": AI_RULE_SECTION_SCHEMAS[workflow_id],
+            "sections": sections,
+            "workflowNotice": str(message.get("workflowNotice") or "")[:600] or None,
+        })
+    target = _write_summary_payload(central, payload)
+
+    # Best-effort mirror beside the archive for portability. The central copy is
+    # authoritative so changing/rediscovering the archive root cannot erase UI history.
+    archive_folder = _archive_ai_summary_directory(downloads_root, institution_name, case_id, create=True)
+    if archive_folder is not None:
+        try:
+            _write_summary_payload(archive_folder, {**payload, "storage": "archive_mirror"})
+        except OSError:
+            pass
+
+    return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "deduplicated": False,
+            "summary": _public_summary(payload, target, include_sections=False)}
+
+
+def _saved_case(message, purpose):
+    institution_name = str(message.get("institutionName") or "").strip()
+    case_id = str(message.get("caseId") or "").strip()
+    if not institution_name or not case_id:
+        raise ValueError(f"{purpose} için kurum ve dosya no gerekli")
+    central = _central_ai_summary_directory(institution_name, case_id)
+    archive_folder = _archive_ai_summary_directory(message.get("downloadsRoot"), institution_name, case_id, create=False)
+    return institution_name, case_id, central, archive_folder
+
+
+def list_ai_summaries(message):
+    institution_name, case_id, central, archive_folder = _saved_case(message, "AI özet geçmişi")
+    limit = max(1, min(int(message.get("limit") or 20), 100))
+    deleted = _deleted_ids(central)
+    _purge_saved_trash(central)
+    _purge_saved_trash(archive_folder)
+
+    merged = {}
+    for payload, path in _summary_payloads_from(central):
+        if str(payload.get("summaryId") or "") in deleted:
+            continue
+        key = str(payload.get("summaryHash") or payload.get("summaryId") or path.name)
+        merged[key] = (payload, path)
+
+    # Import archive-only summaries created by the previous implementation;
+    # never one the user deleted.
+    for payload, path in _summary_payloads_from(archive_folder):
+        if str(payload.get("summaryId") or "") in deleted:
+            continue
+        key = str(payload.get("summaryHash") or payload.get("summaryId") or path.name)
+        if key not in merged:
+            imported = {**payload, "schemaVersion": AI_SUMMARY_SCHEMA_VERSION, "storage": "central_local"}
+            try:
+                central_path = _write_summary_payload(central, imported)
+                merged[key] = (imported, central_path)
+            except OSError:
+                merged[key] = (payload, path)
+
+    ordered = sorted(
+        merged.values(),
+        key=lambda item: str(item[0].get("createdAt") or ""),
+        reverse=True,
+    )[:limit]
+    summaries = [_public_summary(payload, path, include_sections=False) for payload, path in ordered]
+    return {
+        "ok": True,
+        "kind": "UYAP_AI_SAVED_SUMMARY_LIST",
+        "schemaVersion": AI_SUMMARY_SCHEMA_VERSION,
+        "institutionName": institution_name,
+        "caseId": case_id,
+        "count": len(summaries),
+        "summaries": summaries,
+        "historyRoot": str(central),
+        "archiveMirrorChecked": archive_folder is not None,
+    }
+
+
+def get_ai_summary(message):
+    """One saved record with its sections (for reopening and printing a rule view)."""
+    _institution, _case, central, _archive = _saved_case(message, "Kayıt")
+    summary_id = str(message.get("summaryId") or "").strip()
+    if summary_id and summary_id not in _deleted_ids(central):
+        for payload, path in _summary_payloads_from(central):
+            if str(payload.get("summaryId") or "") == summary_id:
+                return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "summary": _public_summary(payload, path)}
+    return {"ok": False, "errorCode": "AI_SAVED_RESULT_NOT_FOUND", "error": "Kaydedilen sonuç bulunamadı."}
+
+
+def delete_ai_summary(message):
+    """Move one saved record (and its archive mirror) to trash; restorable for AI_SAVED_TRASH_DAYS.
+
+    Archive documents, the AI index and PDFs the user already saved are never touched.
+    """
+    _institution, _case, central, archive_folder = _saved_case(message, "Kayıt silme")
+    summary_id = str(message.get("summaryId") or "").strip()
+    if not summary_id:
+        raise ValueError("Silinecek kaydın kimliği gerekli")
+    moved = _move_saved_record(central, central / _AI_TRASH, summary_id)
+    if not moved:
+        return {"ok": False, "errorCode": "AI_SAVED_RESULT_NOT_FOUND", "error": "Silinecek kayıt bulunamadı."}
+    mirror_moved = False
+    if archive_folder is not None:
+        try:
+            mirror_moved = bool(_move_saved_record(archive_folder, archive_folder / _AI_TRASH, summary_id))
+        except OSError:
+            mirror_moved = False
+    deleted = _deleted_ids(central)
+    deleted[summary_id] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    _write_deleted_ids(central, deleted)
+    return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY_DELETED", "summaryId": summary_id, "restorable": True,
+            "mirrorRemoved": mirror_moved, "restoreDays": AI_SAVED_TRASH_DAYS}
+
+
+def restore_ai_summary(message):
+    _institution, _case, central, archive_folder = _saved_case(message, "Kaydı geri alma")
+    summary_id = str(message.get("summaryId") or "").strip()
+    restored = _move_saved_record(central / _AI_TRASH, central, summary_id) if summary_id else []
+    if not restored:
+        return {"ok": False, "errorCode": "AI_SAVED_RESULT_NOT_RESTORABLE",
+                "error": "Kayıt geri alınamadı; çöp kutusundan temizlenmiş olabilir."}
+    if archive_folder is not None:
+        try:
+            _move_saved_record(archive_folder / _AI_TRASH, archive_folder, summary_id)
+        except OSError:
+            pass
+    deleted = _deleted_ids(central)
+    deleted.pop(summary_id, None)
+    _write_deleted_ids(central, deleted)
+    payload, path = restored[0]
+    return {"ok": True, "kind": "UYAP_AI_SAVED_SUMMARY", "summary": _public_summary(payload, path, include_sections=False)}
 
 
 def _portable_resume_config_path():
@@ -154,7 +604,7 @@ def select_existing_archive(message):
         selection = completed.stdout.decode("utf-8-sig", errors="replace").strip()
     root = resolve_existing_archive_selection(selection)
     saved = save_selected_archive_root(root)
-    result = list_archive_registry({"downloadsRoot": str(root), "limit": int(message.get("limit") or 10000)})
+    result = list_archive_registry({"downloadsRoot": str(root), "limit": 100, "summaryOnly": True})
     return {**result, **saved, "ok": True, "selected": True, "portableResumeEnabled": True}
 
 
@@ -2010,6 +2460,115 @@ def safe_target(root: Path, relative_path: str):
     return target
 
 
+# Archive target path budget. Windows long-path support is opt-in (registry
+# LongPathsEnabled plus an app manifest) and is off on typical user PCs. Even
+# when the agent could write a longer path, Explorer, the UYAP document editor
+# and ZIP extraction commonly cannot open it. Every archive file therefore
+# stays inside the classic MAX_PATH budget, measured in UTF-16 code units.
+TARGET_PATH_MAX_CHARS = 259  # MAX_PATH (260) minus the terminating NUL
+TARGET_DIR_MAX_CHARS = 247   # CreateDirectoryW limit: MAX_PATH - 12, minus NUL
+TARGET_TITLE_MIN_CHARS = 12
+_TARGET_ID_SUFFIX = re.compile(r"_(?:d-[a-f0-9]{12,128}|\d{4,30})$", re.IGNORECASE)
+
+
+class TargetPathTooLong(Exception):
+    def __init__(self, diagnostics):
+        super().__init__("TARGET_PATH_TOO_LONG")
+        self.diagnostics = diagnostics
+
+
+def _win_path_len(value) -> int:
+    return len(str(value).encode("utf-16-le")) // 2
+
+
+def _fit_target_path_budget(target: Path, reserve: int = 0):
+    """Keep an absolute archive target inside the Windows path budget.
+
+    A target that already fits is returned unchanged, so every previously
+    archived document keeps its exact name. Only an over-budget target is
+    shortened, and only in its descriptive title: the trailing UYAP/internal id
+    and the extension carry identity and are never cut. The result is
+    deterministic for a given archive root, so a retry lands on the same name.
+    """
+    limit = TARGET_PATH_MAX_CHARS - max(0, int(reserve))
+    directory_len = _win_path_len(target.parent)
+    original_len = _win_path_len(target)
+
+    def diagnostics(part):
+        return {
+            "targetPathLength": original_len,
+            "targetDirLength": directory_len,
+            "targetPathLimit": limit,
+            "targetPathOverflowPart": part,
+        }
+
+    if directory_len > TARGET_DIR_MAX_CHARS:
+        raise TargetPathTooLong(diagnostics("directory"))
+    if original_len <= limit:
+        return target, None
+
+    stem, suffix = target.stem, target.suffix
+    match = _TARGET_ID_SUFFIX.search(stem)
+    identity_tail = match.group(0) if match else ""
+    title = stem[: len(stem) - len(identity_tail)] if identity_tail else stem
+    fitted = target
+    while _win_path_len(fitted) > limit:
+        overflow = _win_path_len(fitted) - limit
+        title = title[: max(0, len(title) - overflow)].rstrip(" ._-")
+        if len(title) < TARGET_TITLE_MIN_CHARS:
+            raise TargetPathTooLong(diagnostics("filename"))
+        fitted = target.with_name(f"{title}{identity_tail}{suffix}")
+    return fitted, {
+        "targetPathShortened": True,
+        "targetPathOriginalLength": original_len,
+        "targetPathLength": _win_path_len(fitted),
+        "targetDirLength": directory_len,
+        "targetPathLimit": limit,
+    }
+
+
+def _versioned_target(target: Path):
+    """Collision-safe sibling name that still fits the path budget."""
+    marker = f"__v{uuid.uuid4().hex}"
+    base, _ = _fit_target_path_budget(target, reserve=len(marker))
+    return base.with_name(f"{base.stem}{marker}{base.suffix}")
+
+
+def _target_path_too_long_payload(diagnostics):
+    return {
+        "ok": True, "valid": False, "errorCode": "TARGET_PATH_TOO_LONG",
+        "detail": ("Evrak eksiksiz indirildi ancak arşiv klasörünün yolu Windows'un 260 karakter "
+                   "sınırını aşıyor; yeniden indirmek sorunu çözmez. Daha kısa bir arşiv konumu seçin."),
+        "retryHint": None, "sourcePreserved": True, **(diagnostics or {}),
+    }
+
+
+def _file_error_diagnostics(error):
+    names = [getattr(error, "filename", None), getattr(error, "filename2", None)]
+    lengths = [_win_path_len(name) for name in names if name]
+    return {
+        "fileErrorWinError": getattr(error, "winerror", None),
+        "fileErrorErrno": getattr(error, "errno", None),
+        "fileErrorPathLength": max(lengths) if lengths else None,
+    }
+
+
+def _target_unavailable_payload(error, source: Path, target: Path):
+    target_len = _win_path_len(target)
+    too_long = target_len > TARGET_PATH_MAX_CHARS or _win_path_len(target.parent) > TARGET_DIR_MAX_CHARS
+    return {
+        "ok": True, "valid": False,
+        "errorCode": "TARGET_PATH_TOO_LONG" if too_long else "TARGET_PATH_UNAVAILABLE",
+        "detail": ("Evrak eksiksiz indirildi ancak arşiv hedef klasörüne yazılamadı; "
+                   "yeniden indirmek sorunu çözmez. Arşiv konumunu ve klasör erişimini kontrol edin."),
+        "retryHint": None, "sourcePreserved": source.is_file(),
+        "targetPathLength": target_len,
+        "targetDirLength": _win_path_len(target.parent),
+        "targetPathLimit": TARGET_PATH_MAX_CHARS,
+        **_file_error_diagnostics(error),
+    }
+
+
 
 def _identity_text(value):
     value = html.unescape(str(value or ""))
@@ -2071,13 +2630,41 @@ def _archive_file_match_key(relative_path):
     return f"{parent}/{_identity_text(stem)}"
 
 
-def _portable_row_paths(root: Path, local_path, target_path=None, source_document_id=None, loose_source_index=None):
-    """Resolve copied DB rows against the currently selected archive root."""
+def _lexical_archive_target(root: Path, relative_path: str):
+    """safe_target() for read-only browsing: same validation, no disk access.
+
+    safe_target() resolves every path, which on Windows opens a handle per
+    file (GetFinalPathNameByHandle). Over 16k registry rows that was most of
+    the 35-second archive scan. Listing never writes, so a lexical containment
+    check is enough here; every writer keeps using safe_target().
+    """
+    parts = PurePosixPath(relative_path).parts
+    if not parts or PurePosixPath(relative_path).is_absolute() or any(x in ("..", ".") or ":" in x or "\\" in x for x in parts):
+        raise ValueError("Geçersiz göreli hedef yolu")
+    target = Path(os.path.normpath(os.path.join(str(root), *parts)))
+    root_key = os.path.normcase(os.path.normpath(str(root))).rstrip("\\/")
+    target_key = os.path.normcase(str(target))
+    if target_key != root_key and not target_key.startswith(root_key + os.sep):
+        raise ValueError("Hedef yol indirme kökünün dışında")
+    return target
+
+
+def _lexical_absolute(raw_path: str) -> Path:
+    return Path(os.path.abspath(os.path.expanduser(raw_path)))
+
+
+def _portable_row_paths(root: Path, local_path, target_path=None, source_document_id=None, loose_source_index=None, lexical=False):
+    """Resolve copied DB rows against the currently selected archive root.
+
+    lexical=True is for read-only registry browsing: candidates are built
+    without touching the disk (see _lexical_archive_target).
+    """
+    to_target = _lexical_archive_target if lexical else safe_target
     candidates = []
     raw_target = str(target_path or "").replace("\\", "/").strip()
     if raw_target:
         try:
-            target = safe_target(root, raw_target)
+            target = to_target(root, raw_target)
             if len(target.relative_to(root).parts) >= 2 and target.relative_to(root).parts[0].casefold() == "uyap_arsiv":
                 candidates.append(target)
         except (OSError, ValueError):
@@ -2085,14 +2672,14 @@ def _portable_row_paths(root: Path, local_path, target_path=None, source_documen
     raw_local = str(local_path or "").strip()
     if raw_local:
         try:
-            candidates.append(Path(raw_local).expanduser().resolve())
+            candidates.append(_lexical_absolute(raw_local) if lexical else Path(raw_local).expanduser().resolve())
         except (OSError, ValueError):
             pass
         parts = [part for part in re.split(r"[\\/]+", raw_local) if part]
         archive_index = next((index for index, part in enumerate(parts) if part.casefold() == "uyap_arsiv"), None)
         if archive_index is not None:
             try:
-                rebased = safe_target(root, "/".join(parts[archive_index:]))
+                rebased = to_target(root, "/".join(parts[archive_index:]))
                 candidates.append(rebased)
             except (OSError, ValueError):
                 pass
@@ -2122,12 +2709,16 @@ def _portable_row_paths(root: Path, local_path, target_path=None, source_documen
 
 
 
-def _registry_row_path(root: Path, row):
+def _registry_row_path(root: Path, row, probe=None):
     """Resolve a registry row against the currently selected archive root.
 
     Copied databases may retain the previous PC's absolute local_path. Prefer
     an existing target_path/rebased candidate so Workspace reflects the bytes
     that are actually present on this machine.
+
+    probe (read-only registry browsing): a callable returning the file's stat
+    result or None. Candidates are then built lexically and checked against
+    one directory walk instead of one resolve() + stat per candidate.
     """
     row = row or {}
     candidates = _portable_row_paths(
@@ -2135,8 +2726,13 @@ def _registry_row_path(root: Path, row):
         row.get("local_path"),
         row.get("target_path"),
         row.get("source_document_id"),
+        lexical=probe is not None,
     )
     for candidate in candidates:
+        if probe is not None:
+            if probe(candidate) is not None:
+                return candidate
+            continue
         try:
             if candidate.is_file():
                 return candidate
@@ -2145,7 +2741,61 @@ def _registry_row_path(root: Path, row):
     if candidates:
         return candidates[0]
     raw_local = str(row.get("local_path") or "").strip()
-    return Path(raw_local).expanduser().resolve() if raw_local else (root / "UYAP_Arsiv" / "_missing")
+    if not raw_local:
+        return root / "UYAP_Arsiv" / "_missing"
+    return _lexical_absolute(raw_local) if probe is not None else Path(raw_local).expanduser().resolve()
+
+
+class _ArchiveFileProbe:
+    """One os.scandir walk per archive; answers "is this a file, and its stat".
+
+    Replaces per-row Path.resolve() + is_file() + stat() in the registry
+    snapshot. A path the walk did not see falls back to os.stat (cached), so
+    spellings the walk cannot match (junctions, odd Unicode, other drives)
+    still get the exact answer the old per-row code gave.
+    """
+
+    def __init__(self, archive_roots):
+        self.index = {}
+        self.files = []
+        self._fallback = {}
+        for root, archive_root in archive_roots:
+            stack = [str(archive_root)]
+            while stack:
+                current = stack.pop()
+                try:
+                    with os.scandir(current) as entries:
+                        listed = sorted(entries, key=lambda item: item.name)
+                except OSError:
+                    continue
+                subdirs = []
+                for entry in listed:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            subdirs.append(entry.path)
+                        elif entry.is_file():
+                            key = os.path.normcase(entry.path)
+                            self.index[key] = entry.stat()
+                            self.files.append((root, entry.path, key))
+                    except OSError:
+                        continue
+                stack.extend(reversed(subdirs))
+
+    def __call__(self, path):
+        key = os.path.normcase(str(path))
+        info = self.index.get(key)
+        if info is not None:
+            return info
+        if key in self._fallback:
+            return self._fallback[key]
+        try:
+            info = os.stat(str(path))
+            info = info if (info.st_mode & 0o170000) == 0o100000 else None
+        except (OSError, ValueError):
+            info = None
+        self._fallback[key] = info
+        return info
+
 
 def _row_file_match_key(root: Path, local_path, target_path=None):
     if target_path:
@@ -2529,6 +3179,54 @@ def _settled_source_size(source: Path, expected_size=None):
     return observed
 
 
+def _await_visible_candidate(candidates, expected_size=None, delays=(0.10, 0.25, 0.50, 1.00)):
+    expected = _positive_size(expected_size)
+    diagnostics = {}
+    waited_ms = 0
+    unique = []
+    seen = set()
+    for mode, path in candidates:
+        try:
+            normalized = _lexical_abs(Path(path))
+            key = os.path.normcase(str(normalized))
+        except (OSError, ValueError, TypeError):
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((mode, normalized))
+
+    for step in range(len(delays) + 1):
+        for mode, candidate in unique:
+            try:
+                exists = candidate.is_file()
+                observed = candidate.stat().st_size if exists else None
+                size_matches = observed is not None and (expected is None or observed == expected)
+                diagnostics[mode] = {
+                    "exists": bool(exists),
+                    "observedSize": observed,
+                    "expectedSize": expected,
+                    "sizeMatches": bool(size_matches),
+                    "waitedMs": waited_ms,
+                }
+                if size_matches:
+                    return candidate, mode, diagnostics
+            except OSError:
+                diagnostics[mode] = {
+                    "exists": False,
+                    "observedSize": None,
+                    "expectedSize": expected,
+                    "sizeMatches": False,
+                    "waitedMs": waited_ms,
+                }
+        if step >= len(delays):
+            break
+        delay = float(delays[step])
+        time.sleep(delay)
+        waited_ms += int(round(delay * 1000))
+    return None, None, diagnostics
+
+
 def _completion_guard(source: Path, message):
     state = message.get("browserState")
     browser_exists = message.get("browserExists")
@@ -2602,6 +3300,8 @@ def _verified_content_hash_candidate(connection, root: Path, document, digest: s
 
 def validate_download(message):
     perf_started = time.perf_counter()
+    source_path_recovery_mode = None
+    source_path_recovery_checks = {}
     perf = {
         "databaseOpenMs": 0.0,
         "journalLookupMs": 0.0,
@@ -2621,6 +3321,11 @@ def validate_download(message):
     def finish(result):
         perf["agentTotalMs"] = _perf_ms(perf_started)
         result["nativePerf"] = {key: round(float(value or 0), 2) for key, value in perf.items()}
+        if source_path_recovery_mode:
+            result["sourcePathRecovered"] = True
+            result["sourcePathRecoveryMode"] = source_path_recovery_mode
+        if source_path_recovery_checks:
+            result["sourcePathRecoveryChecks"] = source_path_recovery_checks
         return result
 
     raw_filename = str(message.get("filename") or "").strip()
@@ -2631,6 +3336,37 @@ def validate_download(message):
     source = _lexical_abs(Path(raw_filename))
     original_source = source
     staging_path = message["stagingPath"]
+
+    if (
+        not source.is_file()
+        and message.get("browserState") == "complete"
+        and message.get("browserExists") is not False
+    ):
+        try:
+            staging_parts = _staging_parts(staging_path)
+        except ValueError:
+            staging_parts = None
+        if staging_parts:
+            candidates = [("browser-reported-file", original_source)]
+            if message.get("downloadsRoot"):
+                known_root = _lexical_abs(Path(str(message.get("downloadsRoot"))))
+                candidates.append(("known-downloads-root-staging", known_root.joinpath(*staging_parts)))
+            candidates.append(("browser-reported-root-staging", _lexical_abs(original_source.parent).joinpath(*staging_parts)))
+            try:
+                selected_root = load_selected_archive_root()
+                if selected_root is not None:
+                    candidates.append(("selected-archive-root-staging", _lexical_abs(selected_root).joinpath(*staging_parts)))
+            except (OSError, ValueError):
+                pass
+            recovered, mode, checks = _await_visible_candidate(
+                candidates,
+                message.get("browserFileSize"),
+                delays=(0.10, 0.25, 0.50, 1.00),
+            )
+            source_path_recovery_checks.update(checks)
+            if recovered is not None:
+                source = recovered
+                source_path_recovery_mode = mode
 
     # RC15.9.17: canonical/lease adoption can legitimately start from a browser
     # path outside _incoming, but it must never override Chrome's completion/size proof.
@@ -2742,6 +3478,17 @@ def validate_download(message):
         if learned_source_id:
             document["sourceDocumentId"] = learned_source_id
         target = canonical_target(target, document, expected_extension, learned_source_id)
+        # Fit the absolute path into the Windows budget before any hashing or
+        # journaling. An over-long target used to fail at os.replace with
+        # FileNotFoundError and was reported as SOURCE_FILE_MISSING, which
+        # triggered endless fresh re-downloads of perfectly good files.
+        try:
+            target, target_budget = _fit_target_path_budget(target)
+        except TargetPathTooLong as error:
+            target_budget = None
+            # An incomplete download keeps its own, more precise error below.
+            if completion_ok:
+                return finish(_target_path_too_long_payload(error.diagnostics))
 
         html_context = {
             "sourceDocumentId": learned_source_id or document.get("sourceDocumentId"),
@@ -2842,7 +3589,12 @@ def validate_download(message):
         hash_candidate = _verified_content_hash_candidate(connection, root, document, digest, size)
         perf["contentHashReconcileMs"] = _perf_ms(hash_reconcile_started)
 
-        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except FileNotFoundError as error:
+            # The bytes are complete and validated; only the archive folder is
+            # unreachable. A fresh re-download cannot fix that.
+            return finish(_target_unavailable_payload(error, source, target))
         final_target = target
         reuse = False
         content_hash_reconciled = False
@@ -2854,7 +3606,10 @@ def validate_download(message):
                 content_hash_reconciled = bool(hash_candidate)
                 content_hash_reuse_mode = "existing-target" if hash_candidate else None
             else:
-                final_target = target.with_name(f"{target.stem}__v{uuid.uuid4().hex}{target.suffix}")
+                try:
+                    final_target = _versioned_target(target)
+                except TargetPathTooLong as error:
+                    return finish(_target_path_too_long_payload(error.diagnostics))
             perf["existingTargetHashMs"] = _perf_ms(existing_hash_started)
 
         if not reuse and hash_candidate and hash_candidate.resolve() != final_target.resolve():
@@ -2933,6 +3688,13 @@ def validate_download(message):
             notes.append("UYAP kaynağı ve tarayıcı byte kanıtı birebir doğrulandı; dosya biçimi tanınmadığı için baytları değiştirilmeden opak ikili evrak olarak korundu.")
             result["validationNotes"] = notes
 
+        if target_budget:
+            result.update(target_budget)
+            result["targetPathLength"] = _win_path_len(final_target)
+            notes = list(result.get("validationNotes") or [])
+            notes.append("Dosya adı Windows'un 260 karakterlik yol sınırına sığması için kısaltıldı; evrak numarası ve uzantı korundu.")
+            result["validationNotes"] = notes
+
         prepare_started = time.perf_counter()
         connection.execute('INSERT INTO transfer_journal(attempt_id,request_key,result_json) VALUES(?,?,?)',
                            (attempt_id, request_key, json.dumps(result, ensure_ascii=False)))
@@ -2941,7 +3703,16 @@ def validate_download(message):
 
         move_started = time.perf_counter()
         if not reuse:
-            os.replace(source, final_target)
+            try:
+                os.replace(source, final_target)
+            except FileNotFoundError as error:
+                if not source.is_file():
+                    raise
+                # Source is intact, so the target side failed. Drop the
+                # uncommitted journal row instead of leaving it behind.
+                connection.execute('DELETE FROM transfer_journal WHERE attempt_id=? AND committed=0', (attempt_id,))
+                connection.commit()
+                return finish(_target_unavailable_payload(error, source, final_target))
         perf["moveMs"] = _perf_ms(move_started)
 
         commit_started = time.perf_counter()
@@ -4282,9 +5053,133 @@ def _archive_root_candidates(supplied_root=None):
     return unique
 
 
+def _archive_page_filter(documents, message):
+    """Bound Native Messaging responses; filter before offset so all pages remain reachable.
+
+    This helper is pure and used with synthetic records by regression tests.
+    Filtering/paging does not alter SQLite or the physical archive.
+    """
+    try:
+        raw_offset = message.get("offset", 0)
+        raw_limit = message.get("limit", 100)
+        if any(isinstance(value, (dict, list, bool)) for value in (raw_offset, raw_limit)):
+            raise ValueError("Unsupported paging value")
+        offset = max(0, int(raw_offset if raw_offset is not None else 0))
+        limit = min(100, max(1, int(raw_limit if raw_limit is not None else 100)))
+    except (ValueError, TypeError) as error:
+        raise ValueError("ARCHIVE_PAGE_INVALID") from error
+    search = str(message.get("search") or "").strip().casefold()[:200]
+    status = str(message.get("status") or "").strip().lower()
+    extension = str(message.get("extension") or "").strip().lower()
+    institution = str(message.get("institutionName") or "").strip().casefold()
+    case_id = str(message.get("caseId") or "").strip().replace("_", "/").casefold()
+    summary_only = message.get("summaryOnly") is True
+    physical_statuses = {"archived", "verified", "skipped", "review", "partial"}
+
+    def matches(item):
+        if institution and str(item.get("institutionName") or "").casefold() != institution:
+            return False
+        if case_id and str(item.get("caseId") or "").replace("_", "/").casefold() != case_id:
+            return False
+        if status:
+            actual = str(item.get("status") or "").lower()
+            if status == "local_present":
+                if actual not in physical_statuses:
+                    return False
+            elif actual != status:
+                return False
+        if extension and str(item.get("extension") or "").lower() != extension:
+            return False
+        if search:
+            haystack = " ".join(str(item.get(key) or "") for key in (
+                "documentTitle", "originalFilename", "caseId", "targetPath"
+            )).casefold()
+            if search not in haystack:
+                return False
+        return True
+
+    filtered = [item for item in documents if matches(item)]
+    return {
+        "documents": [] if summary_only else filtered[offset:offset + limit],
+        "matchedFiles": len(filtered),
+        "pageOffset": offset,
+        "pageLimit": limit,
+        "hasMore": not summary_only and offset + limit < len(filtered),
+        "summaryOnly": summary_only,
+    }
+
+
+# S2-05: This is an in-process, short-lived browsing snapshot, not a
+# persistent index or integrity proof. It never writes into UYAP_Arsiv.
+_ARCHIVE_BROWSE_CACHE_TTL_SECONDS = 120
+_archive_browse_snapshot = None
+
+
+def _archive_registry_snapshot_fingerprint(supplied_root):
+    """Cheap invalidation for SQLite/WAL updates and top-level root changes.
+
+    Individual nested file edits are intentionally covered by the short TTL and
+    explicit refresh, not by a recursive stat walk that would recreate the
+    35-second bottleneck. Never reuse this cache as a download/AI integrity gate.
+    """
+    evidence = []
+    for root in _archive_root_candidates(supplied_root):
+        archive = root / "UYAP_Arsiv"
+        evidence.append(str(archive).casefold())
+        for path in (
+            archive, archive / "_archive.db", archive / "_archive.db-wal",
+            archive / "_archive.db-shm", archive / "_incoming"
+        ):
+            try:
+                stat = path.stat()
+                evidence.append((int(stat.st_mtime_ns), int(stat.st_size), int(getattr(stat, "st_ino", 0))))
+            except OSError:
+                evidence.append(None)
+    return tuple(evidence)
+
+
 def list_archive_registry(message):
+    """Return one bounded page. Reuse a private in-memory snapshot only for UI browsing."""
+    global _archive_browse_snapshot
+    browsing = message.get("browseCache") is True
+    now = time.monotonic()
+    key = str(message.get("downloadsRoot") or "").casefold()
+    signature = _archive_registry_snapshot_fingerprint(message.get("downloadsRoot")) if browsing else None
+    entry = _archive_browse_snapshot if browsing else None
+    hit = bool(
+        entry is not None
+        and message.get("forceRefresh") is not True
+        and entry["key"] == key and entry["fingerprint"] == signature
+        and 0 <= now - entry["builtAt"] <= _ARCHIVE_BROWSE_CACHE_TTL_SECONDS
+    )
+    if hit:
+        snapshot = entry["snapshot"]
+        age = max(0, int(now - entry["builtAt"]))
+    else:
+        snapshot = _build_archive_registry_snapshot(message)
+        age = 0
+        if browsing:
+            # Store only successful, read-only snapshots. Failed scans are never cached.
+            if snapshot.get("ok") is True:
+                _archive_browse_snapshot = {
+                    "key": key,
+                    "fingerprint": _archive_registry_snapshot_fingerprint(message.get("downloadsRoot")),
+                    "builtAt": time.monotonic(),
+                    "snapshot": snapshot
+                }
+            else:
+                _archive_browse_snapshot = None
+    # The full archive never crosses the native-messaging boundary.
+    result = {name: value for name, value in snapshot.items() if name != "documents"}
+    result.update(_archive_page_filter(snapshot.get("documents") or [], message))
+    result["snapshotCached"] = hit
+    result["snapshotAgeSeconds"] = age
+    return result
+
+
+def _build_archive_registry_snapshot(message):
     supplied_root = message.get("downloadsRoot")
-    limit = max(1, min(int(message.get("limit") or 10000), 20000))
+    # Native Messaging responses are limited to 1 MiB; never send 12k documents at once.
     roots = []
     candidate_roots = _archive_root_candidates(supplied_root)
     for candidate in candidate_roots:
@@ -4301,12 +5196,26 @@ def list_archive_registry(message):
             "duplicateRunLinks": 0, "presentFiles": 0, "missingFiles": 0,
             "partialFiles": 0, "reviewFiles": 0, "physicalDiscoveredFiles": 0,
             "metadataVerifiedFiles": 0, "physicalReadyFiles": 0, "staleMetadataFiles": 0,
-            "totalCases": 0, "caseIndex": [], "registryWarnings": [], "documents": []
+            "totalCases": 0, "caseIndex": [], "registryWarnings": [],
+            "documents": []
         }
 
     rows = []
     partial_entries = []
     registry_warnings = []
+    # One directory walk answers every "is this file here, what size" question
+    # below; the old per-row resolve()+stat() took ~35 s on a 16k-row archive.
+    probe = _ArchiveFileProbe([(root, root / "UYAP_Arsiv") for root in roots])
+    # Most rows are repeat runs of the same file; resolve each distinct
+    # (root, local_path, target_path) once per snapshot.
+    path_memo = {}
+
+    def row_path(root, row):
+        memo_key = (str(root), row.get("local_path"), row.get("target_path"), row.get("source_document_id"))
+        found = path_memo.get(memo_key)
+        if found is None:
+            found = path_memo[memo_key] = _registry_row_path(root, row, probe)
+        return found
 
     # Registry browsing is deliberately read-only. Opening the archive dashboard
     # must never mutate/migrate _archive.db merely to show a list. Corrupt SQLite
@@ -4455,18 +5364,13 @@ def list_archive_registry(message):
         # Copied databases retain the old computer's drive-letter path. Prefer a
         # physically present path safely rebased from target_path/ UYAP_Arsiv;
         # never treat a stale absolute path as authoritative merely on Windows.
-        local_path = _registry_row_path(root, row)
+        local_path = row_path(root, row)
         key = os.path.normcase(str(local_path))
         if not key:
             key = f"{row.get('case_id') or ''}|{row.get('document_id') or ''}|{row.get('sha256') or ''}"
-        try:
-            present = local_path.is_file()
-            stat = local_path.stat() if present else None
-            actual_size_probe = int(stat.st_size) if stat else None
-        except OSError:
-            present = False
-            stat = None
-            actual_size_probe = None
+        stat = probe(local_path)
+        present = stat is not None
+        actual_size_probe = int(stat.st_size) if stat else None
         expected_size_probe = int(row.get("size") or 0)
         size_match = bool(present and (expected_size_probe <= 0 or actual_size_probe == expected_size_probe))
         native_status = str(row.get("status") or "")
@@ -4546,7 +5450,7 @@ def list_archive_registry(message):
         archive_root = root / "UYAP_Arsiv"
         local_value = str(row.get("local_path") or "")
         target_value = str(row.get("target_path") or "")
-        local_path = _registry_row_path(root, row)
+        local_path = row_path(root, row)
         institution, case_id, case_title = path_case_metadata(
             archive_root, local_path, target_value, row.get("case_id"), row.get("institution_name")
         )
@@ -4563,7 +5467,8 @@ def list_archive_registry(message):
                 "documentCount": 0, "presentCount": 0, "verifiedCount": 0,
                 "metadataVerifiedCount": 0, "physicalReadyCount": 0,
                 "problemCount": 0, "missingCount": 0, "sizeMismatchCount": 0,
-                "staleMetadataCount": 0, "totalBytes": 0,
+                "staleMetadataCount": 0, "unregisteredPhysicalCount": 0,
+                "unregisteredPhysicalBytes": 0, "totalBytes": 0,
                 "latestAt": None, "sourceSystems": set(),
             }
             case_groups[group_key] = group
@@ -4573,12 +5478,9 @@ def list_archive_registry(message):
         if metadata_verified:
             group["verifiedCount"] += 1  # historical DB verification, kept for compatibility
             group["metadataVerifiedCount"] += 1
-        try:
-            present = local_path.is_file()
-            actual_size = int(local_path.stat().st_size) if present else None
-        except OSError:
-            present = False
-            actual_size = None
+        info = probe(local_path)
+        present = info is not None
+        actual_size = int(info.st_size) if present else None
         expected_size = int(row.get("size") or 0)
         size_match = bool(present and (expected_size <= 0 or actual_size == expected_size))
         if present:
@@ -4606,47 +5508,44 @@ def list_archive_registry(message):
     # if an older/crashed run failed to leave a usable registry row. Files under
     # internal, quarantine and export folders are deliberately excluded.
     physical_only = []
-    for root in roots:
+    for root, raw_path, key in probe.files:
         archive_root = root / "UYAP_Arsiv"
-        for path in archive_root.rglob("*"):
-            if not path.is_file():
-                continue
-            try:
-                relative = path.relative_to(archive_root)
-            except ValueError:
-                continue
-            parts = relative.parts
-            if not parts or len(parts) < 3:
-                continue
-            if parts[0].startswith("_") or parts[0] == "Hatalı Dosyalar" or "_exports" in parts:
-                continue
-            if path.name.startswith("_archive.db") or path.suffix.lower() == ".part":
-                continue
-            key = os.path.normcase(str(path.resolve()))
-            if key in unique:
-                continue
-            try:
-                stat = path.stat()
-                updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
-                size = int(stat.st_size)
-            except OSError:
-                continue
-            case_id = parts[1].removesuffix("_Dosya").removesuffix("_Esas").replace("_", "/") if len(parts) > 1 else None
-            case_title = str(parts[2]).replace("_", "/", 1) if len(parts) > 2 else None
-            item = {
-                "sessionId": None, "documentId": None, "caseId": case_id,
-                "institutionName": parts[0] if parts else None, "caseTitle": case_title,
-                "sourceSystem": None,
-                "documentTitle": path.stem, "uyapPath": "/".join(parts[2:-1]) or None,
-                "targetPath": relative.as_posix(), "extension": path.suffix.lower() or ".bin",
-                "size": size, "actualSize": size, "sha256": None, "sourceFingerprint": None,
-                "status": "archived", "nativeStatus": "PHYSICAL_FILE_DISCOVERED",
-                "metadataVerified": False, "physicalState": "present",
-                "physicalProofLevel": "existence", "sizeMatchesMetadata": None,
-                "updatedAt": updated, "fileModifiedAt": updated, "runCount": 1, "downloadsRoot": str(root)
-            }
-            unique[key] = item
-            physical_only.append(item)
+        path = Path(raw_path)
+        try:
+            relative = path.relative_to(archive_root)
+        except ValueError:
+            continue
+        parts = relative.parts
+        if not parts or len(parts) < 3:
+            continue
+        if parts[0].startswith("_") or parts[0] == "Hatalı Dosyalar" or "_exports" in parts:
+            continue
+        if path.name.startswith("_archive.db") or path.suffix.lower() == ".part":
+            continue
+        if key in unique:
+            continue
+        try:
+            stat = probe.index[key]
+            updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
+            size = int(stat.st_size)
+        except (KeyError, OSError, ValueError):
+            continue
+        case_id = parts[1].removesuffix("_Dosya").removesuffix("_Esas").replace("_", "/") if len(parts) > 1 else None
+        case_title = str(parts[2]).replace("_", "/", 1) if len(parts) > 2 else None
+        item = {
+            "sessionId": None, "documentId": None, "caseId": case_id,
+            "institutionName": parts[0] if parts else None, "caseTitle": case_title,
+            "sourceSystem": None,
+            "documentTitle": path.stem, "uyapPath": "/".join(parts[2:-1]) or None,
+            "targetPath": relative.as_posix(), "extension": path.suffix.lower() or ".bin",
+            "size": size, "actualSize": size, "sha256": None, "sourceFingerprint": None,
+            "status": "archived", "nativeStatus": "PHYSICAL_FILE_DISCOVERED",
+            "metadataVerified": False, "physicalState": "present",
+            "physicalProofLevel": "existence", "sizeMatchesMetadata": None,
+            "updatedAt": updated, "fileModifiedAt": updated, "runCount": 1, "downloadsRoot": str(root)
+        }
+        unique[key] = item
+        physical_only.append(item)
 
     # Files can survive a crash even when their SQLite row was never committed.
     # Keep them visible in the case picker as present-but-unverified recovery
@@ -4665,13 +5564,18 @@ def list_archive_registry(message):
                 "documentCount": 0, "presentCount": 0, "verifiedCount": 0,
                 "metadataVerifiedCount": 0, "physicalReadyCount": 0,
                 "problemCount": 0, "missingCount": 0, "sizeMismatchCount": 0,
-                "staleMetadataCount": 0, "totalBytes": 0,
+                "staleMetadataCount": 0, "unregisteredPhysicalCount": 0,
+                "unregisteredPhysicalBytes": 0, "totalBytes": 0,
                 "latestAt": None, "sourceSystems": set(),
             }
             case_groups[group_key] = group
-        group["documentCount"] += 1
+        # Physical-only files are recovery evidence, not logical UYAP
+        # documents. They must remain visible for reconciliation, but must not
+        # inflate documentCount/problemCount or block AI when every registered
+        # logical document is VERIFIED and physically intact.
         group["presentCount"] += 1
-        group["problemCount"] += 1
+        group["unregisteredPhysicalCount"] += 1
+        group["unregisteredPhysicalBytes"] += int(item.get("size") or 0)
         group["totalBytes"] += int(item.get("size") or 0)
         when = item.get("updatedAt") or item.get("fileModifiedAt") or None
         if when and (not group["latestAt"] or str(when) > str(group["latestAt"])):
@@ -4707,9 +5611,10 @@ def list_archive_registry(message):
         "physicalDiscoveredFiles": len(physical_only),
         "metadataVerifiedFiles": metadata_verified_files, "physicalReadyFiles": physical_ready_files,
         "staleMetadataFiles": stale_metadata_files,
-        "totalCases": len(case_index), "caseIndex": case_index,
+        "totalCases": len(case_index), "caseIndex": case_index[:100],
+        "caseIndexTruncated": len(case_index) > 100,
         "registryWarnings": registry_warnings,
-        "documents": docs[:limit]
+        "documents": docs
     }
 
 def discard_review_html(message):
@@ -5064,7 +5969,49 @@ def dispatch(message):
     action = message.get("action")
     if action == "ping":
         return {"ok": True, "version": AGENT_VERSION, "protocolVersion":PROTOCOL_VERSION, "echo":message.get('probe'),
-                "capabilities": ["sqlite", "sha256", "magic_bytes", "atomic_move", "quarantine", "attempt_journal", "attempt_owner_replay_v1", "validation_perf_v1", "persistent_session_v1", "final_integrity_v1", "source_adapter_v1", "chunked_archive_v1", "download_completion_guard_v1", "pdf_structure_v2", "uyap_pdf_control_suffix_1a04_v1", "bulk_reliability_v1", "legitimate_html_document_v1", "legitimate_html_document_v2", "image_document_v1", "uyap_streaming_udf_v1", "quarantine_revalidation_v1", "uyap_pdf_belgenet_suffix_v1", "uyap_pdf_avision_suffix_v1", "pdf_producer_comment_suffix_v1", "unified_document_sniffer_v1", "uyap_raw_xml_udf_v1", "format_lab_v1", "office_container_detection_v1", "bigtiff_detection_v1", "archive_registry_v1", "user_html_exclusion_v1", "visible_final_package_v1", "archive_root_rediscovery_v1", "sqlite_wal_dual_lane_v1", "sqlite_scandir_hotpath_v1", "jpeg_uyap_compatible_v1", "jpeg_windows_decoder_fallback_v1", "jpeg_windows_wic_decoder_v1", "document_type_truth_v1", "uyap_exact_content_truth_v1", "jpeg_uyap_trailing_preserve_v1", "html_circuit_deadline_v1", "source_path_self_heal_v1", "content_hash_reconciliation_v1", "verified_root_orphan_cleanup_v1", "opaque_binary_archive_v1", "finalization_validation_proof_v2", "duplicate_path_fresh_owner_v1", "portable_archive_resume_v1", "legacy_loose_archive_import_v2"]}
+                "capabilities": ["sqlite", "sha256", "magic_bytes", "atomic_move", "quarantine", "attempt_journal", "attempt_owner_replay_v1", "validation_perf_v1", "persistent_session_v1", "final_integrity_v1", "source_adapter_v1", "chunked_archive_v1", "download_completion_guard_v1", "pdf_structure_v2", "uyap_pdf_control_suffix_1a04_v1", "bulk_reliability_v1", "legitimate_html_document_v1", "legitimate_html_document_v2", "image_document_v1", "uyap_streaming_udf_v1", "quarantine_revalidation_v1", "uyap_pdf_belgenet_suffix_v1", "uyap_pdf_avision_suffix_v1", "pdf_producer_comment_suffix_v1", "unified_document_sniffer_v1", "uyap_raw_xml_udf_v1", "format_lab_v1", "office_container_detection_v1", "bigtiff_detection_v1", "archive_registry_v1", "user_html_exclusion_v1", "visible_final_package_v1", "archive_root_rediscovery_v1", "sqlite_wal_dual_lane_v1", "sqlite_scandir_hotpath_v1", "jpeg_uyap_compatible_v1", "jpeg_windows_decoder_fallback_v1", "jpeg_windows_wic_decoder_v1", "document_type_truth_v1", "uyap_exact_content_truth_v1", "jpeg_uyap_trailing_preserve_v1", "html_circuit_deadline_v1", "source_path_self_heal_v1", "content_hash_reconciliation_v1", "verified_root_orphan_cleanup_v1", "opaque_binary_archive_v1", "finalization_validation_proof_v2", "duplicate_path_fresh_owner_v1", "portable_archive_resume_v1", "legacy_loose_archive_import_v2", "ai_local_index_v1", "ai_provider_gateway_v1", "archive_case_ai_v1", "ai_summary_archive_v1", "target_path_budget_v1"]}
+    if action == "ai_build_index":
+        return ai_build_index(message["downloadsRoot"], message["sessionId"], message.get("bindings") or [])
+    if action == "ai_archive_case_scope":
+        return {"ok": True, "scopeId": ai_archive_case_scope_id(message.get("institutionName"), message.get("caseId"))}
+    if action == "ai_inspect_archive_case":
+        return ai_inspect_archive_case(message["downloadsRoot"], message.get("institutionName"), message.get("caseId"))
+    if action == "ai_build_archive_case_index":
+        return ai_build_archive_case_index(message["downloadsRoot"], message.get("institutionName"), message.get("caseId"))
+    if action == "ai_index_status":
+        return ai_index_status(message["downloadsRoot"], message["sessionId"])
+    if action == "ai_search":
+        return ai_search_index(message["downloadsRoot"], message["sessionId"], message.get("query") or "", message.get("limit") or 8)
+    if action == "ai_provider_status":
+        return ai_provider_status()
+    if action == "ai_save_summary":
+        return save_ai_summary(message)
+    if action == "ai_list_summaries":
+        return list_ai_summaries(message)
+    if action == "ai_get_summary":
+        return get_ai_summary(message)
+    if action == "ai_delete_summary":
+        return delete_ai_summary(message)
+    if action == "ai_restore_summary":
+        return restore_ai_summary(message)
+    if action == "ai_answer":
+        total_documents = message.get("totalDocuments")
+        result = ai_answer_from_local_index(
+            message["downloadsRoot"],
+            message["sessionId"],
+            message.get("query") or "",
+            message.get("limit") or 8,
+            workflow_id=message.get("workflowId"),
+            case_context={
+                "institutionName": str(message.get("institutionName") or "").strip() or None,
+                "caseId": str(message.get("caseId") or "").strip() or None,
+                "totalDocuments": total_documents if isinstance(total_documents, int) else None,
+            },
+        )
+        diagnostic_path = _write_ai_diagnostic(message, result)
+        if isinstance(result, dict) and diagnostic_path:
+            result = {**result, "diagnosticPath": diagnostic_path}
+        return result
     if action == "select_existing_archive":
         return select_existing_archive(message)
     if action == "get_selected_archive":
@@ -5078,10 +6025,16 @@ def dispatch(message):
     if action == "validate_download":
         try:
             return validate_download(message)
-        except FileNotFoundError:
+        except TargetPathTooLong as error:
+            return _target_path_too_long_payload(error.diagnostics)
+        except FileNotFoundError as error:
+            # Last-resort net. Target-side failures are classified inside
+            # validate_download; what reaches here is reported with privacy-light
+            # evidence (WinError, path length) so a mislabel is visible next time.
             return {"ok": True, "valid": False, "errorCode": "SOURCE_FILE_MISSING",
                     "detail": "Yerel geçici dosya yolu doğrulama sırasında kayboldu; evrak taze indirme ile otomatik kurtarılacak.",
-                    "retryHint": "fresh_redownload", "sourcePathRecovery": True}
+                    "retryHint": "fresh_redownload", "sourcePathRecovery": True,
+                    "fileErrorStage": "unclassified", **_file_error_diagnostics(error)}
     if action == "revalidate_quarantined":
         return revalidate_quarantined(message)
     if action == "finalize_archive":

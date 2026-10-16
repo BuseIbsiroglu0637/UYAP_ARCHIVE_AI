@@ -35,14 +35,18 @@ const DUPLICATE_PATH_FRESH_OWNER_CAPABILITY = "duplicate_path_fresh_owner_v1";
 const PORTABLE_ARCHIVE_RESUME_CAPABILITY = "portable_archive_resume_v1";
 const LEGACY_LOOSE_ARCHIVE_IMPORT_CAPABILITY = "legacy_loose_archive_import_v2";
 const ATTEMPT_OWNER_REPLAY_CAPABILITY = "attempt_owner_replay_v1";
-const MIN_AGENT_VERSION = "2.7.64";
+const AI_LOCAL_INDEX_CAPABILITY = "ai_local_index_v1";
+const AI_PROVIDER_GATEWAY_CAPABILITY = "ai_provider_gateway_v1";
+const ARCHIVE_CASE_AI_CAPABILITY = "archive_case_ai_v1";
+const AI_SUMMARY_ARCHIVE_CAPABILITY = "ai_summary_archive_v1";
+const MIN_AGENT_VERSION = "2.7.68";
 const IDLE_DISCONNECT_MS = 3 * 60_000;
 
 // RC15.9.28: Native Messaging has three independent lanes.
 // Chromium creates a separate native-host process per connectNative() port, so
 // dashboard registry scans can never sit in front of batch reconciliation or a
 // validate_download request. UYAP browser downloads remain strictly sequential.
-const BULK_ACTIONS = new Set(["sync_inventory", "finalize_archive", "format_audit"]);
+const BULK_ACTIONS = new Set(["sync_inventory", "finalize_archive", "format_audit", "ai_build_index", "ai_build_archive_case_index", "ai_inspect_archive_case", "ai_search", "ai_index_status", "ai_answer", "ai_save_summary", "ai_list_summaries"]);
 const REGISTRY_ACTIONS = new Set(["list_archive_registry", "select_existing_archive"]);
 
 function createLane(name) {
@@ -207,7 +211,7 @@ function pumpLane(lane) {
       settleRequest(request, {
         ok:false,
         errorCode:"NATIVE_AGENT_TIMEOUT",
-        error:"Yerel ajan zaman aşımı; dosyalar korunuyor.",
+        error:request.message?.action==="ai_answer" ? "Yerel AI yanıt süresi aşıldı; arşiv dosyaları korunuyor." : "Yerel ajan zaman aşımı; dosyalar korunuyor.",
         nativeLane:lane.name
       });
       try { timedOutPort?.disconnect(); } catch {}
@@ -231,6 +235,10 @@ function timeoutForNativeAction(action) {
   if (action === "open_archive_folder" || action === "open_final_package_folder") return 8_000;
   if (action === "list_archive_registry") return 2 * 60_000;
   if (action === "select_existing_archive") return 190_000;
+  // LM Studio provider waits up to 300s by default. The Native Messaging
+  // bridge must outlive that provider deadline or Chromium aborts a healthy
+  // local inference before the agent can return its structured result.
+  if (action === "ai_answer") return 6 * 60_000;
   if (action === "discard_review_html") return 15_000;
   return 30 * 60_000;
 }
@@ -306,9 +314,13 @@ export async function pingNativeAgent() {
     !result.capabilities?.includes(VERIFIED_ROOT_ORPHAN_CLEANUP_CAPABILITY) ||
     !result.capabilities?.includes(PORTABLE_ARCHIVE_RESUME_CAPABILITY) ||
     !result.capabilities?.includes(LEGACY_LOOSE_ARCHIVE_IMPORT_CAPABILITY) ||
-    !result.capabilities?.includes(ATTEMPT_OWNER_REPLAY_CAPABILITY)
+    !result.capabilities?.includes(ATTEMPT_OWNER_REPLAY_CAPABILITY) ||
+    !result.capabilities?.includes(AI_LOCAL_INDEX_CAPABILITY) ||
+    !result.capabilities?.includes(AI_PROVIDER_GATEWAY_CAPABILITY) ||
+    !result.capabilities?.includes(ARCHIVE_CASE_AI_CAPABILITY) ||
+    !result.capabilities?.includes(AI_SUMMARY_ARCHIVE_CAPABILITY)
   )) {
-    return {ok:false,error:'Ajan sürümü uyumsuz. İmzalı yerel ajan kurulum paketini yükleyin.'};
+    return {ok:false,error:'Yerel ajan bu UYAP AI sürümüyle uyumlu değil. Bu branch içindeki yerel ajanı yeniden kurun.',errorCode:'AGENT_CAPABILITY_MISMATCH'};
   }
   if (result.ok) {
     return {

@@ -1,5 +1,12 @@
-UYAP Archive AI v2.9.0 RC15.9.37 QUEUE-RECOVERY
-Native Agent: 2.7.64
+UYAP Archive AI v2.9.0 RC15.9.39 AI-FAST-ARCHIVE
+Native Agent: 2.7.68
+
+RC15.9.39 AI-FAST-ARCHIVE:
+- AI altı iş akışı (PR #10–#15): Dosya Özeti, Önemli Tarihler, Ara Kararlar, Taraflar,
+  Tebligatlar; kaydedilen sonuçlar, PDF, onaylı silme/geri alma; pypdf ile PDF okuma.
+- S2-04 (PR #18): 12.784 kayıtlı arşiv 100'lük sayfalarla, okuma hataları görünür.
+- S2-05 (PR #19): sayfa geçişleri için 120 sn salt okunur arşiv önbelleği.
+- S2-06 (PR #20): arşiv taraması tek klasör gezintisiyle; örnek arşivde 78 sn → 7 sn.
 
 Temel: RC15.9.22 PHYSICAL-PROOF.
 
@@ -40,7 +47,7 @@ RC15.9.37 QUEUE-RECOVERY:
 - Native registry önbelleği `sync_inventory`, başarılı doğrulama, HTML dışlama ve karantina yeniden doğrulaması sonrasında geçersiz kılınır.
 - Windows'ta başka bilgisayardan kopyalanmış `_archive.db` satırları, eski mutlak `local_path` yerine seçili köke rebased `target_path` ile caseIndex'e bağlanır.
 - DB satırı olmayan fiziksel arşiv dosyaları caseIndex'te görünür; mevcut fakat hash/DB kanıtı olmadığı için `problemCount` altında dürüstçe işaretlenir.
-- Native Agent 2.7.64 zorunludur.
+- Native Agent 2.7.68 zorunludur.
 
 Yeni fiziksel kanit modeli:
 - `_archive.db` kaydi tek basina arsiv kaniti DEGILDIR.
@@ -62,3 +69,16 @@ Gercek `_archive.db` metadata-only simulasyonu:
 - DB VERIFIED kayitlari stale metadata olarak raporlandi; arsivlenmis sayilmadi.
 
 Regresyon hedefi: 56/56 standalone PASS.
+
+RC15.9.38 PHASE-1 PRODUCT CONTRACT:
+- Beklenen sürüm/protokol/DB sözleşmesi `config/release-contract.json` altında makine-okunabilir olarak sabitlendi.
+- `dev/stage/prod` güvenli varsayımları `config/environments.json` altında tanımlandı.
+- Runtime bileşenlerinin sürüm değerleri paketleme güvenliği için kendi doğal dosyalarında kalır; CI bu değerlerin release contract ile drift etmesini engeller.
+- Modül sınırları `docs/MODULE_BOUNDARIES.md` ve `native/phase1_product_contract_test.py` ile korunur.
+
+
+RC15.9.38 SOURCE-PATH RECOVERY HARDENING:
+- Chrome tamamlandı sinyali sonrasında kaynak dosya görünürlüğü 100/250/500/1000 ms aralıklarla, yalnız bilinen kesin yollar üzerinde kontrol edilir.
+- Kaynak yol kurtarma denemelerinin sonucu Native Agent yanıtında sourcePathRecoveryChecks olarak döner ve tanılamaya taşınır.
+- SOURCE_FILE_MISSING üç farklı evrakta sistemik biçimde tekrar ederse kuyruk devre kesici ile duraklatılır; aynı evrakların körlemesine yeniden indirilmesi önlenir.
+- Native Agent sürümü 2.7.68 ve protokol sürümü 2'dir.

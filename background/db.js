@@ -1,4 +1,5 @@
-import { DB_NAME, DB_VERSION, STATUS } from "../shared/constants.js";
+import { DB_NAME, DB_VERSION } from "../shared/constants.js";
+import { applyDatabaseUpgrade } from "./db-migrations.js";
 
 let databasePromise;
 
@@ -17,21 +18,6 @@ function transactionDone(transaction) {
   });
 }
 
-function ensureIndex(store, name, keyPath, options = { unique: false }) {
-  if (!store.indexNames.contains(name)) {
-    store.createIndex(name, keyPath, options);
-  }
-}
-
-function normalizeLegacyDocument(record) {
-  const warnings = Array.isArray(record?.warnings) ? record.warnings : [];
-  const warningFlag = warnings.length > 0 ? 1 : 0;
-  const retryPriority = record?.status === STATUS.RETRY_WAIT && record?.manualRetryPriority === true ? 0 : 1;
-  const changed = record?.warningFlag !== warningFlag || record?.retryPriority !== retryPriority;
-  if (!changed) return null;
-  return { ...record, warningFlag, retryPriority };
-}
-
 export function openDatabase() {
   if (databasePromise) return databasePromise;
 
@@ -39,50 +25,12 @@ export function openDatabase() {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onupgradeneeded = () => {
-      const db = request.result;
-      const transaction = request.transaction;
-
-      const documents = db.objectStoreNames.contains("documents")
-        ? transaction.objectStore("documents")
-        : db.createObjectStore("documents", { keyPath: "key" });
-
-      ensureIndex(documents, "sessionId", "sessionId");
-      ensureIndex(documents, "status", "status");
-      ensureIndex(documents, "downloadId", "downloadId");
-      ensureIndex(documents, "sessionStatus", ["sessionId", "status"]);
-      ensureIndex(documents, "sessionStatusRetryAt", ["sessionId", "status", "retryAt"]);
-      ensureIndex(documents, "sessionStatusRetryPriorityAt", ["sessionId", "status", "retryPriority", "retryAt"]);
-      ensureIndex(documents, "sessionStatusWarning", ["sessionId", "status", "warningFlag"]);
-      ensureIndex(documents, "sessionStatusError", ["sessionId", "status", "errorCode"]);
-      ensureIndex(documents, "sessionBatchStatus", ["sessionId", "largeBatchNo", "status"]);
-      ensureIndex(documents, "sessionStatusBatch", ["sessionId", "status", "largeBatchNo"]);
-      ensureIndex(documents, "sessionBatchStatusRetryAt", ["sessionId", "largeBatchNo", "status", "retryAt"]);
-      ensureIndex(documents, "sessionBatchStatusRetryPriorityAt", ["sessionId", "largeBatchNo", "status", "retryPriority", "retryAt"]);
-
-      // Older records did not have warningFlag/retryPriority. Populate both
-      // in-place so summaries stay indexed and user-requested deferred retries
-      // can be prioritized without scanning a 12k-document session.
-      if (request.oldVersion < 5) {
-        const cursorRequest = documents.openCursor();
-        cursorRequest.onsuccess = () => {
-          const cursor = cursorRequest.result;
-          if (!cursor) return;
-          const normalized = normalizeLegacyDocument(cursor.value);
-          if (normalized) cursor.update(normalized);
-          cursor.continue();
-        };
-      }
-
-      const sessions = db.objectStoreNames.contains("sessions")
-        ? transaction.objectStore("sessions")
-        : db.createObjectStore("sessions", { keyPath: "sessionId" });
-      ensureIndex(sessions, "updatedAt", "updatedAt");
-
-      const diagnosticEvents = db.objectStoreNames.contains("diagnosticEvents")
-        ? transaction.objectStore("diagnosticEvents")
-        : db.createObjectStore("diagnosticEvents", { keyPath: "id", autoIncrement: true });
-      ensureIndex(diagnosticEvents, "sessionId", "sessionId");
-      ensureIndex(diagnosticEvents, "sessionAt", ["sessionId", "atMs"]);
+      applyDatabaseUpgrade({
+        db: request.result,
+        transaction: request.transaction,
+        oldVersion: request.oldVersion,
+        newVersion: request.newVersion || DB_VERSION
+      });
     };
 
     request.onsuccess = () => {

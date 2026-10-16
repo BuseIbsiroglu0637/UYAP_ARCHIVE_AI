@@ -7,7 +7,7 @@ import sys
 import threading
 
 
-def check_host(command, timeout=10):
+def check_host_details(command, timeout=10):
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
     replies = queue.Queue()
@@ -80,7 +80,7 @@ def check_host(command, timeout=10):
                 raise reply
             if not reply.get('ok') or not reply.get('version') or reply.get('echo') != probe:
                 raise ValueError('Invalid ping response')
-        return reply['version']
+        return reply
     finally:
         try:
             process.stdin.close()
@@ -95,6 +95,11 @@ def check_host(command, timeout=10):
         error_thread.join(timeout=2)
         process.stdout.close()
         process.stderr.close()
+
+
+def check_host(command, timeout=10):
+    reply = check_host_details(command, timeout=timeout)
+    return reply["version"]
 
 
 if __name__ == '__main__':

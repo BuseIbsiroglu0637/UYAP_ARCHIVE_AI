@@ -4,6 +4,8 @@ import { CLICK_DOWNLOAD_TIMEOUT_MS, MESSAGE } from "../shared/constants.js";
 import {captureSaveRequest} from './save-capture.js';
 import {pingNativeAgent, askNativeAgent} from './native-agent.js';
 import {restoreArchiveDownloadUi} from './download-ui.js';
+import {logOperationalError} from './operational-logger.js';
+import {buildAiContext, buildAiNativeBindings} from "./ai-context.js";
 import {focusSessionFromNotification, openLoginRouteFromNotification, openKurumLoginRoute} from './session-notifications.js';
 import {
   createSession,
@@ -44,6 +46,14 @@ import {
   syncSessionGuardUi
 } from "./download-manager.js";
 
+// Rule views whose results are saved with their sections: [schema field, sections field].
+const RULE_RESULT_SECTIONS=Object.freeze({
+  important_dates:["datesSchema","dateSections"],
+  court_orders:["ordersSchema","orderSections"],
+  parties:["partiesSchema","partySections"],
+  tebligat:["tebligatSchema","tebligatSections"]
+});
+
 let recoveryTask = null;
 function trustedKurumContextSender(sender = {}) {
   if (sender.id !== chrome.runtime.id || !Number.isInteger(sender.tab?.id) || !Number.isInteger(sender.frameId)) return false;
@@ -77,10 +87,69 @@ async function testProductNotification() {
 function scheduleRecovery() {
   if (!recoveryTask) {
     recoveryTask = recoverSession()
-      .catch((error) => console.error("UYAP kuyruk kurtarma hatası", error))
+      .catch((error) => logOperationalError("RECOVERY_SCHEDULE_FAILED", error))
       .finally(() => { recoveryTask = null; });
   }
   return recoveryTask;
+}
+
+function normalizeAiArchiveCaseId(value) {
+  const raw=String(value||"").trim().replace(/\s+/g,"").replace(/[_-]/g,"/");
+  const match=raw.match(/^(20\d{2})\/(\d{1,10})$/);
+  return match?`${match[1]}/${Number(match[2])}`:raw;
+}
+function aiArchiveCaseKey(institutionName,caseId) {
+  return `${String(institutionName||"").trim().toLocaleLowerCase("tr-TR")}|${normalizeAiArchiveCaseId(caseId).toLocaleLowerCase("tr-TR")}`;
+}
+function aiArchiveCasePublic(item) {
+  const total=Number(item?.documentCount||0);
+  const physical=Number(item?.physicalReadyCount??item?.presentCount??0);
+  const problem=Number(item?.problemCount||0);
+  const missing=Number(item?.missingCount||0);
+  const sizeMismatch=Number(item?.sizeMismatchCount||0);
+  const staleMetadata=Number(item?.staleMetadataCount||0);
+  const unregisteredPhysical=Number(item?.unregisteredPhysicalCount||0);
+  return {
+    institutionName:String(item?.institutionName||"").trim(),
+    caseId:normalizeAiArchiveCaseId(item?.caseId),
+    caseTitle:String(item?.caseTitle||"").trim()||null,
+    sourceSystem:Array.isArray(item?.sourceSystems)?item.sourceSystems[0]||null:item?.sourceSystem||null,
+    totalDocuments:total,
+    physicalReadyDocuments:physical,
+    problemDocuments:problem,
+    missingDocuments:missing,
+    sizeMismatchDocuments:sizeMismatch,
+    staleMetadataDocuments:staleMetadata,
+    unregisteredPhysicalDocuments:unregisteredPhysical,
+    totalBytes:Number(item?.totalBytes||0),
+    latestAt:item?.latestAt||null,
+    readyForAi:total>0&&physical===total&&problem===0&&missing===0&&sizeMismatch===0&&staleMetadata===0
+  };
+}
+async function getAiArchiveRegistry() {
+  // AI case selection only needs aggregate caseIndex metadata, not the full
+  // per-document registry. Request a single document row so large archives do
+  // not exceed Chromium Native Messaging's response-size ceiling.
+  const registry=await listArchiveRegistry({limit:1});
+  if(!registry?.ok||!registry.archiveExists||!registry.downloadsRoot) throw new Error("AI için kullanılabilir yerel UYAP arşivi bulunamadı.");
+  return registry;
+}
+async function resolveAiArchiveCase(institutionName,caseId,{requireReady=true}={}) {
+  const registry=await getAiArchiveRegistry();
+  const wanted=aiArchiveCaseKey(institutionName,caseId);
+  const found=(Array.isArray(registry.caseIndex)?registry.caseIndex:[])
+    .map(aiArchiveCasePublic)
+    .find(item=>aiArchiveCaseKey(item.institutionName,item.caseId)===wanted);
+  if(!found) throw new Error("Seçilen dava dosyası yerel arşivde bulunamadı.");
+  if(requireReady&&!found.readyForAi) {
+    throw new Error(`Bu dava dosyası AI sorgusuna hazır değil: ${found.physicalReadyDocuments}/${found.totalDocuments} evrak fiziksel olarak hazır, ${found.problemDocuments} kayıt kontrol gerektiriyor.`);
+  }
+  return {registry,caseInfo:found};
+}
+async function resolveAiArchiveCaseScope(institutionName,caseId) {
+  const scope=await askNativeAgent({action:"ai_archive_case_scope",institutionName,caseId});
+  if(!scope?.ok||!scope.scopeId) throw new Error(scope?.error||"Dava dosyası AI kapsamı oluşturulamadı.");
+  return scope.scopeId;
 }
 
 chrome.runtime.onInstalled.addListener(() => { void syncSessionGuardUi(); void scheduleRecovery(); });
@@ -89,7 +158,7 @@ async function handleOperationalAlarmSafely(alarm) {
   try {
     await handleAlarm(alarm);
   } catch (error) {
-    console.error("UYAP operasyon alarmı işlenemedi", alarm?.name || "unknown", error);
+    logOperationalError("OPERATIONAL_ALARM_FAILED", error, {metadata:{alarmKind:String(alarm?.name || "unknown").split(":")[0]}});
     // RC15.9.19: a one-shot chrome.alarms event disappears after firing. If
     // its handler throws, immediately run the durable recovery bootstrap so
     // RUNNING/RECOVERING jobs cannot remain frozen with no future alarm.
@@ -106,7 +175,7 @@ function handleUyapNavigation(details) {
   void handleSessionAuthNavigation(details.tabId, details.url)
     .then((authHandled) => authHandled ? true : attemptResumeLoginSession(details.tabId))
     .then((resumed) => resumed ? true : recoverRunningSessionAfterNavigation(details.tabId))
-    .catch((error) => console.error("UYAP sayfa kurtarma hatası", error));
+    .catch((error) => logOperationalError("NAVIGATION_RECOVERY_FAILED", error));
 }
 
 const uyapNavigationFilter = {
@@ -137,23 +206,23 @@ chrome.webRequest?.onBeforeRequest?.addListener((details) => {
   void observeUyapNetworkRequest(details).catch(()=>{});
 }, uyapWebRequestFilter);
 chrome.webRequest?.onBeforeRedirect?.addListener((details) => {
-  void handleUyapNetworkRedirect(details).catch((error) => console.error("UYAP ağ yönlendirme kurtarma hatası", error));
+  void handleUyapNetworkRedirect(details).catch((error) => logOperationalError("NETWORK_REDIRECT_RECOVERY_FAILED", error));
 }, uyapWebRequestFilter);
 chrome.webRequest?.onCompleted?.addListener((details) => {
-  void handleUyapNetworkCompleted(details).catch((error) => console.error("UYAP ağ durum kurtarma hatası", error));
+  void handleUyapNetworkCompleted(details).catch((error) => logOperationalError("NETWORK_COMPLETION_RECOVERY_FAILED", error));
 }, uyapWebRequestFilter);
 chrome.tabs.onRemoved?.addListener((tabId) => {
   void handleSessionTabUnavailable(tabId)
-    .catch((error) => console.error("UYAP sekme kapanma kurtarma hatası", error));
+    .catch((error) => logOperationalError("TAB_RECOVERY_FAILED", error));
 });
 
 chrome.notifications?.onClicked?.addListener((notificationId) => {
   void focusSessionFromNotification(notificationId)
-    .catch((error) => console.error('UYAP oturum bildirimi odaklama hatası', error));
+    .catch((error) => logOperationalError("NOTIFICATION_FOCUS_FAILED", error));
 });
 chrome.notifications?.onButtonClicked?.addListener((notificationId, buttonIndex) => {
   void openLoginRouteFromNotification(notificationId, buttonIndex)
-    .catch((error) => console.error('UYAP Kurum giriş yönlendirme hatası', error));
+    .catch((error) => logOperationalError("LOGIN_ROUTE_NOTIFICATION_FAILED", error));
 });
 
 
@@ -235,8 +304,182 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return resumeSavedSession({sessionId:request.sessionId,tabId:request.tabId,autoStart:request.autoStart!==false});
       case MESSAGE.GET_REPORT_DATA:
         return getReportData(request.sessionId);
+      case MESSAGE.GET_AI_CONTEXT: {
+        const report = await getReportData(request.sessionId);
+        return buildAiContext(report, {limit:request.limit});
+      }
+      case MESSAGE.GET_AI_SERVICE_STATUS: {
+        const status = await askNativeAgent({action:"ai_provider_status"});
+        if (!status?.ok) throw new Error(status?.error || "AI sağlayıcı durumu alınamadı.");
+        return status;
+      }
+      case MESSAGE.BUILD_AI_INDEX: {
+        const report = await getReportData(request.sessionId);
+        const downloadsRoot = report?.session?.downloadsRoot;
+        if (!downloadsRoot) throw new Error("AI yerel indeksi için arşiv kökü henüz hazır değil.");
+        const bindings = buildAiNativeBindings(report, {limit:request.limit});
+        return askNativeAgent({
+          action:"ai_build_index",
+          sessionId:request.sessionId,
+          downloadsRoot,
+          bindings
+        });
+      }
+      case MESSAGE.GET_AI_INDEX_STATUS: {
+        const report = await getReportData(request.sessionId);
+        const downloadsRoot = report?.session?.downloadsRoot;
+        if (!downloadsRoot) return {ok:true,kind:"UYAP_AI_INDEX_STATUS",schemaVersion:1,ready:false,sessionId:request.sessionId,documents:0,chunks:0};
+        return askNativeAgent({action:"ai_index_status",sessionId:request.sessionId,downloadsRoot});
+      }
+      case MESSAGE.SEARCH_AI_INDEX: {
+        const report = await getReportData(request.sessionId);
+        const downloadsRoot = report?.session?.downloadsRoot;
+        if (!downloadsRoot) throw new Error("AI araması için arşiv kökü henüz hazır değil.");
+        return askNativeAgent({
+          action:"ai_search",
+          sessionId:request.sessionId,
+          downloadsRoot,
+          query:String(request.query || "").slice(0,500),
+          limit:Math.max(1,Math.min(Number(request.limit || 8),20))
+        });
+      }
+      case MESSAGE.AI_ASK: {
+        const report = await getReportData(request.sessionId);
+        const downloadsRoot = report?.session?.downloadsRoot;
+        if (!downloadsRoot) throw new Error("AI yanıtı için arşiv kökü henüz hazır değil.");
+        const result = await askNativeAgent({
+          action:"ai_answer",
+          sessionId:request.sessionId,
+          downloadsRoot,
+          query:String(request.query || "").slice(0,1200),
+          limit:Math.max(1,Math.min(Number(request.limit || 8),8))
+        });
+        if (!result?.ok) throw new Error(result?.error || "AI sağlayıcısı yanıt veremedi.");
+        return result;
+      }
+      case MESSAGE.GET_AI_ARCHIVE_CASES: {
+        const registry=await getAiArchiveRegistry();
+        const cases=(Array.isArray(registry.caseIndex)?registry.caseIndex:[])
+          .map(aiArchiveCasePublic)
+          .filter(item=>item.institutionName&&item.caseId)
+          .sort((a,b)=>Number(b.readyForAi)-Number(a.readyForAi)||(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)));
+        return {ok:true,kind:"UYAP_AI_ARCHIVE_CASES",schemaVersion:1,totalCases:cases.length,readyCases:cases.filter(item=>item.readyForAi).length,cases};
+      }
+      case MESSAGE.BUILD_AI_ARCHIVE_CASE_INDEX: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:true});
+        const result=await askNativeAgent({
+          action:"ai_build_archive_case_index",
+          downloadsRoot:registry.downloadsRoot,
+          institutionName:caseInfo.institutionName,
+          caseId:caseInfo.caseId
+        });
+        if(!result?.ok) throw new Error(result?.error||"Dava dosyası AI indeksi hazırlanamadı.");
+        if(result.readyForAi!==true) throw new Error(`Dava dosyası bütünlük kontrolünü geçemedi: ${Number(result.verifiedPhysicalDocuments||0)}/${Number(result.totalDocuments||0)} evrak doğrulandı.`);
+        return result;
+      }
+      case MESSAGE.GET_AI_ARCHIVE_CASE_INDEX_STATUS: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:false});
+        const scopeId=await resolveAiArchiveCaseScope(caseInfo.institutionName,caseInfo.caseId);
+        const status=await askNativeAgent({action:"ai_index_status",sessionId:scopeId,downloadsRoot:registry.downloadsRoot});
+        return {...status,scopeId,archiveCase:caseInfo,readyForAi:caseInfo.readyForAi===true&&status?.ready===true};
+      }
+      case MESSAGE.SEARCH_AI_ARCHIVE_CASE: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:true});
+        const scopeId=await resolveAiArchiveCaseScope(caseInfo.institutionName,caseInfo.caseId);
+        return askNativeAgent({
+          action:"ai_search",
+          sessionId:scopeId,
+          downloadsRoot:registry.downloadsRoot,
+          query:String(request.query||"").slice(0,500),
+          limit:Math.max(1,Math.min(Number(request.limit||8),20))
+        });
+      }
+      case MESSAGE.AI_ASK_ARCHIVE_CASE: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:true});
+        const scopeId=await resolveAiArchiveCaseScope(caseInfo.institutionName,caseInfo.caseId);
+        const result=await askNativeAgent({
+          action:"ai_answer",
+          sessionId:scopeId,
+          downloadsRoot:registry.downloadsRoot,
+          workflowId:String(request.workflowId||"ask").slice(0,64),
+          query:String(request.query||"").slice(0,1200),
+          limit:Math.max(1,Math.min(Number(request.limit||8),8)),
+          // Case identity and size for the rule-based künye and coverage line.
+          institutionName:caseInfo.institutionName,
+          caseId:caseInfo.caseId,
+          totalDocuments:Number.isInteger(caseInfo.totalDocuments)?caseInfo.totalDocuments:null
+        });
+        if(!result?.ok){
+          const code=result?.errorCode?` [${result.errorCode}]`:"";
+          const diagnostic=result?.diagnosticPath?` Tanı JSON: ${result.diagnosticPath}`:"";
+          throw new Error(`${result?.error||"AI sağlayıcısı yanıt veremedi."}${code}${diagnostic}`);
+        }
+        let savedSummary=null,summarySaveError=null;
+        // Dosya Özeti and the rule views (Önemli Tarihler, Ara Kararlar, Taraflar)
+        // are kept in the local result history; rule views with their sections.
+        const ruleKeys=RULE_RESULT_SECTIONS[result?.workflowId];
+        const ruleSections=ruleKeys&&result?.[ruleKeys[0]]&&Array.isArray(result?.[ruleKeys[1]])?result[ruleKeys[1]]:null;
+        if(result?.retrievalMode==="case_summary_v1"||ruleSections){
+          try{
+            const saved=await askNativeAgent({
+              action:"ai_save_summary",
+              downloadsRoot:registry.downloadsRoot,
+              institutionName:caseInfo.institutionName,
+              caseId:caseInfo.caseId,
+              workflowId:ruleSections?result.workflowId:"case_summary",
+              answer:result.answer,
+              sections:ruleSections||undefined,
+              workflowNotice:ruleSections?result.workflowNotice:undefined,
+              sources:Array.isArray(result.sources)?result.sources:[],
+              sourceRefs:Array.isArray(result.sourceRefs)?result.sourceRefs:[],
+              provider:result.provider,
+              model:result.model,
+              retrievalMode:result.retrievalMode,
+              selectionPolicy:result.selectionPolicy
+            });
+            savedSummary=saved?.summary||null;
+          }catch(error){
+            summarySaveError=String(error).replace(/^(?:Error:\s*)+/,"");
+            logOperationalError("AI_SUMMARY_SAVE_FAILED",error,{metadata:{caseId:String(caseInfo.caseId||"").slice(0,80)}});
+          }
+        }
+        return {...result,scopeId,savedSummary,summarySaveError,archiveCase:{institutionName:caseInfo.institutionName,caseId:caseInfo.caseId,totalDocuments:caseInfo.totalDocuments}};
+      }
+      case MESSAGE.GET_AI_ARCHIVE_SUMMARIES: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:false});
+        return askNativeAgent({
+          action:"ai_list_summaries",
+          downloadsRoot:registry.downloadsRoot,
+          institutionName:caseInfo.institutionName,
+          caseId:caseInfo.caseId,
+          limit:Math.max(1,Math.min(Number(request.limit||20),100))
+        });
+      }
+      case MESSAGE.GET_AI_ARCHIVE_SUMMARY:
+      case MESSAGE.DELETE_AI_ARCHIVE_SUMMARY:
+      case MESSAGE.RESTORE_AI_ARCHIVE_SUMMARY: {
+        const {registry,caseInfo}=await resolveAiArchiveCase(request.institutionName,request.caseId,{requireReady:false});
+        const action={[MESSAGE.GET_AI_ARCHIVE_SUMMARY]:"ai_get_summary",[MESSAGE.DELETE_AI_ARCHIVE_SUMMARY]:"ai_delete_summary",
+          [MESSAGE.RESTORE_AI_ARCHIVE_SUMMARY]:"ai_restore_summary"}[request.type];
+        const result=await askNativeAgent({
+          action,
+          downloadsRoot:registry.downloadsRoot,
+          institutionName:caseInfo.institutionName,
+          caseId:caseInfo.caseId,
+          summaryId:String(request.summaryId||"").slice(0,120)
+        });
+        if(!result?.ok)throw new Error(result?.error||"Kaydedilen sonuç işlenemedi.");
+        return result;
+      }
       case MESSAGE.GET_ARCHIVE_REGISTRY:
-        return listArchiveRegistry({sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,limit:request.limit,forceRefresh:request.forceRefresh===true});
+        return listArchiveRegistry({
+          sessionId:request.sessionId||null,downloadsRoot:request.downloadsRoot||null,
+          limit:request.limit,offset:request.offset,summaryOnly:request.summaryOnly===true,
+          browseCache:request.browseCache===true,
+          search:request.search||"",status:request.status||"",extension:request.extension||"",
+          institutionName:request.institutionName||"",caseId:request.caseId||"",
+          forceRefresh:request.forceRefresh===true
+        });
       case MESSAGE.SELECT_EXISTING_ARCHIVE:
         return selectExistingArchive();
       case MESSAGE.GET_SELECTED_ARCHIVE:
@@ -314,7 +557,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   };
 
   run().then((data) => sendResponse({ ok: true, data })).catch((error) => {
-    console.error(error);
+    logOperationalError("RUNTIME_MESSAGE_FAILED", error, {metadata:{messageType:String(request?.type || "unknown").slice(0,80)}});
     sendResponse({ ok: false, error: String(error) });
   });
   return true;

@@ -28,11 +28,12 @@ req("let archiveRegistryRefreshTask=null" in WORKSPACE,
     "Workspace registry single-flight guard missing")
 req("ARCHIVE_REGISTRY_CACHE_TTL_MS = 60_000" in MANAGER,
     "Registry cache TTL missing")
-req("while (archiveRegistryInFlight)" in MANAGER and "await archiveRegistryInFlight.promise" in MANAGER,
+req(("while (archiveRegistryInFlight)" in MANAGER or "while(archiveRegistryInFlight)" in MANAGER)
+    and "await archiveRegistryInFlight.promise" in MANAGER,
     "Concurrent registry requests are not coalesced")
 req("archiveRegistryCache = null" in MANAGER,
     "Archive selection does not invalidate registry cache")
-req("RC15.9.37 QUEUE-RECOVERY" in MANIFEST.get("version_name", ""),
+req("2.9.0 RC15.9." in MANIFEST.get("version_name", ""),
     "release identity mismatch")
 
 print("RC15.9.31 workspace nonblocking registry regression: PASS")

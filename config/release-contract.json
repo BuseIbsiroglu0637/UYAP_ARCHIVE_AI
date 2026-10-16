@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "product": "UYAP Archive AI",
+  "release": {
+    "extensionVersion": "2.9.0",
+    "releaseId": "RC15.9.39",
+    "releaseName": "AI-FAST-ARCHIVE",
+    "versionName": "2.9.0 RC15.9.39 AI-FAST-ARCHIVE",
+    "manifestVersion": 3,
+    "minimumChromeVersion": 120,
+    "environment": "prod",
+    "channel": "rc"
+  },
+  "nativeAgent": {
+    "version": "2.7.68",
+    "minimumVersion": "2.7.68",
+    "protocolVersion": 2,
+    "hostName": "tr.gov.uyap.archive_agent"
+  },
+  "storage": {
+    "indexedDbName": "uyap-profesyonel-arsiv-v1",
+    "indexedDbVersion": 6,
+    "reliabilitySchemaVersion": 5,
+    "migrationFrameworkVersion": 1,
+    "rollbackPolicy": "same-db-version-or-backup-required"
+  },
+  "contentProtocolVersion": "2.9.0",
+  "compatibility": {
+    "extensionToNative": "same-major/minimum-version",
+    "archiveEngineCloudIndependent": true,
+    "verifiedContentOnlyForAI": true
+  }
+}

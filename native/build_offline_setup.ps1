@@ -5,6 +5,22 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2.0
 $PackageRoot = Split-Path -Parent $PSScriptRoot
+$ReleaseContractPath = Join-Path $PackageRoot 'config\release-contract.json'
+$ReleaseChannelsPath = Join-Path $PackageRoot 'config\release-channels.json'
+if (-not (Test-Path $ReleaseContractPath)) { throw 'release-contract.json bulunamadi.' }
+if (-not (Test-Path $ReleaseChannelsPath)) { throw 'release-channels.json bulunamadi.' }
+$ReleaseContract = Get-Content -LiteralPath $ReleaseContractPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$ReleaseChannels = Get-Content -LiteralPath $ReleaseChannelsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$ReleaseId = [string]$ReleaseContract.release.releaseId
+$ReleaseChannel = [string]$ReleaseContract.release.channel
+$ReleaseEnvironment = [string]$ReleaseContract.release.environment
+$ChannelProperty = $ReleaseChannels.channels.PSObject.Properties[$ReleaseChannel]
+if ($null -eq $ChannelProperty) { throw ('Bilinmeyen release channel: ' + $ReleaseChannel) }
+$ChannelPolicy = $ChannelProperty.Value
+if ([string]$ChannelPolicy.environment -ne $ReleaseEnvironment) { throw 'Release channel/environment sozlesmesi uyusmuyor.' }
+$PackageDirName = 'UYAP_Archive_AI_' + $ReleaseId
+Write-Host ('Release contract: ' + $ReleaseId + ' / ' + $ReleaseChannel + ' / ' + $ReleaseEnvironment)
+if ($ChannelPolicy.signedBuildRequired -eq $true) { Write-Warning 'Bu kanal imzali build gerektirir. Phase 2 code-signing kapisi kapanmadan bu cikti production-ready sayilmaz.' }
 $BuildRoot = Join-Path $env:TEMP ('UYAPArchiveAI-SetupBuild-' + [guid]::NewGuid().ToString('N'))
 $Work = Join-Path $BuildRoot 'work'
 $PayloadStage = Join-Path $BuildRoot 'payload'
@@ -27,31 +43,32 @@ if (-not (Test-Path $runtimeZip) -or (Get-FileHash $runtimeZip -Algorithm SHA256
 $hash=(Get-FileHash $runtimeZip -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($hash -ne $spec.sha) { throw 'Runtime SHA-256 dogrulamasi basarisiz.' }
 
-$copyRoot=Join-Path $PayloadStage 'UYAP_Archive_AI_RC15.9.37'
+$copyRoot=Join-Path $PayloadStage $PackageDirName
 New-Item -ItemType Directory -Force -Path $copyRoot | Out-Null
-Get-ChildItem -LiteralPath $PackageRoot -Force | Where-Object { $_.Name -notlike 'UYAP_Archive_AI_RC15.9.37_Setup*.exe' } | ForEach-Object {
+Get-ChildItem -LiteralPath $PackageRoot -Force | Where-Object { $_.Name -notlike ($PackageDirName + '_Setup*.exe') } | ForEach-Object {
   Copy-Item -LiteralPath $_.FullName -Destination $copyRoot -Recurse -Force
 }
 $payloadZip=Join-Path $Work 'payload.zip'
 Compress-Archive -Path (Join-Path $PayloadStage '*') -DestinationPath $payloadZip -CompressionLevel Optimal -Force
 
 $bootstrap=Join-Path $Work 'bootstrap.cmd'
-@'
+$bootstrapText=@"
 @echo off
 setlocal
 chcp 65001 >nul
-set "DEST=%LOCALAPPDATA%\UYAPArsiv\Distribution\RC15.9.37"
+set "DEST=%LOCALAPPDATA%\UYAPArsiv\Distribution\$ReleaseId"
 if exist "%DEST%" rmdir /s /q "%DEST%"
 mkdir "%DEST%" >nul 2>&1
 powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%~dp0payload.zip' -DestinationPath '%DEST%' -Force"
 if errorlevel 1 exit /b 1
-call "%DEST%\UYAP_Archive_AI_RC15.9.37\SETUP_UYAP_ARCHIVE_AI.bat"
+call "%DEST%\$PackageDirName\SETUP_UYAP_ARCHIVE_AI.bat"
 set "EC=%ERRORLEVEL%"
-if "%EC%"=="0" explorer "%DEST%\UYAP_Archive_AI_RC15.9.37"
+if "%EC%"=="0" explorer "%DEST%\$PackageDirName"
 exit /b %EC%
-'@ | Set-Content -LiteralPath $bootstrap -Encoding ASCII
+"@
+$bootstrapText | Set-Content -LiteralPath $bootstrap -Encoding ASCII
 
-$target=Join-Path $PackageRoot ("UYAP_Archive_AI_RC15.9.37_Setup_" + $Arch + '.exe')
+$target=Join-Path $PackageRoot ($PackageDirName + "_Setup_" + $Arch + '.exe')
 $sed=Join-Path $Work 'setup.sed'
 $workEsc=$Work.Replace('\','\\')
 $targetEsc=$target.Replace('\','\\')
@@ -72,7 +89,7 @@ InstallPrompt=
 DisplayLicense=
 FinishMessage=
 TargetName=$target
-FriendlyName=UYAP Archive AI RC15.9.17 Setup
+FriendlyName=UYAP Archive AI $ReleaseId Setup
 AppLaunched=bootstrap.cmd
 PostInstallCmd=<None>
 AdminQuietInstCmd=
@@ -90,7 +107,24 @@ FILE1=bootstrap.cmd
 $sedText | Set-Content -LiteralPath $sed -Encoding ASCII
 $iexpress=Join-Path $env:SystemRoot 'System32\iexpress.exe'
 if (-not (Test-Path $iexpress)) { throw 'IExpress bulunamadi. Bu Windows surumunde tek EXE olusturucu mevcut degil.' }
-& $iexpress /N $sed
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path $target)) { throw 'IExpress Setup.exe olusturamadi.' }
+if (-not (Test-Path $sed)) { throw ('IExpress directive dosyasi olusturulamadi: ' + $sed) }
+
+# IExpress'in eski komut satiri ayrıştırıcısı, Start-Process üzerinden elle
+# tırnaklanmış mutlak SED yolunu bazı Windows sürümlerinde dosya adının parçası
+# gibi yorumlayıp "Error opening the IExpress Self Extraction Directive file"
+# hatası verebiliyor. SED dosyasını çalışma dizininden basit dosya adıyla açmak
+# bu parser belirsizliğini kaldırır. /Q ayrıca GUI hata penceresi yerine exit code
+# ve hedef dosya kontrolünün tek doğrulama kaynağı olmasını sağlar.
+$sedLeaf = Split-Path -Leaf $sed
+Write-Host ('IExpress paketleyici calistiriliyor: ' + $sedLeaf)
+$iexpressProcess = Start-Process -FilePath $iexpress -WorkingDirectory $Work -ArgumentList @('/N', '/Q', $sedLeaf) -Wait -PassThru
+if ($null -eq $iexpressProcess -or $iexpressProcess.ExitCode -ne 0) {
+  throw ('IExpress Setup.exe olusturamadi. ExitCode=' + ($(if ($null -eq $iexpressProcess) { 'unknown' } else { [string]$iexpressProcess.ExitCode })) + '; SED=' + $sed)
+}
+$targetDeadline = [DateTime]::UtcNow.AddSeconds(15)
+while (-not (Test-Path $target) -and [DateTime]::UtcNow -lt $targetDeadline) {
+  Start-Sleep -Milliseconds 250
+}
+if (-not (Test-Path $target)) { throw 'IExpress basarili sonlandi ancak Setup.exe hedefte bulunamadi.' }
 Write-Host ('Hazir offline kurulum EXE: ' + $target)
 Remove-Item -LiteralPath $BuildRoot -Recurse -Force -ErrorAction SilentlyContinue
