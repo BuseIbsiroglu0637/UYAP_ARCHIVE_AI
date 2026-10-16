@@ -46,7 +46,7 @@ def final_message(root, session, doc_id, path, fp='fp-1'):
     }
 
 
-req(agent.AGENT_VERSION == '2.7.64', agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 
 # 1) A byte-identical JPEG that was already accepted by the real Windows decoder
 # with UYAP trailer provenance must keep that proof during finalization.

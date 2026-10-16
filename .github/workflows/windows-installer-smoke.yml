@@ -29,6 +29,8 @@ jobs:
         run: python native/s2_05_archive_snapshot_cache_regression_test.py
       - name: S2-06 registry scan without per-row resolve
         run: python native/s2_06_registry_fast_scan_regression_test.py
+      - name: Legacy loose evrak_<id> adoption on Windows (fsync on a writable handle)
+        run: python native/rc15_9_27_source_id_loose_import_regression_test.py
       - name: Release identity
         run: python native/current_release_identity_test.py
       - name: Clean-install host contract

@@ -17,7 +17,7 @@ def standard_jpeg():
             b"abc" + b"\xff\xd9")
 
 ping=agent.dispatch({"action":"ping","probe":"rc1595"})
-req(ping.get("version")=="2.7.64", ping)
+req(tuple(map(int, str(ping.get("version")).split("."))) >= (2, 7, 64), ping)
 req("jpeg_windows_decoder_fallback_v1" in ping.get("capabilities",[]), ping)
 
 with tempfile.TemporaryDirectory() as td:

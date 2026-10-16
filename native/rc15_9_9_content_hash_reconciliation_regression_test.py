@@ -9,7 +9,7 @@ def req(cond, msg):
 def sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
-req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 with tempfile.TemporaryDirectory() as td:
     root=Path(td)
     archive=root/'UYAP_Arsiv'/'Kurum'/'2025_1_Dosya'/'Folder'

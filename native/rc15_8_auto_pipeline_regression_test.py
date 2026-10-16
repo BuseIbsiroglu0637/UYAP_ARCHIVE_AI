@@ -52,7 +52,7 @@ assert 'htmlOrdinal === 1 || htmlOrdinal === 3 || probeStale' in DM
 assert 'lastHtmlSessionProbeAt' in DM
 
 # SQLite side is WAL-safe for two native host processes and indexed by scope.
-assert 'AGENT_VERSION = "2.7.64"' in AGENT
+assert tuple(map(int, AGENT.split('AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64)
 assert 'PRAGMA journal_mode=WAL' in AGENT
 assert 'PRAGMA busy_timeout=30000' in AGENT
 assert 'idx_documents_status_case' in AGENT

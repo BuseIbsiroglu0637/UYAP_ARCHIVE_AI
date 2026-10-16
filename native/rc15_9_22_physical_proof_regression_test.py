@@ -15,7 +15,7 @@ def req(condition, message):
         raise AssertionError(message)
 
 
-req(agent.AGENT_VERSION == '2.7.64', agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 
 with tempfile.TemporaryDirectory() as td:
     root = Path(td)

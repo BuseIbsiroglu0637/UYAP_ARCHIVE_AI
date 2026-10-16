@@ -8,6 +8,10 @@ HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("uyap_archive_agent", HERE / "uyap_archive_agent.py")
 agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
+# Synthetic test: only the temporary root may be scanned, never the developer's
+# selected archive or browser download folders on this machine.
+_all_archive_roots = agent._archive_root_candidates
+agent._archive_root_candidates = lambda supplied_root=None: _all_archive_roots(supplied_root)[:1] if supplied_root else []
 
 
 def req(value, message):
@@ -15,7 +19,7 @@ def req(value, message):
         raise AssertionError(message)
 
 
-req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 req(agent._canonical_case_id("2025_607") == "2025/607", "underscore case id not normalized")
 req(agent._canonical_case_id("2025-607") == "2025/607", "dash case id not normalized")
 
@@ -66,7 +70,8 @@ with tempfile.TemporaryDirectory() as temporary:
     req(registry["physicalReadyFiles"] == 1, registry)
 
 manager = (HERE.parent / "background" / "download-manager.js").read_text(encoding="utf-8")
-req("LOCAL_ARCHIVE_RECONCILIATION_VERSION = 4" in manager, "reconciliation cache version missing")
+# The cache version only grows (5 since RC15.9.3x); 4 is the floor this fix needs.
+req(int(manager.split("LOCAL_ARCHIVE_RECONCILIATION_VERSION = ", 1)[1].split(";", 1)[0]) >= 4, "reconciliation cache version missing")
 req("session?.localArchiveReconciliationVersion" in manager, "large-case reconciliation cache is not invalidated")
 
 print("RC15.9.25 cross-PC archive reconciliation regression: PASS")

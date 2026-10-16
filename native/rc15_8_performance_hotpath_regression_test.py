@@ -21,7 +21,7 @@ assert "{downloadsRoot, force:true, largeBatchNo:activeBatch, nativePriority:0}"
 # Historical DB rows pointing to the same archive path are hashed only once per proof pass.
 assert "proven_paths = set()" in AGENT
 assert "if path_key and path_key in proven_paths" in AGENT
-assert 'AGENT_VERSION = "2.7.64"' in AGENT
+assert tuple(map(int, AGENT.split('AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64)
 
 # Sequential correlation safety and conservative failure pacing remain intact.
 assert "if (await documentStore.hasActiveDownload(sessionId)) return;" in DM

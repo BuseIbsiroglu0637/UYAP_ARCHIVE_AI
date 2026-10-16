@@ -34,7 +34,7 @@ def exact_message(root: Path, source: Path, source_id='1234567890', attempt='att
     }
 
 
-req(agent.AGENT_VERSION == '2.7.64', agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 
 # 1) Exact browser-download identity is stronger provenance than a non-canonical
 # local filename. The bytes must still pass content validation later.

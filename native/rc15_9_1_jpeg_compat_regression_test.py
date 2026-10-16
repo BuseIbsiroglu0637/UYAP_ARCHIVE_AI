@@ -54,7 +54,7 @@ def dnl_jpeg():
 
 
 require(str(MANIFEST.get("version_name", "")).startswith("2.9.0 RC15.9."), "manifest RC15.9.x version_name")
-require(agent.AGENT_VERSION == "2.7.64", "Agent 2.7.64 required")
+require(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), "Agent 2.7.64 required")
 require("jpeg_uyap_compatible_v1" in agent.dispatch({"action": "ping", "probe": "jpeg-test"})["capabilities"], "JPEG compat capability missing")
 require('const JPEG_UYAP_COMPAT_CAPABILITY = "jpeg_uyap_compatible_v1";' in NATIVE_JS, "extension capability gate missing")
 require('"INVALID_IMAGE",' in DM[DM.index('const LOCAL_REVALIDATION_CODES'):DM.index('async function tryLocalQuarantineRevalidation')], "INVALID_IMAGE not locally revalidatable")

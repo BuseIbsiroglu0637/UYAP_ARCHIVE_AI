@@ -5,6 +5,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DM = (ROOT / 'background' / 'download-manager.js').read_text(encoding='utf-8')
 STORE = (ROOT / 'background' / 'store.js').read_text(encoding='utf-8')
 DB = (ROOT / 'background' / 'db.js').read_text(encoding='utf-8')
+# 3d2a4ee moved the IndexedDB index definitions into db-migrations.js.
+DB += (ROOT / 'background' / 'db-migrations.js').read_text(encoding='utf-8')
 CONST = (ROOT / 'shared' / 'constants.js').read_text(encoding='utf-8')
 
 assert 'const LARGE_CASE_THRESHOLD = 3000;' in DM

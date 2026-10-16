@@ -28,7 +28,7 @@ ctx={
 }
 
 ping=agent.dispatch({'action':'ping','probe':'rc1597'})
-req(ping.get('version')=='2.7.64', ping)
+req(tuple(map(int, str(ping.get("version")).split("."))) >= (2, 7, 64), ping)
 for cap in ('uyap_exact_content_truth_v1','jpeg_uyap_trailing_preserve_v1','html_circuit_deadline_v1'):
     req(cap in ping.get('capabilities',[]), (cap,ping))
 

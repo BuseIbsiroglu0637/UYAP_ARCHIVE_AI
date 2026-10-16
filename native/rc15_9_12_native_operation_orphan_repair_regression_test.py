@@ -21,7 +21,7 @@ bridge = (ROOT / "background" / "native-agent.js").read_text("utf-8")
 manager = (ROOT / "background" / "download-manager.js").read_text("utf-8")
 manifest = (ROOT / "manifest.json").read_text("utf-8")
 
-require(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
+require(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 ping = agent.dispatch({"action": "ping"})
 require("verified_root_orphan_cleanup_v1" in ping.get("capabilities", []), ping)
 require("bridgeResponseReceived:true" in bridge, "native reply/transport proof missing")

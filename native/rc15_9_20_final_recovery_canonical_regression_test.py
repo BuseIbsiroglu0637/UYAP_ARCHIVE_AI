@@ -12,7 +12,7 @@ def req(cond, msg):
         raise AssertionError(msg)
 
 req('2.9.0 RC15.9.' in manifest.get('version_name',''), 'release identity')
-req('AGENT_VERSION = "2.7.64"' in agent, 'native agent must be 2.7.64')
+req(tuple(map(int, agent.split('AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64), 'native agent must be 2.7.64')
 
 # The bypass must be narrowly scoped to final-integrity recovery of a document
 # that had only been satisfied by local archive reconciliation.
