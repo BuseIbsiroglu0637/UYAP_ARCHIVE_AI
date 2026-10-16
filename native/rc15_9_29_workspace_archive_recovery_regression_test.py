@@ -21,6 +21,9 @@ req("yerel arşivden kurtarıldı" in workspace, "files summary does not expose 
 req("Tarayıcı oturumu yok • yerel _archive.db kaydı" in workspace, "archive-only job row missing")
 req("UYAP'tan işi yeniden oluştur" in workspace, "safe rebuild action missing")
 req("state.selectedId=null;state.selectedArchiveKey" in workspace, "archive-only selection must not impersonate a live session")
-req("if(!selected)return docs" in workspace, "local archive scoping guard missing")
+# S2-04 moved case scoping to the native page query (caseId/institutionName filters).
+req("if(!selected)return docs" in workspace
+    or ('institutionName:selection?.institutionName||""' in workspace and 'caseId:selection?.caseId||""' in workspace),
+    "local archive scoping guard missing")
 
 print("RC15.9.29 workspace archive recovery regression: PASS")

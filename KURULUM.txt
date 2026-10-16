@@ -1,45 +1,41 @@
-UYAP ARCHIVE AI 2.9.0 RC15.9.38 - TAM KURULUM
-Chrome uzantisi: RC15.9.38 ARCHIVE-SYNC-RACE-FIX
-Yerel ajan: 2.7.64 (paketin icinde kaynak kodu ve kurucu vardir)
+UYAP ARCHIVE AI 2.9.0 RC15.9.39 - TAM KURULUM
+Chrome uzantisi: 2.9.0 RC15.9.39 AI-FAST-ARCHIVE
+Yerel ajan: 2.7.68 (kaynak kodu, kurucu ve Python calisma ortami paketin icinde)
 
-BU PAKETIN AMACI
-RC15.9.38 yalniz uzanti yamasinin RC15.9.37 tam paketiyle birlestirilmis halidir.
-RC15.9.38'in yeni uzanti dosyalari ve RC15.9.37'nin Native Agent 2.7.64
-kaynaklari/kurucusu ayni pakette yer alir. Eski 2.7.44 ile uyumsuzluk giderilmesi
-icin 2.7.64 kurulumuna ihtiyac vardir.
+BU SURUMDE
+- Dosya Ozeti ve yapay zeka gerektirmeyen gorunumler: Onemli Tarihler,
+  Ara Kararlar, Taraflar, Tebligatlar.
+- Kaydedilen sonuclar, PDF olarak alma, onayli silme ve geri alma.
+- PDF metin okuma (pypdf paketin icinde).
+- Yerel arsiv 100'er kayitlik sayfalarla gosterilir; arsiv taramasi
+  hizlandirildi (ornek arsivde 78 sn yerine yaklasik 7 sn).
 
 ONEMLI: Hicbir mevcut UYAP evrakini, C:\UYAP, C:\UYAP KURUM HUKUK veya
-UYAP_Arsiv klasorunu SILMEYIN. Tam sifir kurulum icin uygulamayi yeniden
-kurabilirsiniz; kullanici arsivleri ayri korunmalidir. Mevcut uzanti depolama
-verilerini kaybetmek istemiyorsaniz once disari aktarip yedekleyin.
+UYAP_Arsiv klasorunu SILMEYIN. Kurulum arsiv klasorlerine dokunmaz.
+Chrome'dan bir uzantiyi KALDIRMAK o uzantinin tarayicidaki kuyruk ve ayar
+verilerini siler; eski bir kopya kuruluysa kaldirmadan once yedekleyin.
 
-ADIM ADIM WINDOWS KURULUMU
-1. Chrome/Edge ve varsa acik UYAP islemlerini kapatin. ZIP dosyasini bir
-   klasore TAMAMEN cikarin (ZIP'in icinden BAT calistirmayin).
-2. Cikardiginiz klasorden SETUP_UYAP_ARCHIVE_AI.bat dosyasini calistirin.
-   YEREL_AJANI_KUR.bat ayni kurulumu baslatan kisayoldur; IKISINI BIRDEN
-   calistirmayin. Kurulum, Native Agent 2.7.64'u o kullaniciya yukler ve
-   2 ping ile dogrular. Mevcut 2.7.44 varsa yeni surume gunceller.
-   Ilk kurulumda internet gerekir: resmi Python.org portable runtime indirilir,
-   SHA-256 ile denetlenir. Sistem Python kurulumu gerekmez.
-3. Kurulum basarisizsa kapatmayin; hata metnini not edin. Tanilama dosyalari:
-   %LOCALAPPDATA%\UYAPArsiv\native-install-diagnostic.json
-   %LOCALAPPDATA%\UYAPArsiv\native-install.log
-4. Kurulum basariliysa Chrome'u acin, chrome://extensions adresine gidin,
-   Gelistirici modu'nu acin, Paketlenmemis oge yukle'yi secin.
-   ZIP'ten cikardiginiz MANIFEST.JSON dosyasinin bulundugu ana klasoru secin.
-   Eski uzanti da mevcutsa hangisinin aktif oldugunu kontrol edin. Iki kopyayi
-   ayni anda calistirmayin. Mevcut Chrome uzanti verileriniz varsa silmeden
-   once yedekleyin.
-5. Chrome'u tamamen kapatin ve yeniden acin. UYAP sekmesini acin.
-   UYAP Archive AI penceresinde Native Agent surumunu kontrol edin: 2.7.64.
-   Ardindan once 1-2 evrakla test edin; sonuc ve dosyalarin fiziksel varligini
-   kontrol etmeden buyuk bir indirme isini baslatmayin.
-6. Sorun devam ediyorsa YEREL_AJANI_TANI.bat dosyasini calistirip uretilen
-   tanilamayi inceleyin. 2.7.44 gorunuyorsa tarayici tamamen kapanmamis,
-   kurulum hata vermis veya eski uzanti hala aktif olabilir.
+KURULUM (Setup.exe ile)
+1. Chrome/Edge'i ve acik UYAP islemlerini kapatin.
+2. UYAP_Archive_AI_RC15.9.39_Setup_amd64.exe dosyasini calistirin.
+   Paket %LOCALAPPDATA%\UYAPArsiv\Distribution\RC15.9.39 altina acilir,
+   yerel ajan 2.7.68 o kullaniciya kurulur ve 2 ping ile dogrulanir.
+   Python calisma ortami paketin icindedir ve SHA-256 ile denetlenir;
+   sistem Python kurulumu gerekmez.
+3. Kurulum bitince paket klasoru acilir. Chrome'da chrome://extensions
+   adresine gidin, Gelistirici modu'nu acin, Paketlenmemis oge yukle'yi secin
+   ve manifest.json dosyasinin bulundugu bu klasoru secin.
+   Ayni uzantinin baska bir kopyasi aciksa iki kopyayi ayni anda calistirmayin.
+4. Chrome'u tamamen kapatip yeniden acin. Calisma Merkezi'nin sol altinda
+   "v2.9.0 RC15.9.39 AI-FAST-ARCHIVE" ve "Ajan v2.7.68 hazir" gorunmelidir.
+5. Once 1-2 evrakla deneyin; dosyalarin fiziksel olarak arsive geldigini
+   gormeden buyuk bir indirme isi baslatmayin.
 
-NOT: Bu paket derlemesi eski tam paketin Native 2.7.64 kurulumunu kullanir.
-Windows uzerinde canli kurulum ve UYAP indirme testi bu ortamda yapilamadi.
-RC15.9.38_KURULUM_VE_TEST.txt belgesi yalniz uzanti yamasinin eski yayin notudur;
-bu TAM paketin kurulumu icin bu dosyadaki adimlari takip edin.
+SORUN OLURSA
+- YEREL_AJANI_TANI.bat tanilama uretir:
+  %LOCALAPPDATA%\UYAPArsiv\native-install-diagnostic.json
+  %LOCALAPPDATA%\UYAPArsiv\native-install.log
+- YEREL_AJANI_GERI_AL.bat yerel ajani bir onceki kuruluma dondurur.
+
+NOT: Bu paket imzasizdir (gelistirici surumu). Windows SmartScreen uyarisi
+gorulebilir; yalniz guvendiginiz kaynaktan aldiginiz dosyayi calistirin.
