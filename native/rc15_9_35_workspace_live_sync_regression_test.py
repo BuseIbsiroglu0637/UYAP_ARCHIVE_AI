@@ -36,7 +36,9 @@ req("forceRefresh = false" in manager and "forceRefresh ? null : cachedResult()"
     "archive registry cache cannot be bypassed")
 req("invalidateArchiveRegistryCache();" in manager, "archive mutations do not invalidate registry cache")
 req("forceRefresh:request.forceRefresh===true" in service, "service worker does not forward force refresh")
-req("local_path = _registry_row_path(root, row)" in agent_source,
+# S2-06: the snapshot memoizes _registry_row_path per (root, local_path, target_path).
+req("local_path = _registry_row_path(root, row)" in agent_source
+    or ("local_path = row_path(root, row)" in agent_source and "_registry_row_path(root, row, probe)" in agent_source),
     "case index still uses stale absolute local_path")
 req('if os.name != "nt" and re.match' not in agent_source[agent_source.index("case_groups = {}"):agent_source.index("physical_only = []")],
     "Windows-only stale path branch still present in case index")

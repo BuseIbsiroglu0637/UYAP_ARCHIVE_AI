@@ -2630,13 +2630,41 @@ def _archive_file_match_key(relative_path):
     return f"{parent}/{_identity_text(stem)}"
 
 
-def _portable_row_paths(root: Path, local_path, target_path=None, source_document_id=None, loose_source_index=None):
-    """Resolve copied DB rows against the currently selected archive root."""
+def _lexical_archive_target(root: Path, relative_path: str):
+    """safe_target() for read-only browsing: same validation, no disk access.
+
+    safe_target() resolves every path, which on Windows opens a handle per
+    file (GetFinalPathNameByHandle). Over 16k registry rows that was most of
+    the 35-second archive scan. Listing never writes, so a lexical containment
+    check is enough here; every writer keeps using safe_target().
+    """
+    parts = PurePosixPath(relative_path).parts
+    if not parts or PurePosixPath(relative_path).is_absolute() or any(x in ("..", ".") or ":" in x or "\\" in x for x in parts):
+        raise ValueError("Geçersiz göreli hedef yolu")
+    target = Path(os.path.normpath(os.path.join(str(root), *parts)))
+    root_key = os.path.normcase(os.path.normpath(str(root))).rstrip("\\/")
+    target_key = os.path.normcase(str(target))
+    if target_key != root_key and not target_key.startswith(root_key + os.sep):
+        raise ValueError("Hedef yol indirme kökünün dışında")
+    return target
+
+
+def _lexical_absolute(raw_path: str) -> Path:
+    return Path(os.path.abspath(os.path.expanduser(raw_path)))
+
+
+def _portable_row_paths(root: Path, local_path, target_path=None, source_document_id=None, loose_source_index=None, lexical=False):
+    """Resolve copied DB rows against the currently selected archive root.
+
+    lexical=True is for read-only registry browsing: candidates are built
+    without touching the disk (see _lexical_archive_target).
+    """
+    to_target = _lexical_archive_target if lexical else safe_target
     candidates = []
     raw_target = str(target_path or "").replace("\\", "/").strip()
     if raw_target:
         try:
-            target = safe_target(root, raw_target)
+            target = to_target(root, raw_target)
             if len(target.relative_to(root).parts) >= 2 and target.relative_to(root).parts[0].casefold() == "uyap_arsiv":
                 candidates.append(target)
         except (OSError, ValueError):
@@ -2644,14 +2672,14 @@ def _portable_row_paths(root: Path, local_path, target_path=None, source_documen
     raw_local = str(local_path or "").strip()
     if raw_local:
         try:
-            candidates.append(Path(raw_local).expanduser().resolve())
+            candidates.append(_lexical_absolute(raw_local) if lexical else Path(raw_local).expanduser().resolve())
         except (OSError, ValueError):
             pass
         parts = [part for part in re.split(r"[\\/]+", raw_local) if part]
         archive_index = next((index for index, part in enumerate(parts) if part.casefold() == "uyap_arsiv"), None)
         if archive_index is not None:
             try:
-                rebased = safe_target(root, "/".join(parts[archive_index:]))
+                rebased = to_target(root, "/".join(parts[archive_index:]))
                 candidates.append(rebased)
             except (OSError, ValueError):
                 pass
@@ -2681,12 +2709,16 @@ def _portable_row_paths(root: Path, local_path, target_path=None, source_documen
 
 
 
-def _registry_row_path(root: Path, row):
+def _registry_row_path(root: Path, row, probe=None):
     """Resolve a registry row against the currently selected archive root.
 
     Copied databases may retain the previous PC's absolute local_path. Prefer
     an existing target_path/rebased candidate so Workspace reflects the bytes
     that are actually present on this machine.
+
+    probe (read-only registry browsing): a callable returning the file's stat
+    result or None. Candidates are then built lexically and checked against
+    one directory walk instead of one resolve() + stat per candidate.
     """
     row = row or {}
     candidates = _portable_row_paths(
@@ -2694,8 +2726,13 @@ def _registry_row_path(root: Path, row):
         row.get("local_path"),
         row.get("target_path"),
         row.get("source_document_id"),
+        lexical=probe is not None,
     )
     for candidate in candidates:
+        if probe is not None:
+            if probe(candidate) is not None:
+                return candidate
+            continue
         try:
             if candidate.is_file():
                 return candidate
@@ -2704,7 +2741,61 @@ def _registry_row_path(root: Path, row):
     if candidates:
         return candidates[0]
     raw_local = str(row.get("local_path") or "").strip()
-    return Path(raw_local).expanduser().resolve() if raw_local else (root / "UYAP_Arsiv" / "_missing")
+    if not raw_local:
+        return root / "UYAP_Arsiv" / "_missing"
+    return _lexical_absolute(raw_local) if probe is not None else Path(raw_local).expanduser().resolve()
+
+
+class _ArchiveFileProbe:
+    """One os.scandir walk per archive; answers "is this a file, and its stat".
+
+    Replaces per-row Path.resolve() + is_file() + stat() in the registry
+    snapshot. A path the walk did not see falls back to os.stat (cached), so
+    spellings the walk cannot match (junctions, odd Unicode, other drives)
+    still get the exact answer the old per-row code gave.
+    """
+
+    def __init__(self, archive_roots):
+        self.index = {}
+        self.files = []
+        self._fallback = {}
+        for root, archive_root in archive_roots:
+            stack = [str(archive_root)]
+            while stack:
+                current = stack.pop()
+                try:
+                    with os.scandir(current) as entries:
+                        listed = sorted(entries, key=lambda item: item.name)
+                except OSError:
+                    continue
+                subdirs = []
+                for entry in listed:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            subdirs.append(entry.path)
+                        elif entry.is_file():
+                            key = os.path.normcase(entry.path)
+                            self.index[key] = entry.stat()
+                            self.files.append((root, entry.path, key))
+                    except OSError:
+                        continue
+                stack.extend(reversed(subdirs))
+
+    def __call__(self, path):
+        key = os.path.normcase(str(path))
+        info = self.index.get(key)
+        if info is not None:
+            return info
+        if key in self._fallback:
+            return self._fallback[key]
+        try:
+            info = os.stat(str(path))
+            info = info if (info.st_mode & 0o170000) == 0o100000 else None
+        except (OSError, ValueError):
+            info = None
+        self._fallback[key] = info
+        return info
+
 
 def _row_file_match_key(root: Path, local_path, target_path=None):
     if target_path:
@@ -5112,6 +5203,19 @@ def _build_archive_registry_snapshot(message):
     rows = []
     partial_entries = []
     registry_warnings = []
+    # One directory walk answers every "is this file here, what size" question
+    # below; the old per-row resolve()+stat() took ~35 s on a 16k-row archive.
+    probe = _ArchiveFileProbe([(root, root / "UYAP_Arsiv") for root in roots])
+    # Most rows are repeat runs of the same file; resolve each distinct
+    # (root, local_path, target_path) once per snapshot.
+    path_memo = {}
+
+    def row_path(root, row):
+        memo_key = (str(root), row.get("local_path"), row.get("target_path"), row.get("source_document_id"))
+        found = path_memo.get(memo_key)
+        if found is None:
+            found = path_memo[memo_key] = _registry_row_path(root, row, probe)
+        return found
 
     # Registry browsing is deliberately read-only. Opening the archive dashboard
     # must never mutate/migrate _archive.db merely to show a list. Corrupt SQLite
@@ -5260,18 +5364,13 @@ def _build_archive_registry_snapshot(message):
         # Copied databases retain the old computer's drive-letter path. Prefer a
         # physically present path safely rebased from target_path/ UYAP_Arsiv;
         # never treat a stale absolute path as authoritative merely on Windows.
-        local_path = _registry_row_path(root, row)
+        local_path = row_path(root, row)
         key = os.path.normcase(str(local_path))
         if not key:
             key = f"{row.get('case_id') or ''}|{row.get('document_id') or ''}|{row.get('sha256') or ''}"
-        try:
-            present = local_path.is_file()
-            stat = local_path.stat() if present else None
-            actual_size_probe = int(stat.st_size) if stat else None
-        except OSError:
-            present = False
-            stat = None
-            actual_size_probe = None
+        stat = probe(local_path)
+        present = stat is not None
+        actual_size_probe = int(stat.st_size) if stat else None
         expected_size_probe = int(row.get("size") or 0)
         size_match = bool(present and (expected_size_probe <= 0 or actual_size_probe == expected_size_probe))
         native_status = str(row.get("status") or "")
@@ -5351,7 +5450,7 @@ def _build_archive_registry_snapshot(message):
         archive_root = root / "UYAP_Arsiv"
         local_value = str(row.get("local_path") or "")
         target_value = str(row.get("target_path") or "")
-        local_path = _registry_row_path(root, row)
+        local_path = row_path(root, row)
         institution, case_id, case_title = path_case_metadata(
             archive_root, local_path, target_value, row.get("case_id"), row.get("institution_name")
         )
@@ -5379,12 +5478,9 @@ def _build_archive_registry_snapshot(message):
         if metadata_verified:
             group["verifiedCount"] += 1  # historical DB verification, kept for compatibility
             group["metadataVerifiedCount"] += 1
-        try:
-            present = local_path.is_file()
-            actual_size = int(local_path.stat().st_size) if present else None
-        except OSError:
-            present = False
-            actual_size = None
+        info = probe(local_path)
+        present = info is not None
+        actual_size = int(info.st_size) if present else None
         expected_size = int(row.get("size") or 0)
         size_match = bool(present and (expected_size <= 0 or actual_size == expected_size))
         if present:
@@ -5412,47 +5508,44 @@ def _build_archive_registry_snapshot(message):
     # if an older/crashed run failed to leave a usable registry row. Files under
     # internal, quarantine and export folders are deliberately excluded.
     physical_only = []
-    for root in roots:
+    for root, raw_path, key in probe.files:
         archive_root = root / "UYAP_Arsiv"
-        for path in archive_root.rglob("*"):
-            if not path.is_file():
-                continue
-            try:
-                relative = path.relative_to(archive_root)
-            except ValueError:
-                continue
-            parts = relative.parts
-            if not parts or len(parts) < 3:
-                continue
-            if parts[0].startswith("_") or parts[0] == "Hatalı Dosyalar" or "_exports" in parts:
-                continue
-            if path.name.startswith("_archive.db") or path.suffix.lower() == ".part":
-                continue
-            key = os.path.normcase(str(path.resolve()))
-            if key in unique:
-                continue
-            try:
-                stat = path.stat()
-                updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
-                size = int(stat.st_size)
-            except OSError:
-                continue
-            case_id = parts[1].removesuffix("_Dosya").removesuffix("_Esas").replace("_", "/") if len(parts) > 1 else None
-            case_title = str(parts[2]).replace("_", "/", 1) if len(parts) > 2 else None
-            item = {
-                "sessionId": None, "documentId": None, "caseId": case_id,
-                "institutionName": parts[0] if parts else None, "caseTitle": case_title,
-                "sourceSystem": None,
-                "documentTitle": path.stem, "uyapPath": "/".join(parts[2:-1]) or None,
-                "targetPath": relative.as_posix(), "extension": path.suffix.lower() or ".bin",
-                "size": size, "actualSize": size, "sha256": None, "sourceFingerprint": None,
-                "status": "archived", "nativeStatus": "PHYSICAL_FILE_DISCOVERED",
-                "metadataVerified": False, "physicalState": "present",
-                "physicalProofLevel": "existence", "sizeMatchesMetadata": None,
-                "updatedAt": updated, "fileModifiedAt": updated, "runCount": 1, "downloadsRoot": str(root)
-            }
-            unique[key] = item
-            physical_only.append(item)
+        path = Path(raw_path)
+        try:
+            relative = path.relative_to(archive_root)
+        except ValueError:
+            continue
+        parts = relative.parts
+        if not parts or len(parts) < 3:
+            continue
+        if parts[0].startswith("_") or parts[0] == "Hatalı Dosyalar" or "_exports" in parts:
+            continue
+        if path.name.startswith("_archive.db") or path.suffix.lower() == ".part":
+            continue
+        if key in unique:
+            continue
+        try:
+            stat = probe.index[key]
+            updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
+            size = int(stat.st_size)
+        except (KeyError, OSError, ValueError):
+            continue
+        case_id = parts[1].removesuffix("_Dosya").removesuffix("_Esas").replace("_", "/") if len(parts) > 1 else None
+        case_title = str(parts[2]).replace("_", "/", 1) if len(parts) > 2 else None
+        item = {
+            "sessionId": None, "documentId": None, "caseId": case_id,
+            "institutionName": parts[0] if parts else None, "caseTitle": case_title,
+            "sourceSystem": None,
+            "documentTitle": path.stem, "uyapPath": "/".join(parts[2:-1]) or None,
+            "targetPath": relative.as_posix(), "extension": path.suffix.lower() or ".bin",
+            "size": size, "actualSize": size, "sha256": None, "sourceFingerprint": None,
+            "status": "archived", "nativeStatus": "PHYSICAL_FILE_DISCOVERED",
+            "metadataVerified": False, "physicalState": "present",
+            "physicalProofLevel": "existence", "sizeMatchesMetadata": None,
+            "updatedAt": updated, "fileModifiedAt": updated, "runCount": 1, "downloadsRoot": str(root)
+        }
+        unique[key] = item
+        physical_only.append(item)
 
     # Files can survive a crash even when their SQLite row was never committed.
     # Keep them visible in the case picker as present-but-unverified recovery
