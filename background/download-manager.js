@@ -7553,63 +7553,64 @@ export async function getCachedKurumCaseOpenContext(caseId) {
 }
 
 
-export async function listArchiveRegistry({ sessionId = null, downloadsRoot = null, limit = 10000, forceRefresh = false } = {}) {
-  let root = downloadsRoot;
-  if (!root && sessionId) {
-    const session = await sessionStore.get(sessionId);
-    root = session?.downloadsRoot || null;
+export async function listArchiveRegistry({
+  sessionId=null,downloadsRoot=null,limit=100,offset=0,summaryOnly=false,
+  search="",status="",extension="",institutionName="",caseId="",browseCache=false,forceRefresh = false
+}={}) {
+  let root=downloadsRoot;
+  if(!root&&sessionId) {
+    const session=await sessionStore.get(sessionId);
+    root=session?.downloadsRoot||null;
   }
-  if (!root) {
-    const stored = await chrome.storage.local.get(LAST_DOWNLOADS_ROOT_KEY);
-    root = stored[LAST_DOWNLOADS_ROOT_KEY] || null;
+  if(!root) {
+    const stored=await chrome.storage.local.get(LAST_DOWNLOADS_ROOT_KEY);
+    root=stored[LAST_DOWNLOADS_ROOT_KEY]||null;
   }
-  if (!root) {
-    const sessions = await sessionStore.all();
-    const withRoot = sessions
-      .filter((session) => session?.downloadsRoot)
-      .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
-    root = withRoot[0]?.downloadsRoot || null;
+  if(!root) {
+    const sessions=await sessionStore.all();
+    const withRoot=sessions.filter(session=>session?.downloadsRoot)
+      .sort((a,b)=>Date.parse(b.updatedAt||b.createdAt||0)-Date.parse(a.updatedAt||a.createdAt||0));
+    root=withRoot[0]?.downloadsRoot||null;
   }
-  const safeLimit = Math.min(20000, Math.max(1, Number(limit) || 10000));
-  const rootKey = String(root || "");
-  const cachedResult = () => {
-    const cached = archiveRegistryCache;
-    if (!cached || Date.now() - cached.atMs > ARCHIVE_REGISTRY_CACHE_TTL_MS) return null;
-    if (rootKey !== cached.rootKey && rootKey !== cached.resolvedRootKey) return null;
-    const documents = Array.isArray(cached.result?.documents) ? cached.result.documents : [];
-    if (cached.limit < safeLimit && documents.length >= cached.limit) return null;
-    return {...cached.result, documents:documents.slice(0, safeLimit)};
+  const safeLimit=Math.min(100,Math.max(1,Number(limit)||100));
+  const safeOffset=Math.max(0,Math.floor(Number(offset)||0));
+  const filters={limit:safeLimit,offset:safeOffset,summaryOnly:summaryOnly===true,
+    browseCache:browseCache===true,forceRefresh:forceRefresh===true,
+    search:String(search||"").slice(0,200),status:String(status||""),
+    extension:String(extension||""),institutionName:String(institutionName||""),caseId:String(caseId||"")};
+  const rootKey=String(root||"");
+  const filterKey=JSON.stringify(filters);
+  const cachedResult=()=>{
+    const cached=archiveRegistryCache;
+    if(!cached||Date.now()-cached.atMs>ARCHIVE_REGISTRY_CACHE_TTL_MS)return null;
+    if(rootKey!==cached.rootKey&&rootKey!==cached.resolvedRootKey)return null;
+    if(filterKey!==cached.filterKey)return null;
+    return cached.result;
   };
-  const immediate = forceRefresh ? null : cachedResult();
-  if (immediate) return immediate;
+  const immediate=forceRefresh ? null : cachedResult();
+  if(immediate)return immediate;
 
-  // Popup ve Workspace aynı anda istekte bulunduğunda pahalı _archive.db
-  // taramalarını sıraya yığma. Tek taramaya katıl; gerekirse ardından yalnız
-  // bir daha geniş tarama başlat.
-  while (archiveRegistryInFlight) {
-    await archiveRegistryInFlight.promise;
-    if (!forceRefresh) {
-      const joined = cachedResult();
-      if (joined) return joined;
+  // Serialize expensive disk scans on the dedicated native registry lane.
+  while(archiveRegistryInFlight) {
+    try{await archiveRegistryInFlight.promise;}catch{/* Retry this independent request. */}
+    if(!forceRefresh) {
+      const joined=cachedResult();
+      if(joined)return joined;
     }
   }
-
-  const request = {rootKey, limit:safeLimit, promise:null};
-  request.promise = (async () => {
-    // Native Agent arşiv kökünü, tarayıcı kaydı sıfırlanmış olsa da keşfedebilir.
-    const result = await askNativeAgent({action:"list_archive_registry", downloadsRoot:root, limit:safeLimit});
-    if (!result?.ok) throw new Error(result?.error || "Yerel arşiv kayıtları okunamadı.");
-    archiveRegistryCache = {
-      rootKey,
-      resolvedRootKey:String(result.downloadsRoot || root || ""),
-      limit:safeLimit,
-      atMs:Date.now(),
-      result
-    };
-    if (result.archiveExists && result.downloadsRoot) await chrome.storage.local.set({[LAST_DOWNLOADS_ROOT_KEY]:result.downloadsRoot});
-    return {...result, documents:Array.isArray(result.documents)?result.documents.slice(0,safeLimit):[]};
+  const request={promise:null};
+  request.promise=(async()=>{
+    const result=await askNativeAgent({action:"list_archive_registry",downloadsRoot:root,...filters});
+    if(!result?.ok)throw new Error(result?.error||result?.errorCode||"Yerel arşiv kayıtları okunamadı.");
+    if(!Array.isArray(result.documents)||!Array.isArray(result.caseIndex))
+      throw new Error("ARCHIVE_REGISTRY_RESPONSE_INVALID");
+    archiveRegistryCache={rootKey,resolvedRootKey:String(result.downloadsRoot||root||""),
+      filterKey,atMs:Date.now(),result};
+    if(result.archiveExists&&result.downloadsRoot)
+      await chrome.storage.local.set({[LAST_DOWNLOADS_ROOT_KEY]:result.downloadsRoot});
+    return result;
   })().finally(()=>{if(archiveRegistryInFlight===request)archiveRegistryInFlight=null;});
-  archiveRegistryInFlight = request;
+  archiveRegistryInFlight=request;
   return request.promise;
 }
 
@@ -7619,7 +7620,7 @@ export async function selectExistingArchive() {
   if (active && [SESSION_STATUS.RUNNING, SESSION_STATUS.RECOVERING].includes(active.status)) {
     throw new Error("Çalışan iş sırasında arşiv kökü değiştirilemez. Önce işi duraklatın.");
   }
-  const result = await askNativeAgent({action:"select_existing_archive", limit:10000});
+  const result = await askNativeAgent({action:"select_existing_archive", limit:100});
   if (!result?.ok) throw new Error(result?.error || "Mevcut arşiv seçilemedi.");
   if (result.cancelled) return result;
   if (!result.downloadsRoot || !result.archiveRoot) throw new Error("Seçilen arşiv kökü doğrulanamadı.");
