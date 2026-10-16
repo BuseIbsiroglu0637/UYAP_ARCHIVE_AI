@@ -3,8 +3,9 @@
   "enabledByDefault": false,
   "provider": {
     "mode": "local-native-gateway",
-    "name": "openai",
+    "name": "lmstudio",
     "supportedProviders": ["openai", "lmstudio"],
+    "cloudProviderRequiresExplicitSetting": true,
     "enabledByDefault": false,
     "providerSource": "UYAP_AI_PROVIDER environment variable",
     "credentialSource": "OPENAI_API_KEY environment variable (OpenAI only)",

@@ -35,7 +35,8 @@ def test_ai_policy_defaults_fail_closed():
     policy = json.loads((ROOT / "config" / "ai-policy.json").read_text(encoding="utf-8"))
     assert policy["enabledByDefault"] is False
     assert policy["provider"]["mode"] == "local-native-gateway"
-    assert policy["provider"]["name"] == "openai"
+    assert policy["provider"]["name"] == "lmstudio"
+    assert policy["provider"]["cloudProviderRequiresExplicitSetting"] is True
     assert "lmstudio" in policy["provider"]["supportedProviders"]
     assert policy["provider"]["enabledByDefault"] is False
     assert policy["provider"]["providerSource"].startswith("UYAP_AI_PROVIDER")

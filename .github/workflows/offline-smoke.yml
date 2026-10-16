@@ -50,6 +50,8 @@ jobs:
         run: python native/phase1_release_channel_contract_test.py
       - name: AI context contract
         run: python native/ai_context_contract_test.py
+      - name: AI provider defaults to the local model
+        run: python native/ai_local_default_provider_test.py
       - name: Important dates and case catalog regression
         run: python native/important_dates_regression_test.py
       - name: Court orders (Ara Kararlar ve Yapılacaklar) regression
