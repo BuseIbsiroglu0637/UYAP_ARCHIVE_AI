@@ -76,16 +76,17 @@ Desteklenen sağlayıcılar:
 
 ### OpenAI
 
-- sağlayıcı seçimi: `UYAP_AI_PROVIDER=openai`
+- sağlayıcı seçimi: `UYAP_AI_PROVIDER=openai` — yalnız bu ayar açıkça yapılınca kullanılır;
+  ayar yoksa, boşsa veya silinirse `OPENAI_API_KEY` tanımlı olsa bile yerel model kullanılır,
 - anahtar kaynağı: `OPENAI_API_KEY` kullanıcı ortam değişkeni,
 - model: `UYAP_AI_MODEL` (varsayılan `gpt-5.6-terra`),
 - endpoint: OpenAI Responses API,
 - provider request: `store=false`,
 - ham dosya upload: kapalı.
 
-### LM Studio (yerel)
+### LM Studio (yerel, varsayılan)
 
-- sağlayıcı seçimi: `UYAP_AI_PROVIDER=lmstudio`
+- sağlayıcı seçimi: `UYAP_AI_PROVIDER=lmstudio` veya hiç ayar yapılmaması
 - model: `UYAP_AI_MODEL` (varsayılan `qwen2.5-3b-instruct`),
 - endpoint: `UYAP_AI_BASE_URL` (varsayılan `http://127.0.0.1:1234/v1/responses`),
 - API anahtarı gerekmez,

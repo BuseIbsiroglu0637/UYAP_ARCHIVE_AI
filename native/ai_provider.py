@@ -45,6 +45,10 @@ LMSTUDIO_RESPONSES_URL = "http://127.0.0.1:1234/v1/responses"
 DEFAULT_OPENAI_MODEL = "gpt-5.6-terra"
 DEFAULT_LMSTUDIO_MODEL = "qwen2.5-3b-instruct"
 SUPPORTED_PROVIDERS = {"openai", "lmstudio"}
+# Case text stays on this computer unless the user explicitly sets
+# UYAP_AI_PROVIDER=openai. A missing or deleted setting must never fall back to
+# a cloud provider, even when OPENAI_API_KEY happens to be set.
+DEFAULT_PROVIDER = "lmstudio"
 MAX_QUERY_CHARS = 1200
 MAX_SOURCE_SNIPPET_CHARS = 2600
 MAX_SOURCES = 8
@@ -156,8 +160,8 @@ def _models_url(responses_url):
 
 
 def _provider_config():
-    provider, provider_source = _read_user_setting("UYAP_AI_PROVIDER", "openai")
-    provider = (provider or "openai").strip().lower()
+    provider, provider_source = _read_user_setting("UYAP_AI_PROVIDER", DEFAULT_PROVIDER)
+    provider = (provider or DEFAULT_PROVIDER).strip().lower()
 
     if provider == "lmstudio":
         endpoint, endpoint_source = _read_user_setting("UYAP_AI_BASE_URL", LMSTUDIO_RESPONSES_URL)
