@@ -2838,6 +2838,22 @@ def _is_legacy_loose_download(root: Path, path: Path):
         return False
 
 
+def _fsync_file(path: Path):
+    """Flush a file's bytes to disk.
+
+    Windows refuses fsync on a read-only handle (EBADF), so the old
+    open("rb") + fsync made every legacy loose-download adoption fail there and
+    the document was downloaded again instead. A file that is itself read-only
+    (hard link to a read-only legacy download) cannot be opened for writing;
+    its bytes are already on disk, so the flush is skipped for it.
+    """
+    try:
+        with path.open("r+b") as stream:
+            os.fsync(stream.fileno())
+    except PermissionError:
+        pass
+
+
 def _import_legacy_loose_download(root: Path, source: Path, row, document, expected_hash):
     """Validate and non-destructively adopt a proven legacy root download."""
     if not _is_legacy_loose_download(root, source):
@@ -2888,8 +2904,7 @@ def _import_legacy_loose_download(root: Path, source: Path, row, document, expec
             proof = _verified_file_proof(temporary, source.stat().st_size, expected_hash)
             if not proof:
                 return None
-            with temporary.open("rb") as stream:
-                os.fsync(stream.fileno())
+            _fsync_file(temporary)
             os.replace(temporary, target)
             return target.resolve(), mode
         finally:

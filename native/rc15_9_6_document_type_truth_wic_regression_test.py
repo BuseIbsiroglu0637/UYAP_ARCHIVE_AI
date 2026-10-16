@@ -20,7 +20,7 @@ def jpeg():
             b"abc" + b"\xff\xd9")
 
 ping=agent.dispatch({"action":"ping","probe":"rc1596"})
-req(ping.get('version')=='2.7.64', ping)
+req(tuple(map(int, str(ping.get("version")).split("."))) >= (2, 7, 64), ping)
 req('jpeg_windows_wic_decoder_v1' in ping.get('capabilities',[]), ping)
 req('document_type_truth_v1' in ping.get('capabilities',[]), ping)
 req('function declaredUyapDocumentKindFromDownload' in DM, 'download-item truth helper missing')

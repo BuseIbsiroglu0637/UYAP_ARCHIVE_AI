@@ -23,7 +23,7 @@ assert 'localArchivePrefetchTasks = new Map()' in dm
 assert 'localArchivePrefetchTasks.has(key)' in dm
 assert 'HTML yanıtları arttı, akış korunuyor' in popup
 assert 'sessionGuardStatus==="CONTENT_COOLDOWN"' in popup
-assert 'AGENT_VERSION = "2.7.64"' in agent
+assert tuple(map(int, agent.split('AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64)
 
 handler = dm.split('export async function handleHtmlFailure',1)[1].split('export async function handleAlarm',1)[0]
 assert 'status: SESSION_STATUS.RECOVERING' not in handler

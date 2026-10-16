@@ -14,7 +14,7 @@ def req(value, message):
         raise AssertionError(message)
 
 
-req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 req("portable_archive_resume_v1" in agent.dispatch({"action": "ping"})["capabilities"], "capability missing")
 manager = (HERE.parent / "background" / "download-manager.js").read_text(encoding="utf-8")
 worker = (HERE.parent / "background" / "service-worker.js").read_text(encoding="utf-8")

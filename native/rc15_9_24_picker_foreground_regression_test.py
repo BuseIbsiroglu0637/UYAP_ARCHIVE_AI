@@ -13,7 +13,7 @@ def req(value, message):
         raise AssertionError(message)
 
 
-req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 script = agent._windows_folder_picker_script()
 req("$owner.TopMost = $true" in script, "picker owner is not topmost")
 req("SetForegroundWindow($owner.Handle)" in script, "picker owner is not foregrounded")
@@ -23,7 +23,7 @@ req("$dialog.Dispose()" in script and "$owner.Dispose()" in script, "picker reso
 
 bridge = (HERE.parent / "background" / "native-agent.js").read_text(encoding="utf-8")
 req('if (action === "select_existing_archive") return 190_000;' in bridge, "bounded bridge timeout missing")
-req('const MIN_AGENT_VERSION = "2.7.64";' in bridge, "old agent is not rejected")
+req(tuple(map(int, bridge.split('const MIN_AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64), "old agent is not rejected")
 
 popup = (HERE.parent / "popup" / "popup.js").read_text(encoding="utf-8")
 req("Klasör seçme penceresi açıldı" in popup, "visible picker state copy missing")

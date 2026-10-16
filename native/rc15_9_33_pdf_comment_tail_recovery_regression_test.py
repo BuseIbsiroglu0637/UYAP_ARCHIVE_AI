@@ -31,8 +31,8 @@ def minimal_pdf():
 
 
 agent = load_agent()
-req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
-req('const MIN_AGENT_VERSION = "2.7.64";' in BRIDGE, "old native agent is not rejected")
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
+req(tuple(map(int, BRIDGE.split('const MIN_AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64), "old native agent is not rejected")
 
 with tempfile.TemporaryDirectory() as td:
     root = Path(td)

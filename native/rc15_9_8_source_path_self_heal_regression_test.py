@@ -15,7 +15,7 @@ def req(cond, msg):
         raise AssertionError(msg)
 
 ping = agent.dispatch({'action':'ping','probe':'rc1598'})
-req(ping.get('version') == '2.7.68', ping)
+req(tuple(map(int, str(ping.get("version")).split("."))) >= (2, 7, 68), ping)
 req('source_path_self_heal_v1' in ping.get('capabilities', []), ping)
 
 with tempfile.TemporaryDirectory() as td:

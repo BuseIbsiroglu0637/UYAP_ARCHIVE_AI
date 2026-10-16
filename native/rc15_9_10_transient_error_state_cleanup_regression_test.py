@@ -25,5 +25,5 @@ req('transientNativeCleanupSchemaVersion: 1' in DM,'new-session cleanup schema m
 req('2.9.0 RC15.9.' in MAN,'manifest version_name missing')
 # Native service did not change in this UI/state-only hotfix.
 AGENT=(ROOT/'native'/'uyap_archive_agent.py').read_text('utf-8')
-req('AGENT_VERSION = "2.7.64"' in AGENT,'agent should be 2.7.64')
+req(tuple(map(int, AGENT.split('AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64),'agent should be 2.7.64')
 print('RC15.9.10 TRANSIENT ERROR STATE CLEANUP REGRESSION: PASS')

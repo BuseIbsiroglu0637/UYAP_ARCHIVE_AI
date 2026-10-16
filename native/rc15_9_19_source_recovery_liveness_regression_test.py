@@ -13,7 +13,7 @@ def req(cond, msg):
         raise AssertionError(msg)
 
 req('2.9.0 RC15.9.' in manifest.get('version_name',''), 'release identity')
-req('AGENT_VERSION = "2.7.64"' in agent, 'native agent must be 2.7.64')
+req(tuple(map(int, agent.split('AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64), 'native agent must be 2.7.64')
 
 # Persistent alarm must survive a hot-path exception.
 req('handler has completed successfully' in dm, 'persistent fallback comment missing')

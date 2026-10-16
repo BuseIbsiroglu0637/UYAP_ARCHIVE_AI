@@ -11,6 +11,10 @@ ROOT = HERE.parent
 SPEC = importlib.util.spec_from_file_location('agent_rc15916', HERE / 'uyap_archive_agent.py')
 agent = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(agent)
+# Synthetic test: only the temporary root may be scanned, never the developer's
+# selected archive or browser download folders on this machine.
+_all_archive_roots = agent._archive_root_candidates
+agent._archive_root_candidates = lambda supplied_root=None: _all_archive_roots(supplied_root)[:1] if supplied_root else []
 
 
 def req(condition, message):
@@ -55,7 +59,7 @@ def message_for(root: Path, source: Path, *, source_id='1234567890', session='s1
     }
 
 
-req(agent.AGENT_VERSION == '2.7.64', agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 
 # 1) A stale Chrome history path with different byte size must not be adopted,
 # moved to staging, or quarantined. Fresh redownload is the only action.

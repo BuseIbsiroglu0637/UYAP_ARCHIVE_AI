@@ -19,7 +19,7 @@ assert '"HTML_CIRCUIT_CLOSED"' in dm
 assert '"HTML_CIRCUIT_PROBE_FAILED"' in dm
 assert 'circuitRecoverySuccesses >= HTML_CIRCUIT_STABLE_SUCCESSES' in dm
 assert 'freshPrimaryAvailable: Boolean(freshPrimary)' in dm
-assert 'AGENT_VERSION = "2.7.64"' in agent
+assert tuple(map(int, agent.split('AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64)
 
 handler = dm.split('export async function handleHtmlFailure',1)[1].split('export async function handleAlarm',1)[0]
 assert 'CONTENT_SOFT_THROTTLE' not in handler

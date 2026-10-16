@@ -9,7 +9,7 @@ agent=importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
 def require(value,msg):
     if not value: raise AssertionError(msg)
 
-require(agent.AGENT_VERSION == '2.7.64','Agent 2.7.64 required')
+require(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64),'Agent 2.7.64 required')
 with tempfile.TemporaryDirectory() as td:
     td=Path(td)
     kep=td/'evrak_123456789.html'

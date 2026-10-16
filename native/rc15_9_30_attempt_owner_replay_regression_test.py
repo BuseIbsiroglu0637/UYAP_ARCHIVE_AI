@@ -28,9 +28,9 @@ req(not agent._journal_identity_matches(stored, same_owner_late_target), "target
 req(agent._journal_attempt_owner_matches(stored, same_owner_late_target), "same attempt owner must replay")
 req(not agent._journal_attempt_owner_matches(stored, different_document), "different document must fail closed")
 req(not agent._journal_attempt_owner_matches(stored, different_staging), "different staging owner must fail closed")
-req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 req("attempt_owner_replay_v1" in agent.dispatch({"action": "ping"}).get("capabilities", []), "native capability missing")
-req('const MIN_AGENT_VERSION = "2.7.64";' in bridge, "old agent is not rejected")
+req(tuple(map(int, bridge.split('const MIN_AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64), "old agent is not rejected")
 req("ATTEMPT_OWNER_REPLAY_CAPABILITY" in bridge, "extension capability gate missing")
 req("2.9.0 RC15.9." in manifest.get("version_name", ""), "release identity")
 

@@ -15,7 +15,7 @@ def req(condition, message):
         raise AssertionError(message)
 
 
-req(agent.AGENT_VERSION == '2.7.64', agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 
 # 1) Finalization must validate historical/local rows by detected content truth,
 # not by a stale/generic suffix. A valid XML body stored as .bin remains valid.

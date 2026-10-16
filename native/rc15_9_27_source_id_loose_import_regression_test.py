@@ -40,7 +40,7 @@ def current(document_id, title, target):
     }
 
 
-req(agent.AGENT_VERSION == "2.7.64", agent.AGENT_VERSION)
+req(tuple(map(int, agent.AGENT_VERSION.split("."))) >= (2, 7, 64), agent.AGENT_VERSION)
 
 with tempfile.TemporaryDirectory() as temporary:
     root = Path(temporary).resolve()
@@ -99,7 +99,8 @@ with tempfile.TemporaryDirectory() as temporary:
 
 manager = (HERE.parent / "background" / "download-manager.js").read_text(encoding="utf-8")
 bridge = (HERE.parent / "background" / "native-agent.js").read_text(encoding="utf-8")
-req("LOCAL_ARCHIVE_RECONCILIATION_VERSION = 4" in manager, "scan cache version missing")
+# The cache version only grows (5 since RC15.9.3x); 4 is the floor this fix needs.
+req(int(manager.split("LOCAL_ARCHIVE_RECONCILIATION_VERSION = ", 1)[1].split(";", 1)[0]) >= 4, "scan cache version missing")
 req("legacy_loose_archive_import_v2" in bridge, "required capability missing")
 
 print("RC15.9.27 source-id loose archive import regression: PASS")

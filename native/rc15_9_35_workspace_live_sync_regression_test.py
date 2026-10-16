@@ -10,6 +10,10 @@ ROOT = HERE.parent
 spec = importlib.util.spec_from_file_location("uyap_archive_agent", HERE / "uyap_archive_agent.py")
 agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
+# Synthetic test: only the temporary root may be scanned, never the developer's
+# selected archive or browser download folders on this machine.
+_all_archive_roots = agent._archive_root_candidates
+agent._archive_root_candidates = lambda supplied_root=None: _all_archive_roots(supplied_root)[:1] if supplied_root else []
 
 
 def req(value, message):

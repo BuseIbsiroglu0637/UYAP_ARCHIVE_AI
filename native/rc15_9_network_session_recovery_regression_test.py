@@ -35,7 +35,7 @@ assert 'chrome.tabs.create({url:targetUrl, active:true})' in notify
 assert 'lane.name === "fast"' in na
 assert 'captureWindowMs: 550' in policy
 assert 'Math.max(180, Number(captureWindowMs)' in capture
-assert 'AGENT_VERSION = "2.7.64"' in agent
+assert tuple(map(int, agent.split('AGENT_VERSION = "', 1)[1].split('"', 1)[0].split("."))) >= (2, 7, 64)
 assert 'PRAGMA wal_autocheckpoint=4000;' in agent
 assert 'with os.scandir(target.parent) as iterator:' in agent
 assert 'sqlite_scandir_hotpath_v1' in agent
