@@ -134,6 +134,14 @@ async function getAiArchiveRegistry() {
   if(!registry?.ok||!registry.archiveExists||!registry.downloadsRoot) throw new Error("AI için kullanılabilir yerel UYAP arşivi bulunamadı.");
   return registry;
 }
+// Display-only listing: the short-lived native browsing snapshot may be reused
+// for fast page navigation. This must NEVER be used for AI execution, indexing,
+// retrieval or any integrity decision; those paths call getAiArchiveRegistry().
+async function getAiArchiveRegistryForDisplay() {
+  const registry=await listArchiveRegistry({limit:1,summaryOnly:true,browseCache:true});
+  if(!registry?.ok||!registry.archiveExists||!registry.downloadsRoot) throw new Error("AI için kullanılabilir yerel UYAP arşivi bulunamadı.");
+  return registry;
+}
 async function resolveAiArchiveCase(institutionName,caseId,{requireReady=true}={}) {
   const registry=await getAiArchiveRegistry();
   const wanted=aiArchiveCaseKey(institutionName,caseId);
@@ -358,7 +366,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return result;
       }
       case MESSAGE.GET_AI_ARCHIVE_CASES: {
-        const registry=await getAiArchiveRegistry();
+        // Case picker is informative only; AI operation gates remain fresh.
+        const registry=await getAiArchiveRegistryForDisplay();
         const cases=(Array.isArray(registry.caseIndex)?registry.caseIndex:[])
           .map(aiArchiveCasePublic)
           .filter(item=>item.institutionName&&item.caseId)

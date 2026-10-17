@@ -26,6 +26,10 @@ const WORKSPACE_LIVE_REFRESH_MS=4_000;
 const WORKSPACE_SESSIONS_REFRESH_MS=15_000;
 const WORKSPACE_REPORT_REFRESH_MS=12_000;
 const WORKSPACE_REGISTRY_REFRESH_MS=15_000;
+// Ignore stale AI responses when the user changes cases or navigates away.
+let aiWorkspaceRequestId=0;
+let aiHistoryRequestId=0;
+const AI_HISTORY_DISPLAY_TIMEOUT_MS=15_000;
 
 async function sendRuntime(type,payload={}){
   const response=await chrome.runtime.sendMessage({type,...payload});
@@ -257,7 +261,7 @@ function renderJobs(){
 function renderAiDock(s){
   const title=$("aiDockTitle"),text=$("aiDockText");if(!title||!text)return;
   if(!s){title.textContent="Dosya seçilmedi";text.textContent="Bir dosya seçildiğinde yerel arşiv bağlamı AI için hazırlanacak.";return;}
-  title.textContent=jobName(s);const total=n(s.total),done=verifiedFor(s);text.textContent=`${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")} evrak yerel bağlamda. AI servisi bağlandığında bu dosya üzerinde özet, kronoloji ve soru-cevap kullanılabilecek.`;
+  title.textContent=jobName(s);const total=n(s.total),done=verifiedFor(s);const waiting=Math.max(0,total-done);text.textContent=waiting?`AI KAPALI — dosya tamamlanmamış. ${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")} evrak doğrulandı; ${waiting.toLocaleString("tr-TR")} evrak bekliyor. AI sorgusu dosya tamamlanınca açılacak.`:`${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")} evrak yerel bağlamda. Dosyanın AI uygunluğu ayrıca denetlenir.`;
 }
 function documentTitle(d){return d?.documentTitle||d?.displayName||d?.originalFilename||"Adsız evrak";}
 function documentType(d){return String(d?.extension||d?.contentKind||"").replace(/^\./,"").toUpperCase()||"DOSYA";}
@@ -283,7 +287,7 @@ function setAiPrompt(prompt,{navigate=true,workflowId="ask"}={}){state.aiWorkflo
 const AI_RULE_WORKFLOWS={important_dates:"Önemli tarihleri çıkar",court_orders:"Ara kararları göster",parties:"Tarafları göster",tebligat:"Tebligatları göster"};
 function aiWorkflowNeedsProvider(){return !AI_RULE_WORKFLOWS[state.aiWorkflowId];}
 function aiSendLabel(){return AI_RULE_WORKFLOWS[state.aiWorkflowId]||(isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder");}
-function updateAiSendButton(){const send=$("aiSend"),gate=state.aiSendGate;if(!send||!gate)return;const providerOk=gate.providerReady||!aiWorkflowNeedsProvider();send.disabled=!providerOk||!gate.indexReady;send.textContent=!providerOk?"AI sağlayıcısı bağlanınca kullanılabilir":(gate.indexReady?aiSendLabel():"Önce tam dava indeksini hazırla");}
+function updateAiSendButton(){const send=$("aiSend"),gate=state.aiSendGate;if(!send||!gate)return;const providerOk=gate.providerReady||!aiWorkflowNeedsProvider();send.disabled=!gate.caseReady||!providerOk||!gate.indexReady;send.textContent=!gate.caseReady?(gate.caseSelected?"AI KAPALI — dosya tamamlanmamış":"Önce yerel dava dosyası seçin"):!providerOk?"AI sağlayıcısı bağlanınca kullanılabilir":(gate.indexReady?aiSendLabel():"Önce tam dava indeksini hazırla");}
 function selectedAiArchiveCase(){return state.aiCases.find(item=>archiveCaseKey(item)===state.aiSelectedCaseKey)||null;}
 const AI_WORKFLOW_TITLES={case_summary:"Dosya Özeti",important_dates:"Önemli Tarihler",court_orders:"Ara Kararlar ve Yapılacaklar",new_updates:"Yeni Ne Var?",parties:"Taraflar",tebligat:"Tebligatlar",classification:"Akıllı Sınıflandırma",chronology:"Kronoloji",ask:"Dosyada Sor"};
 function isCaseSummaryPrompt(){return state.aiWorkflowId==="case_summary";}
@@ -448,21 +452,31 @@ function renderAiSummaryHistory(){
   }).join("");
 }
 async function loadAiSummaryHistory(selected){
+  const requestId=++aiHistoryRequestId;
   if(!selected){state.aiSummaries=[];renderAiSummaryHistory();return;}
+  const selectedKey=archiveCaseKey(selected);
+  const stillCurrent=()=>requestId===aiHistoryRequestId&&selectedKey===state.aiSelectedCaseKey&&state.view==="ai";
   const box=$("aiSummaryHistory"),count=$("aiSummaryHistoryCount");
   if(box)box.innerHTML='<div class="ai-history-empty">Kaydedilen sonuçlar yükleniyor…</div>';
+  let timeoutId;
   try{
-    const payload=await sendRuntime(MESSAGE.GET_AI_ARCHIVE_SUMMARIES,{institutionName:selected.institutionName,caseId:selected.caseId,limit:60});
-    if(archiveCaseKey(selected)!==state.aiSelectedCaseKey)return;
+    // Read-only UI timeout: the pending native request is not cancelled.
+    // Do not use this time limit for archive scans, integrity or AI execution.
+    const payload=await Promise.race([
+      sendRuntime(MESSAGE.GET_AI_ARCHIVE_SUMMARIES,{institutionName:selected.institutionName,caseId:selected.caseId,limit:60}),
+      new Promise((_,reject)=>{timeoutId=setTimeout(()=>reject(new Error("Kayıt geçmişi sorgusu gecikti; bu sayfayı yeniden açarak tekrar deneyin.")),AI_HISTORY_DISPLAY_TIMEOUT_MS);})
+    ]);
+    if(!stillCurrent())return;
     state.aiSummaries=Array.isArray(payload?.summaries)?payload.summaries:[];
     renderAiSummaryHistory();
   }catch(error){
-    if(archiveCaseKey(selected)!==state.aiSelectedCaseKey)return;
+    if(!stillCurrent())return;
     state.aiSummaries=[];
     if(count)count.textContent="Yüklenemedi";
     if(box)box.innerHTML='<div class="ai-history-empty">Kayıt geçmişi okunamadı: '+esc(String(error).replace(/^Error:\s*/,""))+'</div>';
-  }
+  }finally{clearTimeout(timeoutId);}
 }
+
 // A listed rule-view record carries no sections (list stays small); fetch it whole.
 async function loadSavedResult(item,selected){
   if(savedWorkflow(item)==="case_summary"||Array.isArray(item.sections))return item;
@@ -499,13 +513,59 @@ async function openSummaryPrint(summary){
   await chrome.storage.local.set({[AI_PRINT_SUMMARY_KEY]:payload});
   await chrome.tabs.create({url:chrome.runtime.getURL("workspace/summary-print.html")});
 }
-async function renderAiWorkspace(){
+// P2: a connected provider does not imply the selected court file is AI-ready.
+// The existing Service Worker and Native Agent integrity gates remain unchanged.
+function renderAiCaseAvailability(selected){
+  const warning=$("aiIncompleteWarning"),details=$("aiIncompleteWarningDetails");
+  const incomplete=!!selected&&selected.readyForAi!==true;
+  if(warning){
+    warning.hidden=!incomplete;
+    if(incomplete&&details){
+      const ready=Math.max(0,n(selected.physicalReadyDocuments));
+      const total=Math.max(0,n(selected.totalDocuments));
+      const remaining=Math.max(0,total-ready);
+      const problems=Math.max(0,n(selected.problemDocuments));
+      details.textContent=`${ready.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")} evrak fiziksel olarak hazır; ${remaining.toLocaleString("tr-TR")} kayıt henüz hazır değil${problems?` (${problems.toLocaleString("tr-TR")} kayıt kontrol gerektiriyor)`:""}. Dosya tamamlanana kadar AI indeksi, özet, sorgulama ve hazır analizler kullanılamaz. Mevcut evraklara Evraklar bölümünden ulaşabilirsiniz.`;
+    }
+  }
+  // Never leave an answer from a previously selected case looking like a live AI result.
+  if(!selected||incomplete){
+    state.aiCurrentResult=null;
+    const panel=$("aiResultPanel");if(panel)panel.hidden=true;
+    const answer=$("aiAnswerBox");if(answer){answer.hidden=true;answer.textContent="";}
+    const results=$("aiSearchResults");if(results)results.textContent="";
+  }
+  // Even the workflow shortcuts must not look actionable for incomplete files.
+  for(const button of document.querySelectorAll("#view-ai [data-ai-workflow]")){
+    button.disabled=!selected||incomplete;
+    button.title=button.disabled?"AI kullanılamıyor: önce dava arşivi tamamlanmalı.":"";
+  }
+  const freeform=$("aiFreeformMode");if(freeform)freeform.disabled=!selected||incomplete;
+  const prompt=$("aiPrompt");if(prompt)prompt.disabled=!selected||incomplete;
+}
+
+async function renderAiWorkspace({reuseCases=false}={}){
+  const requestId=++aiWorkspaceRequestId;
   const ready=$("aiReadiness"),send=$("aiSend"),serviceLabel=$("aiServiceStatus"),indexLabel=$("aiIndexStatus"),buildButton=$("aiBuildIndex"),retrieveButton=$("aiRetrieve"),resultsBox=$("aiSearchResults"),answerBox=$("aiAnswerBox"),picker=$("aiArchiveCasePicker"),caseStatus=$("aiArchiveCaseStatus");
+  // No old "ready" label or stale enabled action while a new case is loading.
+  state.aiSendGate={caseSelected:false,caseReady:false,providerReady:false,indexReady:false};
+  if(ready)ready.innerHTML='<span class="ai-ready-pill warn">• Dava dosyası AI uygunluğu kontrol ediliyor</span>';
+  if(serviceLabel)serviceLabel.textContent="Dosya kontrol ediliyor";
+  if(buildButton)buildButton.disabled=true;
+  if(retrieveButton)retrieveButton.disabled=true;
+  if(send){send.disabled=true;send.textContent="Dosya kontrol ediliyor";}
+  renderAiCaseAvailability(null);
   try{
-    const [casePayload,service]=await Promise.all([
-      sendRuntime(MESSAGE.GET_AI_ARCHIVE_CASES),
-      sendRuntime(MESSAGE.GET_AI_SERVICE_STATUS)
-    ]);
+    // Switching between already listed cases must not rescan the archive.
+    // Actual AI/index operations retain their fresh integrity checks.
+    const haveDisplaySnapshot=reuseCases&&state.aiCases.length>0&&state.aiService;
+    const [casePayload,service]=haveDisplaySnapshot
+      ?[{cases:state.aiCases},state.aiService]
+      :await Promise.all([
+        sendRuntime(MESSAGE.GET_AI_ARCHIVE_CASES),
+        sendRuntime(MESSAGE.GET_AI_SERVICE_STATUS)
+      ]);
+    if(requestId!==aiWorkspaceRequestId||state.view!=="ai")return;
     state.aiCases=Array.isArray(casePayload?.cases)?casePayload.cases:[];
     state.aiService=service;
 
@@ -534,7 +594,8 @@ async function renderAiWorkspace(){
     }
 
     const providerReady=service?.enabled===true&&service?.configured===true;
-    if(serviceLabel){const providerName=service?.provider==="openai"?"OpenAI":service?.provider==="lmstudio"?"LM Studio":"AI";serviceLabel.textContent=providerReady?`${providerName} • ${service?.model||"Bağlı"}`:"Provider bekleniyor";}
+    renderAiCaseAvailability(selected);
+    if(serviceLabel){const providerName=service?.provider==="openai"?"OpenAI":service?.provider==="lmstudio"?"LM Studio":"AI";serviceLabel.textContent=!selected?"AI KAPALI • Dosya seçilmedi":selected.readyForAi!==true?"AI KAPALI • Eksik arşiv":providerReady?`${providerName} • ${service?.model||"Bağlı"}`:"Sağlayıcı bekleniyor";}
 
     if(!selected){
       state.aiContext=null;state.aiIndex=null;
@@ -550,6 +611,7 @@ async function renderAiWorkspace(){
       if(send){send.disabled=true;send.textContent="Önce yerel dava dosyası seçin";}
       if(resultsBox)resultsBox.textContent="";
       if(answerBox){answerBox.hidden=true;answerBox.textContent="";}
+      ++aiHistoryRequestId;
       state.aiSummaries=[];state.aiCurrentResult=null;renderAiSummaryHistory();
       if($("aiResultPanel"))$("aiResultPanel").hidden=true;
       return;
@@ -572,22 +634,34 @@ async function renderAiWorkspace(){
     }
 
     let indexStatus={ready:false,documents:0,chunks:0};
-    try{
-      indexStatus=await sendRuntime(MESSAGE.GET_AI_ARCHIVE_CASE_INDEX_STATUS,{institutionName:selected.institutionName,caseId:selected.caseId});
-    }catch{}
+    // Do not start a second archive-integrity scan just to display an index
+    // status that is unusable while any registered document is unresolved.
+    // Building/querying the index remains blocked by the strict native gate.
+    if(selected.readyForAi===true){
+      try{
+        indexStatus=await sendRuntime(MESSAGE.GET_AI_ARCHIVE_CASE_INDEX_STATUS,{institutionName:selected.institutionName,caseId:selected.caseId});
+      }catch{}
+    }
+    if(requestId!==aiWorkspaceRequestId||state.view!=="ai")return;
     state.aiIndex=indexStatus;
     const indexReady=selected.readyForAi===true&&indexStatus?.ready===true;
-    ready.innerHTML=`<span class="ai-ready-pill good">✓ Arşiv dosyası seçili</span><span class="ai-ready-pill ${selected.readyForAi?"good":"warn"}">${selected.readyForAi?"✓ Tüm evraklar fiziksel hazır":"• Dosya tamamlanmamış"}</span><span class="ai-ready-pill ${indexReady?"good":"warn"}">${indexReady?"✓ Yerel indeks hazır":"• Yerel indeks bekleniyor"}</span><span class="ai-ready-pill ${providerReady?"good":"warn"}">${providerReady?"✓ AI sağlayıcısı bağlı":"• AI sağlayıcısı bekleniyor"}</span>`;
+    ready.innerHTML=selected.readyForAi===true
+      ?`<span class="ai-ready-pill good">✓ Arşiv dosyası seçili</span><span class="ai-ready-pill good">✓ Tüm evraklar fiziksel hazır</span><span class="ai-ready-pill ${indexReady?"good":"warn"}">${indexReady?"✓ Yerel indeks hazır":"• Yerel indeks bekleniyor"}</span><span class="ai-ready-pill ${providerReady?"good":"warn"}">${providerReady?"✓ AI sağlayıcısı bağlı":"• AI sağlayıcısı bekleniyor"}</span>`
+      :'<span class="ai-ready-pill warn">⚠ AI KULLANILAMIYOR • Dosya tamamlanmamış</span><span class="ai-ready-pill warn">• İndeksleme ve analiz kapalı</span>';
     // An index built before the full PDF reader left most PDFs unread.
     const rebuildNote=indexReady&&indexStatus?.rebuildRecommended===true
       ?"PDF okuma geliştirildi: daha önce okunamayan PDF'lerin de okunması için indeksi bir kez güncelleyin. ":"";
     if(indexLabel)indexLabel.textContent=indexReady
       ?`${rebuildNote}${n(indexStatus.documents).toLocaleString("tr-TR")} / ${n(selected.totalDocuments).toLocaleString("tr-TR")} evrakın metni AI indeksinde • ${n(indexStatus.chunks).toLocaleString("tr-TR")} parça. ${n(selected.totalDocuments)>n(indexStatus.documents)?`${n(selected.totalDocuments)-n(indexStatus.documents)} evrakın metni indekslenmemiş; görsel/OCR eksikliği, biçim veya kalite kontrolü gibi nedenler araştırılmalı. AI yalnız indeksli kaynaklara dayanır.`:""}`
-      :selected.readyForAi?"Tam arşivden yerel metin indeksi henüz oluşturulmadı.":"Dosya tamamlanmadan indeks oluşturulamaz.";
-    if(buildButton){buildButton.disabled=!selected.readyForAi;buildButton.textContent=rebuildNote?"İndeksi güncelle (PDF okuma)":indexReady?"Tam dava indeksini güncelle":"Tam dava indeksini hazırla";}
-    if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=indexReady?"Yerel dava kaynaklarında ara":"Önce tam dava indeksini hazırla";}
-    state.aiSendGate={providerReady,indexReady};updateAiSendButton();
+      :selected.readyForAi?"Tam arşivden yerel metin indeksi henüz oluşturulmadı.":"AI KAPALI — dosyanın tüm evrakları doğrulanmadan indeks oluşturulamaz.";
+    if(buildButton){buildButton.disabled=!selected.readyForAi;buildButton.textContent=!selected.readyForAi?"AI KAPALI — eksik evrak":rebuildNote?"İndeksi güncelle (PDF okuma)":indexReady?"Tam dava indeksini güncelle":"Tam dava indeksini hazırla";}
+    if(retrieveButton){retrieveButton.disabled=!indexReady;retrieveButton.textContent=!selected.readyForAi?"AI KAPALI — eksik evrak":indexReady?"Yerel dava kaynaklarında ara":"Önce tam dava indeksini hazırla";}
+    state.aiSendGate={caseSelected:true,caseReady:selected.readyForAi===true,providerReady,indexReady};updateAiSendButton();
   }catch(error){
+    if(requestId!==aiWorkspaceRequestId||state.view!=="ai")return;
+    renderAiCaseAvailability(null);
+    if(serviceLabel)serviceLabel.textContent="AI KAPALI • Arşiv okunamadı";
+    ++aiHistoryRequestId;
     state.aiCases=[];state.aiContext=null;state.aiIndex=null;state.aiSummaries=[];state.aiCurrentResult=null;renderAiSummaryHistory();
     $("aiCaseTitle").textContent="Yerel arşiv okunamadı";
     $("aiCaseSubtitle").textContent="AI için tamamlanmış dava dosyaları yüklenemedi.";
@@ -807,7 +881,7 @@ $("timelineOpenArchive").addEventListener("click",()=>showView("archive"));$("ti
 $("timelineSearch").addEventListener("input",renderTimelineRows);$("timelineType").addEventListener("change",renderTimelineRows);
 $("aiPrompt").addEventListener("input",()=>{state.aiPrompt=$("aiPrompt").value;if($("aiPromptPreview"))$("aiPromptPreview").textContent=state.aiPrompt?`Hazır komut: “${state.aiPrompt}”`:`Önerilen bir işlemi seçin veya aşağıya sorunuzu yazın.`;if($("aiSend")&&!$("aiSend").disabled)$("aiSend").textContent=isCaseSummaryPrompt(state.aiPrompt)?"Dosya özetini oluştur":"Soruyu gönder";});
 $("aiFreeformMode")?.addEventListener("click",()=>{setAiPrompt("",{navigate:false,workflowId:"ask"});$("aiPrompt")?.focus();});
-$("aiArchiveCasePicker")?.addEventListener("change",async()=>{state.aiSelectedCaseKey=$("aiArchiveCasePicker").value||null;state.aiIndex=null;state.aiCurrentResult=null;state.aiSummaries=[];state.aiUndo=null;state.aiDeleteConfirm=null;if($("aiSearchResults"))$("aiSearchResults").textContent="";if($("aiAnswerBox")){$("aiAnswerBox").hidden=true;$("aiAnswerBox").textContent="";}if($("aiResultPanel"))$("aiResultPanel").hidden=true;renderAiSummaryHistory();await renderAiWorkspace();});
+$("aiArchiveCasePicker")?.addEventListener("change",async()=>{state.aiSelectedCaseKey=$("aiArchiveCasePicker").value||null;state.aiIndex=null;state.aiCurrentResult=null;state.aiSummaries=[];state.aiUndo=null;state.aiDeleteConfirm=null;if($("aiSearchResults"))$("aiSearchResults").textContent="";if($("aiAnswerBox")){$("aiAnswerBox").hidden=true;$("aiAnswerBox").textContent="";}if($("aiResultPanel"))$("aiResultPanel").hidden=true;renderAiSummaryHistory();await renderAiWorkspace({reuseCases:true});});
 $("aiSummaryPdf")?.addEventListener("click",async()=>{if(!state.aiCurrentResult)return showToast("PDF için önce bir sonuç oluşturun veya geçmişten açın.",true);try{await openSummaryPrint(state.aiCurrentResult);}catch(error){showToast(String(error).replace(/^Error:\s*/,""),true);}});
 $("aiSavedFilters")?.addEventListener("click",event=>{
   const button=event.target.closest("[data-ai-saved-filter]");if(!button)return;
@@ -900,6 +974,7 @@ $("aiRetrieve").addEventListener("click",async()=>{
 $("aiSend").addEventListener("click",async()=>{
   const selected=selectedAiArchiveCase();
   if(!selected)return showToast("Önce yerel arşivden bir dava dosyası seçin.",true);
+  if(selected.readyForAi!==true)return showToast("AI kullanılamıyor: dava arşivinde eksik veya kontrol bekleyen evraklar var.",true);
   const query=String($("aiPrompt")?.value||"").trim();
   if(!query)return showToast("Önce AI’ya sorulacak metni yazın.",true);
   const summaryMode=isCaseSummaryPrompt(query),button=$("aiSend");
@@ -926,7 +1001,7 @@ $("aiSend").addEventListener("click",async()=>{
     renderAiResultError(error);
     showToast(String(error).replace(/^Error:\s*/,""),true);
   }finally{
-    state.aiSendGate={providerReady:state.aiService?.enabled===true&&state.aiService?.configured===true,indexReady:state.aiIndex?.ready===true&&selected.readyForAi===true};
+    state.aiSendGate={caseSelected:true,caseReady:selected.readyForAi===true,providerReady:state.aiService?.enabled===true&&state.aiService?.configured===true,indexReady:state.aiIndex?.ready===true&&selected.readyForAi===true};
     updateAiSendButton();
   }
 });
