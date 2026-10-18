@@ -5,7 +5,7 @@ const MESSAGE=Object.freeze({
   RESET_RUNTIME:"reset_runtime",REPACKAGE_ARCHIVE:"repackage_archive",NEW_JOB:"new_job",SOURCE_DIAGNOSTIC:"source_diagnostic",
   TEST_NOTIFICATION:"test_notification",OPEN_ARCHIVE_FOLDER:"open_archive_folder",GET_ARCHIVE_REGISTRY:"get_archive_registry",CONFIRM_HTML_EXCLUSION:"confirm_html_exclusion",OPEN_FINAL_PACKAGE_FOLDER:"open_final_package_folder"
 });
-const MANIFEST=chrome.runtime?.getManifest?.()||{};const VERSION=MANIFEST.version_name||MANIFEST.version||"2.9.0 RC15.9.39 AI-FAST-ARCHIVE";
+const MANIFEST=chrome.runtime?.getManifest?.()||{};const VERSION=MANIFEST.version_name||MANIFEST.version||"2.9.0 BETA1 P1P2 TEST ONLY";
 const SETTINGS_KEY="uyapUiSettingsV1";
 const ONBOARDING_KEY="uyapUiOnboardingCompletedV1";
 const AI_PRINT_SUMMARY_KEY="uyapAiPrintSummaryV1";
