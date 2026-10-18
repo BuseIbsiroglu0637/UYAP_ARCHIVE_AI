@@ -4,7 +4,7 @@ chcp 65001 >nul
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PS=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
 echo ==========================================================
-echo UYAP Archive AI - RC15.9.39 AI + HIZLI ARSIV - Native 2.7.68
+echo UYAP Archive AI - BETA1 P1P2 INTERNAL TEST ONLY - Native 2.7.68
 echo ==========================================================
 echo Bu kurulum bilgisayarda Python veya PyInstaller gerektirmez.
 echo Ilk kurulumda resmi Python.org gomulu runtime paketi indirilir,
