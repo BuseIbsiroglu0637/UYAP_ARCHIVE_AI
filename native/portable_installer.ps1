@@ -8,7 +8,7 @@ Set-StrictMode -Version 2.0
 
 $HostName = 'tr.gov.uyap.archive_agent'
 $AgentVersion = '2.7.68'
-$PackageVersion = '2.9.0 RC15.9.39 AI-FAST-ARCHIVE (full kit)'
+$PackageVersion = '2.9.0 BETA1 P1P2 TEST ONLY (full kit)'
 $CurrentExtensionId = 'fppnhbkemmbocmicplkfidcbggeininh'
 $LegacyExtensionId = 'mkcemhoekaohggeebgkifcmjbilincfl'
 $AllowedOrigins = @(
