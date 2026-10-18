@@ -1,0 +1,121 @@
+name: Beta1 EXE real-install smoke (disposable Windows)
+
+on:
+  push:
+    branches:
+      - release/uyap-archive-ai-beta-1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta1-exe-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer-exe-end-to-end:
+    name: Launch actual IExpress EXE, validate Agent, uninstall
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      UYAP_SETUP_NONINTERACTIVE: '1'
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source and noninteractive-mode safety
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python native/beta1_release_identity_test.py
+          if ($LASTEXITCODE -ne 0) { throw 'Beta1 identity test failed' }
+          $setup = Get-Content -LiteralPath 'SETUP_UYAP_ARCHIVE_AI.bat' -Raw
+          $builder = Get-Content -LiteralPath 'native/build_offline_setup.ps1' -Raw
+          if (-not $setup.Contains('if not "%UYAP_SETUP_NONINTERACTIVE%"=="1" pause')) { throw 'Pause guard missing' }
+          if (-not $builder.Contains('if "%EC%"=="0" if not "%UYAP_SETUP_NONINTERACTIVE%"=="1" explorer')) {
+            throw 'Explorer guard missing'
+          }
+          Write-Host 'BETA1_NONINTERACTIVE_SETUP_GUARDS=PASS'
+      - name: Build real installer EXE from clean Git HEAD
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'beta1-exe-e2e-source'
+          $zip = Join-Path $env:RUNNER_TEMP 'beta1-exe-e2e-source.zip'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          git archive --format=zip HEAD -o $zip
+          if ($LASTEXITCODE -ne 0) { throw 'Clean git archive failed' }
+          Expand-Archive -LiteralPath $zip -DestinationPath $stage
+          if (Test-Path (Join-Path $stage '.git')) { throw 'Unexpected .git metadata' }
+          if (@(Get-ChildItem -LiteralPath $stage -Recurse -File -Filter '_archive.db').Count -gt 0) {
+            throw 'Unexpected user archive database in package'
+          }
+          & (Join-Path $stage 'native\build_offline_setup.ps1') -Arch amd64
+          if (-not $?) { throw 'Installer build failed' }
+          $exe = Join-Path $stage 'UYAP_Archive_AI_BETA1_Setup_amd64.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'EXE not produced' }
+          $sig = (Get-AuthenticodeSignature -LiteralPath $exe).Status.ToString()
+          if ($sig -ne 'NotSigned') { throw "Unexpected EXE signature: $sig" }
+          Write-Host ('BETA1_EXE_BUILD=PASS SHA256=' + (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash)
+      - name: Execute EXE, check installed host and 2/2 ping, uninstall
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') {
+            throw 'Only disposable GitHub-hosted Windows test environments are supported'
+          }
+          $stage = Join-Path $env:RUNNER_TEMP 'beta1-exe-e2e-source'
+          $exe = Join-Path $stage 'UYAP_Archive_AI_BETA1_Setup_amd64.exe'
+          $appRoot = Join-Path $env:LOCALAPPDATA 'UYAPArsiv'
+          $diag = Join-Path $appRoot 'native-install-diagnostic.json'
+          $manifest = Join-Path $appRoot 'Agent\tr.gov.uyap.archive_agent.json'
+          $hostKey = 'HKCU:\Software\Google\Chrome\NativeMessagingHosts\tr.gov.uyap.archive_agent'
+          $runtime = Join-Path $appRoot 'Agent\current\runtime\python.exe'
+          $uninstaller = Join-Path $stage 'native\portable_installer.ps1'
+          if ((Test-Path -LiteralPath $diag) -or (Test-Path -LiteralPath $hostKey)) {
+            throw 'Runner is not in a clean initial state'
+          }
+          $proc = $null
+          try {
+            $proc = Start-Process -FilePath $exe -PassThru
+            $deadline = [DateTime]::UtcNow.AddMinutes(3)
+            $ready = $false
+            while ([DateTime]::UtcNow -lt $deadline) {
+              if (Test-Path -LiteralPath $diag) {
+                $result = $null
+                try { $result = Get-Content -LiteralPath $diag -Raw | ConvertFrom-Json } catch {}
+                if ($result -and $result.finishedAt -and $result.mode -eq 'Install') {
+                  if (-not $result.ok) { throw ('EXE install diagnostic failure: ' + $result.error) }
+                  if (-not $result.selfTest -or [int]$result.selfTest.pingCount -ne 2) {
+                    throw 'EXE install completed without Native Messaging 2/2 self-test'
+                  }
+                  $ready = $true
+                  break
+                }
+              }
+              $proc.Refresh()
+              if ($proc.HasExited -and $proc.ExitCode -ne 0) {
+                throw ('EXE wrapper exited with code ' + $proc.ExitCode)
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (-not $ready) { throw 'Timed out waiting for EXE install diagnostics' }
+            if (-not (Test-Path -LiteralPath $runtime -PathType Leaf)) { throw 'Embedded runtime missing' }
+            if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw 'Native host manifest missing' }
+            if (-not (Test-Path -LiteralPath $hostKey)) { throw 'Chrome nativeMessaging registry key missing' }
+            $m = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+            if ($m.name -ne 'tr.gov.uyap.archive_agent' -or $m.path -ne $runtime) { throw 'Host manifest mismatch' }
+            Write-Host 'BETA1_EXE_REAL_INSTALL_AND_2PING=PASS'
+          }
+          finally {
+            if ($proc) {
+              $proc.Refresh()
+              if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+            }
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstaller -Mode Uninstall
+            if ($LASTEXITCODE -ne 0) { throw 'EXE test uninstall failed' }
+            if ((Test-Path -LiteralPath $hostKey) -or (Test-Path -LiteralPath $runtime)) {
+              throw 'Native host or registry not removed'
+            }
+            Write-Host 'BETA1_EXE_UNINSTALL=PASS'
+          }
