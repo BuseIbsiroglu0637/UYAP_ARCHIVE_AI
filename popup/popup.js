@@ -32,7 +32,7 @@ let resumableSessions=[];
 let recentArchiveRegistry=null;
 let lastRecentArchiveCheck=0;
 const MANIFEST=chrome.runtime?.getManifest?.()||{};
-const VERSION=MANIFEST.version_name||MANIFEST.version||"2.9.0 RC15.9.39 AI-FAST-ARCHIVE";
+const VERSION=MANIFEST.version_name||MANIFEST.version||"2.9.0 BETA1 P1P2 TEST ONLY";
 el.versionBadge.textContent=`v${VERSION}`;
 
 async function sendRuntime(type,payload={}){
