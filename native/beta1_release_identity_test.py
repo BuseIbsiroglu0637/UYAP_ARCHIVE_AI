@@ -17,6 +17,10 @@ assert release["versionName"] == name
 assert channels["channels"]["beta"]["signedBuildRequired"] is True
 assert manifest["version_name"] == name
 assert manifest["version"] == release["extensionVersion"] == "2.9.0"
+for template in ("workspace/index.html", "popup/popup.html"):
+    html = (root / template).read_text(encoding="utf-8-sig")
+    assert name in html, f"{template} beta display name missing"
+    assert "RC15.9.39 AI-FAST-ARCHIVE" not in html, f"{template} stale RC label"
 for target in ("popup/popup.js", "workspace/workspace.js", "native/portable_installer.ps1"):
     assert name in (root / target).read_text(encoding="utf-8-sig"), target
 assert "BETA1 P1P2 INTERNAL TEST ONLY" in (root / "SETUP_UYAP_ARCHIVE_AI.bat").read_text(encoding="utf-8-sig")
