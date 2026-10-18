@@ -12,9 +12,16 @@ def require(condition, message):
         raise AssertionError(message)
 
 manifest = json.loads((ROOT / 'manifest.json').read_text(encoding='utf-8'))
-require('RC15.' in manifest.get('version_name',''), 'manifest version_name RC15 değil')
-
 contract = json.loads((ROOT / 'config' / 'release-contract.json').read_text(encoding='utf-8'))
+release = contract['release']
+require(
+    manifest.get('version_name') == release['versionName'],
+    'manifest version_name release-contract ile uyusmuyor',
+)
+require(
+    manifest.get('version') == release['extensionVersion'],
+    'manifest version release-contract ile uyusmuyor',
+)
 agent_version = contract['nativeAgent']['version']
 agent = (ROOT / 'native' / 'uyap_archive_agent.py').read_text(encoding='utf-8')
 require(f'AGENT_VERSION = "{agent_version}"' in agent, f'Agent {agent_version} değil')
