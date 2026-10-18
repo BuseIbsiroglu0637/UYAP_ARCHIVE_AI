@@ -32,6 +32,8 @@ jobs:
         run: |
           node --check workspace/workspace.js
           node --check background/service-worker.js
+      - name: Beta1 stage / beta release identity
+        run: python native/beta1_release_identity_test.py
       - name: Python syntax
         run: python -m compileall -q native
       - name: Offline archive and AI regressions
@@ -87,16 +89,16 @@ jobs:
           }
           & (Join-Path $stage 'native\build_offline_setup.ps1') -Arch amd64
           if ($LASTEXITCODE -ne 0) { throw 'IExpress build failed' }
-          $built = Join-Path $stage 'UYAP_Archive_AI_RC15.9.39_Setup_amd64.exe'
+          $built = Join-Path $stage 'UYAP_Archive_AI_BETA1_Setup_amd64.exe'
           if (-not (Test-Path -LiteralPath $built -PathType Leaf)) { throw 'Installer missing' }
           $out = Join-Path $env:RUNNER_TEMP 'beta1-internal-artifact'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          $candidate = Join-Path $out 'UYAP_Archive_AI_RC15.9.39_P1P2_Beta1_TEST_ONLY_amd64.exe'
+          $candidate = Join-Path $out 'UYAP_Archive_AI_BETA1_P1P2_TEST_ONLY_amd64.exe'
           Copy-Item -LiteralPath $built -Destination $candidate
           $hash = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash
           $sig = (Get-AuthenticodeSignature -LiteralPath $candidate).Status.ToString()
           if ($sig -ne 'NotSigned') { throw "Unexpected signature status: $sig" }
-          "$hash  UYAP_Archive_AI_RC15.9.39_P1P2_Beta1_TEST_ONLY_amd64.exe" |
+          "$hash  UYAP_Archive_AI_BETA1_P1P2_TEST_ONLY_amd64.exe" |
             Set-Content -LiteralPath (Join-Path $out 'SHA256.txt') -Encoding ASCII
           Write-Host "BETA1_INTERNAL_BUILD=PASS SHA256=$hash SIGNATURE=$sig"
       - name: Native Agent install, 2/2 ping, diagnose, uninstall on disposable runner
