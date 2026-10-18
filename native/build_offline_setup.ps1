@@ -63,7 +63,7 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -
 if errorlevel 1 exit /b 1
 call "%DEST%\$PackageDirName\SETUP_UYAP_ARCHIVE_AI.bat"
 set "EC=%ERRORLEVEL%"
-if "%EC%"=="0" explorer "%DEST%\$PackageDirName"
+if "%EC%"=="0" if not "%UYAP_SETUP_NONINTERACTIVE%"=="1" explorer "%DEST%\$PackageDirName"
 exit /b %EC%
 "@
 $bootstrapText | Set-Content -LiteralPath $bootstrap -Encoding ASCII
