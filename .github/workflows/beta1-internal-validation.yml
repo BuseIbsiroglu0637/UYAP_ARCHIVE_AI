@@ -1,0 +1,123 @@
+name: Beta1 internal validation and Windows package
+
+on:
+  push:
+    branches:
+      - release/uyap-archive-ai-beta-1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta1-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-regression:
+    name: Source and AI warning regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: P2 incomplete-case UI and action guard
+        run: node --test tests/ai_incomplete_warning_p2.test.cjs
+      - name: P1/P2 JavaScript syntax
+        run: |
+          node --check workspace/workspace.js
+          node --check background/service-worker.js
+      - name: Python syntax
+        run: python -m compileall -q native
+      - name: Offline archive and AI regressions
+        run: |
+          python native/s2_04_paged_archive_regression_test.py
+          python native/s2_05_archive_snapshot_cache_regression_test.py
+          python native/s2_06_registry_fast_scan_regression_test.py
+          python native/saved_results_regression_test.py
+          python native/ai_local_default_provider_test.py
+          python native/current_release_identity_test.py
+          python native/phase1_release_channel_contract_test.py
+
+  windows-internal-build:
+    name: Windows x64 internal installer and lifecycle
+    needs: source-regression
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Windows targeted regressions
+        run: |
+          node --test tests/ai_incomplete_warning_p2.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw "P2 guard failed" }
+          python native/rc15_4_clean_install_regression_test.py
+          if ($LASTEXITCODE -ne 0) { throw "Clean install contract failed" }
+          python native/rc15_5_agent_lifecycle_regression_test.py
+          if ($LASTEXITCODE -ne 0) { throw "Lifecycle contract failed" }
+          python native/rc15_7_portable_installer_regression_test.py
+          if ($LASTEXITCODE -ne 0) { throw "Portable install contract failed" }
+          python native/offline_setup_iexpress_regression_test.py
+          if ($LASTEXITCODE -ne 0) { throw "IExpress contract failed" }
+      - name: Export tracked source only; build an unsigned internal EXE
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'beta1-tracked-source.zip'
+          $stage = Join-Path $env:RUNNER_TEMP 'beta1-clean-source'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          git archive --format=zip HEAD -o $zip
+          if ($LASTEXITCODE -ne 0) { throw 'Git archive failed' }
+          Expand-Archive -LiteralPath $zip -DestinationPath $stage
+          if (Test-Path (Join-Path $stage '.git')) { throw 'Git metadata leaked' }
+          if (@(Get-ChildItem -LiteralPath $stage -File -Recurse -Filter '_archive.db').Count -gt 0) {
+            throw 'User archive DB unexpectedly present in package input'
+          }
+          & (Join-Path $stage 'native\build_offline_setup.ps1') -Arch amd64
+          if ($LASTEXITCODE -ne 0) { throw 'IExpress build failed' }
+          $built = Join-Path $stage 'UYAP_Archive_AI_RC15.9.39_Setup_amd64.exe'
+          if (-not (Test-Path -LiteralPath $built -PathType Leaf)) { throw 'Installer missing' }
+          $out = Join-Path $env:RUNNER_TEMP 'beta1-internal-artifact'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $candidate = Join-Path $out 'UYAP_Archive_AI_RC15.9.39_P1P2_Beta1_TEST_ONLY_amd64.exe'
+          Copy-Item -LiteralPath $built -Destination $candidate
+          $hash = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash
+          $sig = (Get-AuthenticodeSignature -LiteralPath $candidate).Status.ToString()
+          if ($sig -ne 'NotSigned') { throw "Unexpected signature status: $sig" }
+          "$hash  UYAP_Archive_AI_RC15.9.39_P1P2_Beta1_TEST_ONLY_amd64.exe" |
+            Set-Content -LiteralPath (Join-Path $out 'SHA256.txt') -Encoding ASCII
+          Write-Host "BETA1_INTERNAL_BUILD=PASS SHA256=$hash SIGNATURE=$sig"
+      - name: Native Agent install, 2/2 ping, diagnose, uninstall on disposable runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'beta1-clean-source\native\portable_installer.ps1'
+          try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Mode Install
+            if ($LASTEXITCODE -ne 0) { throw 'Native agent install failed' }
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Mode Diagnose
+            if ($LASTEXITCODE -ne 0) { throw 'Native agent diagnose/2-ping failed' }
+            Write-Host 'BETA1_NATIVE_LIFECYCLE=PASS'
+          }
+          finally {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Mode Uninstall
+            if ($LASTEXITCODE -ne 0) { throw 'Native agent uninstall failed' }
+          }
+      - name: Publish short-lived PRIVATE internal test artifact (not a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: UYAP-Beta1-TEST-ONLY-Windows-x64
+          path: ${{ runner.temp }}/beta1-internal-artifact/*
+          if-no-files-found: error
+          retention-days: 3
