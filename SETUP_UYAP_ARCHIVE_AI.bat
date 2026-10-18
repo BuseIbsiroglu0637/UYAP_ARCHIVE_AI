@@ -19,5 +19,5 @@ if "%EC%"=="0" (
   echo Kurulum basarisiz. native-install-diagnostic.json ve native-install.log olustu.
 )
 echo.
-pause
+if not "%UYAP_SETUP_NONINTERACTIVE%"=="1" pause
 exit /b %EC%
