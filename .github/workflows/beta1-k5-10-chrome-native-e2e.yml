@@ -1,0 +1,82 @@
+name: Beta1 K5.10 real Chrome to Native Messaging
+
+on:
+  push:
+    branches:
+      - release/uyap-archive-ai-beta-1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta1-k5-10-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chrome-to-native:
+    name: Chromium MV3 UI, browser-native 2x ping, clean uninstall
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Playwright Chromium for temporary browser test
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m pip install --disable-pip-version-check "playwright==1.55.0"
+          if ($LASTEXITCODE -ne 0) { throw "Playwright installation failed" }
+          python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium installation failed" }
+      - name: Prepare isolated Chrome extension folder from tracked source
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stage = Join-Path $env:RUNNER_TEMP "k5-10-clean-git"
+          $gitZip = Join-Path $env:RUNNER_TEMP "k5-10-source.zip"
+          $extension = Join-Path $env:RUNNER_TEMP "k5-10-extension"
+          $chromeZip = Join-Path $env:RUNNER_TEMP "k5-10-chrome.zip"
+          New-Item -ItemType Directory -Force -Path $stage, $extension | Out-Null
+          git archive --format=zip HEAD -o $gitZip
+          if ($LASTEXITCODE -ne 0) { throw "Clean source export failed" }
+          Expand-Archive -LiteralPath $gitZip -DestinationPath $stage
+          if (Test-Path (Join-Path $stage ".git")) { throw "Unexpected Git internals in source" }
+          python (Join-Path $stage "native\beta1_release_identity_test.py")
+          if ($LASTEXITCODE -ne 0) { throw "Beta1 identity invalid" }
+          python (Join-Path $stage "tests\beta1_chrome_package_contract_test.py") --source $stage --build $chromeZip
+          if ($LASTEXITCODE -ne 0) { throw "Chrome extension ZIP invalid" }
+          Expand-Archive -LiteralPath $chromeZip -DestinationPath $extension
+          if ((Test-Path (Join-Path $extension "native")) -or (Test-Path (Join-Path $extension ".git"))) {
+            throw "Chrome extension contains unexpected native or Git files"
+          }
+          Write-Host "K5_10_CLEAN_CHROME_EXTENSION=PASS"
+      - name: Install native host, run Chromium-to-Native browser E2E, uninstall
+        timeout-minutes: 9
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:GITHUB_ACTIONS -ne "true" -or $env:RUNNER_OS -ne "Windows") {
+            throw "K5.10 requires a disposable GitHub Windows test runner"
+          }
+          $installer = Join-Path $env:RUNNER_TEMP "k5-10-clean-git\native\portable_installer.ps1"
+          $extension = Join-Path $env:RUNNER_TEMP "k5-10-extension"
+          $profile = Join-Path $env:RUNNER_TEMP "k5-10-new-browser-profile"
+          $smoke = Join-Path $env:RUNNER_TEMP "k5-10-clean-git\tests\beta1_chrome_native_browser_e2e.py"
+          $hostKey = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\tr.gov.uyap.archive_agent"
+          if (Test-Path $hostKey) { throw "Runner is not clean: Chrome native host already registered" }
+          try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Mode Install
+            if ($LASTEXITCODE -ne 0) { throw "Native Agent install failed" }
+            if (-not (Test-Path -LiteralPath $hostKey)) { throw "Chrome native host registry missing" }
+            python $smoke --extension-dir $extension --profile-dir $profile
+            if ($LASTEXITCODE -ne 0) { throw "K5.10 real-browser smoke failed" }
+          }
+          finally {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Mode Uninstall
+            if ($LASTEXITCODE -ne 0) { throw "Native Agent cleanup failed" }
+            if (Test-Path -LiteralPath $hostKey) { throw "Chrome native host registry was not removed" }
+            Write-Host "K5_10_NATIVE_UNINSTALL=PASS"
+          }
