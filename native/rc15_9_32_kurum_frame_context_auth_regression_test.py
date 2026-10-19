@@ -26,7 +26,10 @@ req("sender.frameId !== 0" not in WORKER,
     "valid Kurum child frames are still rejected")
 req("if (!trustedKurumContextSender(sender)) throw new Error('KURUM_CONTEXT_NOT_AUTHORIZED')" in WORKER,
     "Kurum context message does not use the hardened frame-aware guard")
-req("2.9.0 RC15.9." in MANIFEST.get("version_name", ""),
+RELEASE = json.loads((ROOT / "config" / "release-contract.json").read_text(encoding="utf-8"))["release"]
+req(MANIFEST.get("version_name") == RELEASE["versionName"],
     "release identity mismatch")
+req(MANIFEST.get("version") == RELEASE["extensionVersion"],
+    "release extension version mismatch")
 
 print("RC15.9.32 Kurum frame context auth regression: PASS")
