@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 
 EXPECTED_ID = "fppnhbkemmbocmicplkfidcbggeininh"
 HOST_NAME = "tr.gov.uyap.archive_agent"
-EXTENSION_DIRS = ("background", "content", "popup", "workspace", "shared", "icons")
+EXTENSION_DIRS = ("background", "content", "popup", "workspace", "shared", "icons", "account")
 FORBIDDEN_EXTENSIONS = {".db", ".sqlite", ".sqlite3", ".ps1", ".bat", ".exe", ".pem", ".key", ".pfx", ".patch"}
 FORBIDDEN_NAMES = {".env", "secrets.json", "credentials.json", "_archive.db"}
 MAX_TOTAL_SIZE = 40 * 1024 * 1024
