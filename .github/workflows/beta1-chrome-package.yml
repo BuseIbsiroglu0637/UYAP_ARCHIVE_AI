@@ -1,0 +1,58 @@
+name: Beta1 Chrome extension package and identity
+
+on:
+  push:
+    branches:
+      - release/uyap-archive-ai-beta-1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta1-chrome-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chrome-package-static-checks:
+    name: MV3 assets, stable ID, Native host contract, Chrome ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: P2 AI warning regression and basic JS syntax
+        run: |
+          node --test tests/ai_incomplete_warning_p2.test.cjs
+          node --check background/service-worker.js
+          node --check workspace/workspace.js
+      - name: Build ZIP strictly from tracked Git source and verify its contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/beta1-clean-chrome-source"
+          out="$RUNNER_TEMP/beta1-chrome-artifact"
+          mkdir -p "$stage" "$out"
+          git archive HEAD | tar -x -C "$stage"
+          test ! -e "$stage/.git"
+          python "$stage/native/beta1_release_identity_test.py"
+          python "$stage/tests/beta1_chrome_package_contract_test.py" \
+            --source "$stage" \
+            --build "$out/UYAP_Archive_AI_BETA1_CHROME_TEST_ONLY.zip"
+          (
+            cd "$out"
+            sha256sum "UYAP_Archive_AI_BETA1_CHROME_TEST_ONLY.zip" > SHA256.txt
+          )
+          echo "BETA1_CHROME_PACKAGE=PASS (UNSIGNED INTERNAL ZIP; NOT A STORE RELEASE)"
+      - name: Upload short-lived private internal extension ZIP (not a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: UYAP-Beta1-CHROME-TEST-ONLY
+          path: ${{ runner.temp }}/beta1-chrome-artifact/*
+          if-no-files-found: error
+          retention-days: 3
