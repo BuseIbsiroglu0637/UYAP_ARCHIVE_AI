@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,5 +49,9 @@ require("row.innerHTML" not in render_block, "resumable job data still reaches i
 require("title.textContent=resumableJobLabel(job)" in render_block, "job title is not rendered as text")
 require("button.dataset.resumeSession=String(job.sessionId" in render_block, "session id is not assigned through dataset")
 
-require("2.9.0 RC15.9." in MANIFEST, "release identity mismatch")
+release = json.loads((ROOT / "config" / "release-contract.json").read_text("utf-8"))["release"]
+manifest = json.loads(MANIFEST)
+require(manifest["version_name"] == release["versionName"], "release identity mismatch")
+require(manifest["version"] == release["extensionVersion"], "release extension version mismatch")
+require(manifest["manifest_version"] == release["manifestVersion"], "release manifest version mismatch")
 print("RC15.9.11 STATE RACE + UI SECURITY REGRESSION: PASS")
