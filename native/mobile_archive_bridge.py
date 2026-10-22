@@ -41,6 +41,7 @@ def find_archive_root(selected: str) -> Path:
 
 
 def read_rows(root: Path, limit: int = MAX_RESULTS, offset: int = 0):
+    root = root.resolve(strict=True)
     if limit < 1 or limit > MAX_RESULTS or offset < 0 or offset > 100000:
         raise ValueError("Geçersiz sayfalama")
     db = (root / "_archive.db").resolve(strict=True)
@@ -67,6 +68,7 @@ def read_rows(root: Path, limit: int = MAX_RESULTS, offset: int = 0):
 
 def safe_pdf_path(root: Path, row) -> Path | None:
     try:
+        root = root.resolve(strict=True)
         value = str(row[5] or "")
         path = Path(value)
         if not path.is_absolute() or path.is_symlink():
