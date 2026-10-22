@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from contextlib import closing
 
 from archive_package_adapter import make_archive_package_handler
 from create_mobile_live_demo import create
@@ -47,7 +48,7 @@ class LiveArchiveTest(unittest.TestCase):
         other = self.root / "new_sample.pdf"
         data = b"%PDF-1.4\n% new synthetic\n%%EOF"
         other.write_bytes(data)
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db))) as db:
             db.execute(
                 """INSERT INTO documents SELECT
                     'new-evrak', source_system, source_context,
@@ -64,7 +65,7 @@ class LiveArchiveTest(unittest.TestCase):
         self.assertEqual(previous + 1, len(self.adapter.refresh()))
 
     def test_nonverified_records_never_appear(self):
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db))) as db:
             db.execute("UPDATE documents SET status='INVALID' WHERE document_id='sample-2'")
             db.commit()
         self.assertEqual(2, len(self.adapter.refresh()))
@@ -72,7 +73,7 @@ class LiveArchiveTest(unittest.TestCase):
     def test_path_outside_archive_rejected(self):
         outside = Path(self.temp.name) / "private.pdf"
         outside.write_bytes((self.root / "synthetic_sample-1.pdf").read_bytes())
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db))) as db:
             db.execute("UPDATE documents SET local_path=? WHERE document_id='sample-1'",
                        (str(outside),))
             db.commit()
@@ -96,7 +97,7 @@ class LiveArchiveTest(unittest.TestCase):
         self.assertEqual(2, len(self.adapter.refresh()))
 
     def test_repeated_identity_fails_closed(self):
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db))) as db:
             db.execute(
                 """INSERT INTO documents SELECT
                     document_id, source_system, source_context, institution_name,
@@ -137,7 +138,7 @@ class LiveArchiveTest(unittest.TestCase):
             self.assertEqual(first["sha256"], hashlib.sha256(
                 get("/v2/document/" + first["sourceKey"])
             ).hexdigest())
-            with sqlite3.connect(self.db) as db:
+            with closing(sqlite3.connect(self.db))) as db:
                 db.execute("UPDATE documents SET status='INVALID' WHERE document_id='sample-2'")
                 db.commit()
             after = json.loads(get("/v2/documents"))
