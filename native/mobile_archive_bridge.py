@@ -26,6 +26,7 @@ import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from archive_package_adapter import VerifiedArchivePackage, make_archive_package_handler
 
 PORT = 18743
 MAX_PDF_BYTES = 25 * 1024 * 1024
@@ -249,12 +250,21 @@ def make_handler(root: Path, token: str):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Local UYAP Archive AI -> Android emulator bridge")
-    parser.add_argument("--archive-root", required=True, help="UYAP_Arsiv folder or its parent")
+    sources = parser.add_mutually_exclusive_group(required=True)
+    sources.add_argument("--archive-root", help="UYAP_Arsiv folder or its parent")
+    sources.add_argument("--archive-package", help="Explicit offline UYAP Archive AI ZIP (debug only)")
     parser.add_argument("--port", type=int, default=PORT)
     args = parser.parse_args(argv)
-    root = find_archive_root(args.archive_root)
     token = secrets.token_urlsafe(32)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(root, token))
+    if args.archive_package:
+        package = VerifiedArchivePackage(args.archive_package)
+        handler = make_archive_package_handler(package, token)
+        print("OFFLINE ZIP PACKAGE: " + str(len(package.documents)) +
+              " VERIFIED PDF/UDF/TIF records; no UYAP network access")
+    else:
+        root = find_archive_root(args.archive_root)
+        handler = make_handler(root, token)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
     print("LOCAL ARCHIVE BRIDGE: localhost only; NOT direct UYAP API access")
     print("STATUS: running on 127.0.0.1:" + str(args.port))
     print("ONE-TIME CONNECTION KEY: " + token)
