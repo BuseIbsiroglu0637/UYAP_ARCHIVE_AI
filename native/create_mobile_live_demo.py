@@ -26,7 +26,7 @@ def create(output: str) -> Path:
         for name in names:
             item = next(x for x in z.namelist() if x.endswith("/" + name))
             (archive_root / name).write_bytes(z.read(item))
-    with closing(sqlite3.connect(archive_root / "_archive.db"))) as db:
+    with closing(sqlite3.connect(archive_root / "_archive.db")) as db:
         for name in names:
             db.execute(
                 "UPDATE documents SET local_path=? WHERE display_name=?",
