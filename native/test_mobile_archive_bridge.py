@@ -19,6 +19,8 @@ class MobileBridgeTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name) / "UYAP_Arsiv"
         self.root.mkdir()
+        # Windows may expose %TEMP% with 8.3 short names; resolve consistently.
+        self.root = self.root.resolve(strict=True)
         self.pdf = self.root / "sentetik-2026_100.pdf"
         self.payload = b"%PDF-1.4\n% synthetic dummy\n1 0 obj <<>> endobj\n%%EOF\n"
         self.pdf.write_bytes(self.payload)
