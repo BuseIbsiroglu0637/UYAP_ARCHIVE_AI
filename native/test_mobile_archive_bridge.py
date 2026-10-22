@@ -11,7 +11,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from mobile_archive_bridge import find_archive_root, make_handler, list_visible, verified_pdf
+from mobile_archive_bridge import find_archive_root, make_handler, list_visible, verified_pdf, verified_pdf_snapshot
 
 
 class MobileBridgeTest(unittest.TestCase):
@@ -143,6 +143,16 @@ class MobileBridgeTest(unittest.TestCase):
         second = list_visible(self.root, b"b" * 32)
         self.assertEqual(first[0]["sha256"], second[0]["sha256"])
         self.assertNotEqual(first[0]["id"], second[0]["id"])
+
+    def test_verified_snapshot_does_not_change_after_source_file_update(self):
+        row = next(iter(self._verified_rows()))
+        snapshot = verified_pdf_snapshot(self.root, row)
+        self.assertIsNotNone(snapshot)
+        try:
+            self.pdf.write_bytes(b"%PDF-1.4\nchanged after verification")
+            self.assertEqual(self.payload, snapshot.read())
+        finally:
+            snapshot.close()
 
     def test_invalid_pagination_rejected(self):
         for path in ("/v1/documents?limit=21&offset=0",
