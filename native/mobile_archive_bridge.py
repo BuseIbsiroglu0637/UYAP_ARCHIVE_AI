@@ -14,6 +14,7 @@ Security boundary:
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hashlib
 import hmac
 import json
@@ -46,7 +47,7 @@ def read_rows(root: Path, limit: int = MAX_RESULTS, offset: int = 0):
     if db.parent != root:
         raise ValueError("Veritabanı arşiv kökünde değil")
     uri = db.as_uri() + "?mode=ro"
-    with sqlite3.connect(uri, uri=True, timeout=5) as connection:
+    with closing(sqlite3.connect(uri, uri=True, timeout=5)) as connection:
         columns = {r[1] for r in connection.execute("PRAGMA table_info(documents)")}
         needed = {"session_id", "document_id", "case_id", "display_name",
                   "institution_name", "local_path", "size", "sha256", "status"}
