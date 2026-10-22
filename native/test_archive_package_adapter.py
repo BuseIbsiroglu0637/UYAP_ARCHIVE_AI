@@ -10,6 +10,8 @@ import unittest
 import urllib.error
 import urllib.request
 import zipfile
+from unittest.mock import patch
+import create_mobile_archive_demo
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -122,6 +124,16 @@ class ArchivePackageTest(unittest.TestCase):
         ])
         with self.assertRaises(ValueError):
             VerifiedArchivePackage(str(self.file))
+
+    def test_real_schema_style_demo_is_compatible(self):
+        with patch("create_mobile_archive_demo.tempfile.gettempdir",
+                   return_value=self.tmp.name):
+            create_mobile_archive_demo.main()
+        generated = Path(self.tmp.name) / "HukukArsivimMixedArchiveDemo.zip"
+        files = VerifiedArchivePackage(str(generated)).documents
+        self.assertEqual(3, len(files))
+        self.assertEqual({"PDF", "UDF", "TIF"},
+                         {item.metadata()["format"] for item in files})
 
     def test_source_modified_after_scan_refuses_transfer(self):
         package = VerifiedArchivePackage(str(self.file))
