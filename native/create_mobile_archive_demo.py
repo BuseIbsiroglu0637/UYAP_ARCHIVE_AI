@@ -10,7 +10,28 @@ from pathlib import Path
 
 def main():
     destination = Path(tempfile.gettempdir()) / "HukukArsivimMixedArchiveDemo.zip"
-    pdf = b"%PDF-1.4\n%synthetic UYAP demo\n%%EOF"
+    # A structurally valid one-page PDF that Android PdfRenderer can display.
+    stream = b"BT /F1 18 Tf 40 750 Td (SYNTHETIC UYAP DEMO) Tj ET\n"
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length " + str(len(stream)).encode() +
+        b" >>\nstream\n" + stream + b"endstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    pdf = b"%PDF-1.4\n"
+    offsets = []
+    for index, body in enumerate(objects, 1):
+        offsets.append(len(pdf))
+        pdf += str(index).encode() + b" 0 obj\n" + body + b"\nendobj\n"
+    xref = len(pdf)
+    pdf += b"xref\n0 6\n0000000000 65535 f \n"
+    for offset in offsets:
+        pdf += (str(offset).zfill(10) + " 00000 n \n").encode()
+    pdf += b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"
+    pdf += str(xref).encode() + b"\n%%EOF\n"
     udf_buffer = io.BytesIO()
     with zipfile.ZipFile(udf_buffer, "w") as inner:
         inner.writestr("content.xml", "<template format_id='2'><content>TEST</content></template>")
