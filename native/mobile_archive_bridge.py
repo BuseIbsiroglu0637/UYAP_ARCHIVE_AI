@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from archive_package_adapter import VerifiedArchivePackage, make_archive_package_handler
+from live_archive_adapter import VerifiedLiveArchive
 
 PORT = 18743
 MAX_PDF_BYTES = 25 * 1024 * 1024
@@ -253,6 +254,7 @@ def main(argv=None):
     sources = parser.add_mutually_exclusive_group(required=True)
     sources.add_argument("--archive-root", help="UYAP_Arsiv folder or its parent")
     sources.add_argument("--archive-package", help="Explicit offline UYAP Archive AI ZIP (debug only)")
+    sources.add_argument("--live-archive-root", help="Read-only live UYAP_Arsiv folder (debug/synthetic only)")
     parser.add_argument("--port", type=int, default=PORT)
     args = parser.parse_args(argv)
     token = secrets.token_urlsafe(32)
@@ -261,6 +263,11 @@ def main(argv=None):
         handler = make_archive_package_handler(package, token)
         print("OFFLINE ZIP PACKAGE: " + str(len(package.documents)) +
               " VERIFIED PDF/UDF/TIF records; no UYAP network access")
+    elif args.live_archive_root:
+        live = VerifiedLiveArchive(args.live_archive_root)
+        handler = make_archive_package_handler(live, token)
+        print("LIVE LOCAL ARCHIVE: " + str(len(live.documents)) +
+              " VERIFIED PDF/UDF/TIF; no ZIP and no UYAP API")
     else:
         root = find_archive_root(args.archive_root)
         handler = make_handler(root, token)
