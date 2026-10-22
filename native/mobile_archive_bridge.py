@@ -61,7 +61,7 @@ def read_rows(root: Path, limit: int = MAX_RESULTS, offset: int = 0):
                     AND lower(local_path) LIKE '%.pdf'
                     AND size > 5 AND size <= ?
                     AND sha256 IS NOT NULL AND sha256 != ''
-               ORDER BY updated_at DESC LIMIT ? OFFSET ?""",
+               ORDER BY updated_at DESC, session_id ASC, document_id ASC LIMIT ? OFFSET ?""",
             (MAX_PDF_BYTES, limit, offset),
         ).fetchall()
 
@@ -166,7 +166,7 @@ def make_handler(root: Path, token: str):
                     rows = list_visible(root, key, limit, offset)
                     self._send(200, {
                         "documents": rows, "offset": offset,
-                        "limit": limit, "hasMore": len(rows) == limit,
+                        "limit": limit, "hasMore": bool(read_rows(root, 1, offset + limit)),
                     })
                 except (ValueError, sqlite3.Error, OSError):
                     self._send(400, {"error": "INVALID_ARCHIVE_REQUEST"})
