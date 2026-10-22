@@ -29,6 +29,8 @@ jobs:
           node-version: '22'
       - name: Python syntax
         run: python -m compileall -q native
+      - name: Local archive mobile bridge synthetic tests
+        run: python -m unittest discover -s native -p test_mobile_archive_bridge.py -v
       - name: JavaScript syntax
         shell: bash
         run: find . -type f \( -name '*.js' -o -name '*.mjs' \) -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check
