@@ -66,6 +66,7 @@ class ArchivePackageDocument:
 
 class VerifiedArchivePackage:
     """Fail closed on ambiguities. ZIP filenames are never used as identity."""
+    mode = "OFFLINE_ARCHIVE_PACKAGE"
 
     def __init__(self, filename: str):
         self.filename = Path(filename).expanduser().resolve(strict=True)
@@ -222,13 +223,25 @@ def make_archive_package_handler(package: VerifiedArchivePackage, token: str):
                 return
             parsed = urlparse(self.path)
             if parsed.path == "/v2/status":
+                try:
+                    if hasattr(package, "refresh"):
+                        package.refresh()
+                except (sqlite3.Error, OSError, ValueError):
+                    self.send_json(503, {"error": "ARCHIVE_NOT_READY"})
+                    return
                 self.send_json(200, {
-                    "schemaVersion": 2, "mode": "OFFLINE_ARCHIVE_PACKAGE",
+                    "schemaVersion": 2, "mode": package.mode,
                     "readOnly": True, "uyapDirectApi": False,
                     "formats": ["PDF", "UDF", "TIF"], "count": len(package.documents),
                 })
                 return
             if parsed.path == "/v2/documents":
+                try:
+                    if hasattr(package, "refresh"):
+                        package.refresh()
+                except (sqlite3.Error, OSError, ValueError):
+                    self.send_json(503, {"error": "ARCHIVE_NOT_READY"})
+                    return
                 try:
                     query = parse_qs(parsed.query)
                     limit = int(query.get("limit", ["20"])[0])
@@ -247,7 +260,11 @@ def make_archive_package_handler(package: VerifiedArchivePackage, token: str):
                 return
             if parsed.path.startswith("/v2/document/"):
                 key = parsed.path.removeprefix("/v2/document/")
-                proof = package.bytes_for(key)
+                try:
+                    proof = package.bytes_for(key)
+                except (sqlite3.Error, OSError, ValueError):
+                    self.send_json(503, {"error": "ARCHIVE_NOT_READY"})
+                    return
                 if proof is None:
                     self.send_json(404, {"error": "MISSING_OR_UNVERIFIED"})
                     return
