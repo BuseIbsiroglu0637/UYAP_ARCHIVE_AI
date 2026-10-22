@@ -1,4 +1,5 @@
 """Synthetic-data-only tests for the local read-only mobile bridge."""
+from contextlib import closing
 import hashlib
 import json
 import sqlite3
@@ -23,7 +24,7 @@ class MobileBridgeTest(unittest.TestCase):
         self.pdf.write_bytes(self.payload)
         self.sha = hashlib.sha256(self.payload).hexdigest()
         self.db = self.root / "_archive.db"
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             connection.execute(
                 """CREATE TABLE documents (
                     session_id TEXT, document_id TEXT, case_id TEXT,
@@ -33,6 +34,7 @@ class MobileBridgeTest(unittest.TestCase):
             )
             self.add_row(connection, "doc-1", self.pdf, self.sha, "VERIFIED")
             self.add_row(connection, "doc-2", self.pdf, self.sha, "INVALID")
+            connection.commit()
         self.token = "S" * 43
         self.server = ThreadingHTTPServer(
             ("127.0.0.1", 0), make_handler(self.root, self.token)
@@ -101,7 +103,7 @@ class MobileBridgeTest(unittest.TestCase):
         self.assertEqual(404, ctx.exception.code)
 
     def _verified_rows(self):
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             return connection.execute(
                 "SELECT session_id, document_id, case_id, display_name,"
                 " institution_name, local_path, size, sha256 FROM documents"
@@ -111,8 +113,9 @@ class MobileBridgeTest(unittest.TestCase):
     def test_outside_root_path_never_exposed(self):
         outside = Path(self.tmp.name) / "other.pdf"
         outside.write_bytes(self.payload)
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             self.add_row(connection, "external", outside, self.sha, "VERIFIED")
+            connection.commit()
         docs = list_visible(self.root, b"testkey")
         self.assertEqual(1, len(docs))
 
