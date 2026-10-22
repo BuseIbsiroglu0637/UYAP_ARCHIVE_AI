@@ -25,6 +25,8 @@ jobs:
           python-version: '3.11'
       - name: Mobile archive bridge Windows SQLite regression
         run: python -m unittest discover -s native -p test_mobile_archive_bridge.py -v
+      - name: Mixed archive ZIP Windows regression
+        run: python -m unittest discover -s native -p test_archive_package_adapter.py -v
       - name: S2-04 large archive pagination regression
         run: python native/s2_04_paged_archive_regression_test.py
       - name: S2-05 read-only archive snapshot cache regression
