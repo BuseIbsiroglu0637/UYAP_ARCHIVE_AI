@@ -172,8 +172,12 @@ class VerifiedArchivePackage:
         item = next((d for d in self.documents if d.source_key == source_key), None)
         if item is None:
             return None
-        with zipfile.ZipFile(self.filename) as archive:
-            payload = archive.read(item.zip_member)
+        try:
+            with zipfile.ZipFile(self.filename) as archive:
+                payload = archive.read(item.zip_member)
+        except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+            # The selected archive changed since the scan. Fail closed.
+            return None
         if len(payload) != item.size or not hmac.compare_digest(
             hashlib.sha256(payload).hexdigest(), item.sha256
         ):
