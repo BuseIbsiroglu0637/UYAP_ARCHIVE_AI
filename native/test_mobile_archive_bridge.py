@@ -122,5 +122,35 @@ class MobileBridgeTest(unittest.TestCase):
         self.assertEqual(1, len(docs))
 
 
+    def test_pages_are_deterministic_and_report_has_more(self):
+        # 23 verified documents, one deliberately invalid document.
+        with closing(sqlite3.connect(self.db)) as connection:
+            for i in range(22):
+                self.add_row(connection, f"page-{i:03d}", self.pdf, self.sha, "VERIFIED")
+            connection.commit()
+        first = json.loads(self.get("/v1/documents?limit=20&offset=0", self.token))
+        second = json.loads(self.get("/v1/documents?limit=20&offset=20", self.token))
+        self.assertEqual(20, len(first["documents"]))
+        self.assertEqual(3, len(second["documents"]))
+        self.assertTrue(first["hasMore"])
+        self.assertFalse(second["hasMore"])
+        first_ids = {r["id"] for r in first["documents"]}
+        second_ids = {r["id"] for r in second["documents"]}
+        self.assertFalse(first_ids.intersection(second_ids))
+
+    def test_ephemeral_ids_change_on_new_bridge_instance(self):
+        first = list_visible(self.root, b"a" * 32)
+        second = list_visible(self.root, b"b" * 32)
+        self.assertEqual(first[0]["sha256"], second[0]["sha256"])
+        self.assertNotEqual(first[0]["id"], second[0]["id"])
+
+    def test_invalid_pagination_rejected(self):
+        for path in ("/v1/documents?limit=21&offset=0",
+                     "/v1/documents?limit=20&offset=-1"):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self.get(path, self.token)
+            self.assertEqual(400, ctx.exception.code)
+
+
 if __name__ == "__main__":
     unittest.main()
