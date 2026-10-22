@@ -22,6 +22,7 @@ import os
 import secrets
 import sqlite3
 import sys
+import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -124,6 +125,48 @@ def verified_pdf(root: Path, row) -> Path | None:
     return path if hmac.compare_digest(digest.hexdigest(), stored) else None
 
 
+
+def verified_pdf_snapshot(root: Path, row):
+    """Return an immutable byte snapshot after proving size, header and SHA-256.
+
+    The HTTP response reads from this checked snapshot rather than reopening
+    a live PDF after verification. Spill over 1 MB to a private temporary file.
+    """
+    if row is None:
+        return None
+    path = safe_pdf_path(root, row)
+    if path is None:
+        return None
+    expected = str(row[7] or "").lower()
+    if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
+        return None
+    snapshot = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
+    try:
+        digest = hashlib.sha256()
+        copied = 0
+        with path.open("rb") as source:
+            if source.read(5) != b"%PDF-":
+                snapshot.close()
+                return None
+            source.seek(0)
+            while chunk := source.read(64 * 1024):
+                copied += len(chunk)
+                if copied > MAX_PDF_BYTES:
+                    snapshot.close()
+                    return None
+                digest.update(chunk)
+                snapshot.write(chunk)
+        if copied != int(row[6]) or not hmac.compare_digest(
+            digest.hexdigest(), expected
+        ):
+            snapshot.close()
+            return None
+        snapshot.seek(0)
+        return snapshot
+    except Exception:
+        snapshot.close()
+        raise
+
 def make_handler(root: Path, token: str):
     key = secrets.token_bytes(32)
 
@@ -182,18 +225,18 @@ def make_handler(root: Path, token: str):
                     for offset in range(0, 100, MAX_RESULTS):
                         rows.extend(read_rows(root, MAX_RESULTS, offset))
                     selected = next((r for r in rows if public_id(r, key) == requested), None)
-                    path = verified_pdf(root, selected) if selected else None
-                    if path is None:
+                    snapshot = verified_pdf_snapshot(root, selected)
+                    if snapshot is None:
                         self._send(404, {"error": "NOT_FOUND_OR_UNVERIFIED"})
                         return
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/pdf")
-                    self.send_header("Content-Length", str(path.stat().st_size))
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.end_headers()
-                    with path.open("rb") as source:
-                        while chunk := source.read(64 * 1024):
+                    with snapshot:
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/pdf")
+                        self.send_header("Content-Length", str(int(selected[6])))
+                        self.send_header("Cache-Control", "no-store")
+                        self.send_header("X-Content-Type-Options", "nosniff")
+                        self.end_headers()
+                        while chunk := snapshot.read(64 * 1024):
                             self.wfile.write(chunk)
                 except (sqlite3.Error, OSError, ValueError, BrokenPipeError):
                     # No disclosure of archive paths or private content in error responses.
