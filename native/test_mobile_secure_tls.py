@@ -131,8 +131,7 @@ class SecureTlsTest(unittest.TestCase):
             "code": self.gate.code, "deviceId": self.device
         })[0])
         token = self.pair()
-        self.assertEqual(401, self.request("/v2/documents", token, sign=False)[0]
-                         if False else self.request("/v2/documents", token=token, sign=False)[0])
+        self.assertEqual(401, self.request("/v2/documents", token=token, sign=False)[0])
         self.assertEqual(401, self.request("/v2/status", token=token,
                                           override_signature=b64(b"wrong"))[0])
         status, raw = self.request("/v2/documents?limit=20&offset=0", token=token)
