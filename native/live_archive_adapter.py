@@ -151,4 +151,8 @@ class VerifiedLiveArchive:
             (b"PK\x03\x04", b"<?xml", b"<template")
         ):
             return None
+        if doc.extension == ".zip":
+            from audit_archive_zip import inspect_central_directory
+            if inspect_central_directory(data) != "SAFE_CENTRAL_DIRECTORY":
+                return None
         return doc, data
