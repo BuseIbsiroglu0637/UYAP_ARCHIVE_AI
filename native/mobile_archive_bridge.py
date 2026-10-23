@@ -29,6 +29,8 @@ from urllib.parse import parse_qs, urlparse
 from archive_package_adapter import VerifiedArchivePackage, make_archive_package_handler
 from live_archive_adapter import VerifiedLiveArchive
 from mobile_pairing import PairingGate, PAIRING_TTL
+from mobile_secure_pairing import SecurePairingGate
+from mobile_tls import ephemeral_server_context
 
 PORT = 18743
 MAX_PDF_BYTES = 25 * 1024 * 1024
@@ -256,10 +258,16 @@ def main(argv=None):
     sources.add_argument("--archive-root", help="UYAP_Arsiv folder or its parent")
     sources.add_argument("--archive-package", help="Explicit offline UYAP Archive AI ZIP (debug only)")
     sources.add_argument("--live-archive-root", help="Read-only live UYAP_Arsiv folder (debug/synthetic only)")
-    parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--pairing", action="store_true",
                         help="Ephemeral single-device pairing, synthetic live demo only")
+    parser.add_argument("--tls-pairing", action="store_true",
+                        help="Pinned TLS + Keystore ECDSA proof; synthetic emulator only")
     args = parser.parse_args(argv)
+    if args.tls_pairing and (args.pairing or not args.live_archive_root):
+        parser.error("--tls-pairing requires live synthetic root and excludes --pairing")
+    if args.port is None:
+        args.port = 18744 if args.tls_pairing else PORT
     if args.pairing and not args.live_archive_root:
         parser.error("--pairing requires --live-archive-root synthetic demo")
     token = secrets.token_urlsafe(32)
@@ -285,10 +293,13 @@ def main(argv=None):
                 "no actual documents are sent."
             )
         live = VerifiedLiveArchive(args.live_archive_root)
-        gate = PairingGate() if args.pairing else None
+        gate = (SecurePairingGate() if args.tls_pairing else
+                PairingGate() if args.pairing else None)
         handler = make_archive_package_handler(live, token, pairing_gate=gate)
         if gate is not None:
             print("EMULATOR-ONLY PAIRING CODE (10 minute validity): " + gate.code)
+            if args.tls_pairing:
+                print("KEYSTORE PRIVATE KEY PROOF: required on every request")
             print("Code is one-use; new credentials on every restart. Do not photograph.")
         print("LIVE LOCAL ARCHIVE: " + str(len(live.documents)) +
               " VERIFIED PDF/UDF/TIF/ZIP sources; no intermediate package; no UYAP API")
@@ -297,17 +308,32 @@ def main(argv=None):
         handler = make_handler(root, token)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
     print("LOCAL ARCHIVE BRIDGE: localhost only; NOT direct UYAP API access")
-    print("STATUS: running on 127.0.0.1:" + str(args.port))
-    if not args.pairing:
-        print("ONE-TIME CONNECTION KEY: " + token)
     print("Use only synthetic documents in the Android DEBUG build.")
-    print("Ctrl+C to stop; a new key is generated on every start.")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
+    if args.tls_pairing:
+        try:
+            with ephemeral_server_context() as (context, fingerprint):
+                server.socket = context.wrap_socket(server.socket, server_side=True)
+                print("TLS 1.2+ : enabled, ephemeral cert, pinned on Android")
+                print("TLS CERT SHA256 FINGERPRINT: " + fingerprint)
+                print("HTTPS STATUS: https://127.0.0.1:" + str(args.port))
+                print("Certificate fingerprint must be entered out-of-band. Do not photograph the pairing code.")
+                print("Ctrl+C stops the server and revokes every active session.")
+                server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+    else:
+        print("STATUS: running on 127.0.0.1:" + str(args.port))
+        if not args.pairing:
+            print("ONE-TIME CONNECTION KEY: " + token)
+        print("Ctrl+C to stop; a new key is generated on every start.")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
 
 
 if __name__ == "__main__":
