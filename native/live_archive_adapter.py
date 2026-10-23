@@ -10,6 +10,7 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 import hashlib
+from archive_document_policy import archive_kind
 import hmac
 import json
 import sqlite3
@@ -85,6 +86,8 @@ class VerifiedLiveArchive:
                 if (ext not in EXTENSIONS or not HASH_PATTERN.fullmatch(digest) or
                     type(size) is not int or not 5 <= size <= MAX_DOCUMENT_BYTES or
                     not doc_id or not case_id or not source_path):
+                    continue
+                if archive_kind(ext, str(source_path), str(name or "")) == "INTERNAL":
                     continue
                 path = self._contained_path(str(source_path), ext, size)
                 if path is None:
