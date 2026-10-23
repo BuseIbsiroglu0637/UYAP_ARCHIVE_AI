@@ -146,11 +146,25 @@ def audit(selected: str) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Count/prove local archive records without exporting documents")
-    parser.add_argument("--archive-root", required=True,
-                        help="Local UYAP_Arsiv directory or its parent")
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--archive-root",
+                           help="Local UYAP_Arsiv directory or its parent")
+    selection.add_argument(
+        "--selected-archive", action="store_true",
+        help="Read the existing Archive AI selected local archive (no new selection)"
+    )
     args = parser.parse_args(argv)
     try:
-        summary = audit(args.archive_root)
+        if args.selected_archive:
+            # Use the user's existing Archive AI selection, read-only.
+            # Avoid exposing its private Windows path in the summary or errors.
+            from uyap_archive_agent import load_selected_archive_root
+            selected_root = load_selected_archive_root()
+            if selected_root is None:
+                raise ValueError("No current selected archive")
+        else:
+            selected_root = args.archive_root
+        summary = audit(str(selected_root))
     except (ValueError, OSError, sqlite3.Error):
         # Avoid printing user-specific paths or document identifiers in errors.
         print(json.dumps({"ok": False, "error": "ARCHIVE_AUDIT_NOT_AVAILABLE"}))
