@@ -33,6 +33,11 @@ def create(output: str) -> Path:
                 (str((archive_root / name).resolve(strict=True)), name),
             )
         db.commit()
+    # Marker protects against accidentally pointing the DEBUG bridge to a real archive.
+    # It is NOT a cryptographic proof of origin.
+    (archive_root / ".hukukarsivim-synthetic-only").write_text(
+        "SYNTHETIC_TEST_FIXTURE_V1\n", encoding="ascii"
+    )
     print("SYNTHETIC LIVE ROOT:", archive_root)
     print("3 fake VERIFIED documents, refreshable without ZIP; no personal data")
     return archive_root
