@@ -30,7 +30,7 @@ class DiagnoseArchiveTests(unittest.TestCase):
         self.make_db(sorted(REQUIRED))
         outcome = diagnose(str(self.parent))
         self.assertTrue(outcome["ok"])
-        self.assertEqual("SCHEMA_COMPATIBLE", outcome["status"])
+        self.assertEqual("SCHEMA_COMPATIBLE_LEGACY", outcome["status"])
         self.assertEqual([], outcome["missingRequiredColumns"])
         self.assertFalse(outcome["documentsRead"])
         self.assertFalse(outcome["documentsTransferred"])
