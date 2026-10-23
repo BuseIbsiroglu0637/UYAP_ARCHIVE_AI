@@ -135,6 +135,27 @@ class ArchivePackageTest(unittest.TestCase):
         self.assertEqual({"PDF", "UDF", "TIF"},
                          {item.metadata()["format"] for item in files})
 
+    def test_opaque_zip_court_attachment_transfers_unextracted(self):
+        nested = io.BytesIO()
+        with zipfile.ZipFile(nested, "w") as inner:
+            inner.writestr("evrak.txt", b"SYNTHETIC ONLY")
+        payload = nested.getvalue()
+        build_package(self.file, [("zip-1", ".zip", payload, "VERIFIED", None)])
+        package = VerifiedArchivePackage(str(self.file))
+        self.assertEqual(1, len(package.documents))
+        document = package.documents[0]
+        self.assertEqual("ZIP", document.metadata()["format"])
+        self.assertEqual(payload, package.bytes_for(document.source_key)[1])
+
+    def test_opaque_zip_unsafe_path_refuses_transfer(self):
+        nested = io.BytesIO()
+        with zipfile.ZipFile(nested, "w") as inner:
+            inner.writestr("../unsafe.txt", b"SYNTHETIC ONLY")
+        build_package(self.file, [("zip-1", ".zip", nested.getvalue(), "VERIFIED", None)])
+        package = VerifiedArchivePackage(str(self.file))
+        self.assertEqual(1, len(package.documents))
+        self.assertIsNone(package.bytes_for(package.documents[0].source_key))
+
     def test_source_modified_after_scan_refuses_transfer(self):
         package = VerifiedArchivePackage(str(self.file))
         key = package.documents[0].source_key
