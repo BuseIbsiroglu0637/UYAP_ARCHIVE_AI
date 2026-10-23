@@ -31,6 +31,8 @@ jobs:
         run: python -m unittest discover -s native -p test_live_archive_adapter.py -v
       - name: Real archive readiness and artifact exclusions (synthetic)
         run: python -m unittest discover -s native -p test_archive_readiness.py -v
+      - name: Archive DB schema diagnostic (synthetic)
+        run: python -m unittest discover -s native -p test_diagnose_archive.py -v
       - name: S2-04 large archive pagination regression
         run: python native/s2_04_paged_archive_regression_test.py
       - name: S2-05 read-only archive snapshot cache regression
