@@ -28,6 +28,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from archive_package_adapter import VerifiedArchivePackage, make_archive_package_handler
 from live_archive_adapter import VerifiedLiveArchive
+from mobile_pairing import PairingGate, PAIRING_TTL
 
 PORT = 18743
 MAX_PDF_BYTES = 25 * 1024 * 1024
@@ -256,7 +257,11 @@ def main(argv=None):
     sources.add_argument("--archive-package", help="Explicit offline UYAP Archive AI ZIP (debug only)")
     sources.add_argument("--live-archive-root", help="Read-only live UYAP_Arsiv folder (debug/synthetic only)")
     parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument("--pairing", action="store_true",
+                        help="Ephemeral single-device pairing, synthetic live demo only")
     args = parser.parse_args(argv)
+    if args.pairing and not args.live_archive_root:
+        parser.error("--pairing requires --live-archive-root synthetic demo")
     token = secrets.token_urlsafe(32)
     if args.archive_package:
         package = VerifiedArchivePackage(args.archive_package)
@@ -280,7 +285,11 @@ def main(argv=None):
                 "no actual documents are sent."
             )
         live = VerifiedLiveArchive(args.live_archive_root)
-        handler = make_archive_package_handler(live, token)
+        gate = PairingGate() if args.pairing else None
+        handler = make_archive_package_handler(live, token, pairing_gate=gate)
+        if gate is not None:
+            print("EMULATOR-ONLY PAIRING CODE (10 minute validity): " + gate.code)
+            print("Code is one-use; new credentials on every restart. Do not photograph.")
         print("LIVE LOCAL ARCHIVE: " + str(len(live.documents)) +
               " VERIFIED PDF/UDF/TIF; no ZIP and no UYAP API")
     else:
@@ -289,7 +298,8 @@ def main(argv=None):
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
     print("LOCAL ARCHIVE BRIDGE: localhost only; NOT direct UYAP API access")
     print("STATUS: running on 127.0.0.1:" + str(args.port))
-    print("ONE-TIME CONNECTION KEY: " + token)
+    if not args.pairing:
+        print("ONE-TIME CONNECTION KEY: " + token)
     print("Use only synthetic documents in the Android DEBUG build.")
     print("Ctrl+C to stop; a new key is generated on every start.")
     try:
