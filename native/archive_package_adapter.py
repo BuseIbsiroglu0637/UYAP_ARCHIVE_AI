@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse, parse_qs
 import hashlib
-from archive_document_policy import archive_kind
+from archive_document_policy import archive_kind, resolved_extension
 import hmac
 import json
 import re
@@ -105,18 +105,16 @@ class VerifiedArchivePackage:
                 db.execute("PRAGMA query_only=ON")
                 fields = {r[1] for r in db.execute("PRAGMA table_info(documents)")}
                 required = {"document_id", "case_id", "institution_name", "display_name",
-                            "local_path", "extension", "size", "sha256", "status"}
+                            "local_path", "size", "sha256", "status"}
                 if not required.issubset(fields):
                     raise ValueError("Unexpected archive metadata schema")
                 source_fields = [
                     col for col in ("source_system", "source_identity_hash") if col in fields
                 ]
+                extension_expr = "extension" if "extension" in fields else "NULL AS extension"
                 sql = ("SELECT document_id, case_id, institution_name, display_name, "
-                       "local_path, extension, size, sha256, " +
-                       ", ".join(source_fields) + ", status FROM documents")
-                if not source_fields:
-                    sql = ("SELECT document_id, case_id, institution_name, display_name, "
-                           "local_path, extension, size, sha256, status FROM documents")
+                       "local_path, " + extension_expr + ", size, sha256, " +
+                       ", ".join(source_fields + ["status"]) + " FROM documents")
                 rows = db.execute(sql).fetchmany(MAX_ENTRIES + 1)
                 if len(rows) > MAX_ENTRIES:
                     raise ValueError("Too many archive metadata records")
@@ -130,7 +128,7 @@ class VerifiedArchivePackage:
                 tail = row[8:]
                 if tail[-1] != "VERIFIED":
                     continue
-                ext = str(extension or "").lower()
+                ext = resolved_extension(extension, source_path)
                 canonical_sha = str(sha or "").lower()
                 if (ext not in EXTENSIONS or not HASH_PATTERN.fullmatch(canonical_sha) or
                     not isinstance(size, int) or size < 5 or size > MAX_DOCUMENT_BYTES or
