@@ -264,6 +264,21 @@ def main(argv=None):
         print("OFFLINE ZIP PACKAGE: " + str(len(package.documents)) +
               " VERIFIED PDF/UDF/TIF records; no UYAP network access")
     elif args.live_archive_root:
+        # Accidental live REAL case transfer to a screenshot-enabled DEBUG emulator
+        # is disallowed; use audit_real_archive.py instead. Marker = safety interlock
+        # for a generated synthetic fixture, not cryptographic attestation.
+        test_root = Path(args.live_archive_root).expanduser().resolve(strict=True)
+        if test_root.name != "UYAP_Arsiv":
+            test_root = (test_root / "UYAP_Arsiv").resolve(strict=True)
+        marker = test_root / ".hukukarsivim-synthetic-only"
+        if marker.is_symlink() or not marker.is_file() or marker.read_text(
+            encoding="ascii"
+        ) != "SYNTHETIC_TEST_FIXTURE_V1\n":
+            raise SystemExit(
+                "LIVE_BRIDGE_DEBUG_SYNTHETIC_ONLY: "
+                "Real archives must be checked with audit_real_archive.py; "
+                "no actual documents are sent."
+            )
         live = VerifiedLiveArchive(args.live_archive_root)
         handler = make_archive_package_handler(live, token)
         print("LIVE LOCAL ARCHIVE: " + str(len(live.documents)) +
