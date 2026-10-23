@@ -19,11 +19,10 @@ import json
 import re
 import sqlite3
 import stat
-from pathlib import PurePosixPath
+from pathlib import Path
 import zipfile
 
 from archive_document_policy import archive_kind, resolved_extension
-from audit_real_archive import safe_local_file
 from audit_archive_formats import select_root, MAX_AUDIT_ROWS
 
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
@@ -52,6 +51,40 @@ STATUS_LABELS = (
     "SCAN_BUDGET_REACHED",
 )
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def safe_zip_source(root: Path, value: str, expected_size: int) -> Path | None:
+    """Resolve Windows 8.3 aliases without permitting a symlink/junction escape.
+
+    On Windows the tempfile root sometimes uses a short-name alias (RUNNER~1)
+    whereas Path.resolve() returns its expanded spelling. Compare resolved
+    ancestors with resolved root, but check each *original* ancestor for links.
+    """
+    try:
+        root = root.resolve(strict=True)
+        candidate = Path(value)
+        if not candidate.is_absolute() or candidate.is_symlink():
+            return None
+        resolved = candidate.resolve(strict=True)
+        if (resolved == root or not resolved.is_relative_to(root) or
+                not resolved.is_file() or resolved.suffix.lower() != ".zip" or
+                resolved.stat().st_size != expected_size):
+            return None
+        parent = candidate.parent
+        for _ in range(100):
+            if parent.is_symlink():
+                return None
+            if hasattr(parent, "is_junction") and parent.is_junction():
+                return None
+            actual_parent = parent.resolve(strict=True)
+            if actual_parent == root:
+                return resolved
+            if not actual_parent.is_relative_to(root) or parent == parent.parent:
+                return None
+            parent = parent.parent
+        return None
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return None
 
 
 def safe_member_name(name: str) -> bool:
@@ -153,7 +186,7 @@ def audit_zip(selected: str) -> dict:
         if scanned_bytes + size > MAX_TOTAL_SCANNED_BYTES:
             counters["SCAN_BUDGET_REACHED"] += 1
             continue
-        path = safe_local_file(root, str(local_path), ".zip", size)
+        path = safe_zip_source(root, str(local_path), size)
         if path is None:
             counters["SOURCE_MISSING_OR_UNSAFE"] += 1
             continue
