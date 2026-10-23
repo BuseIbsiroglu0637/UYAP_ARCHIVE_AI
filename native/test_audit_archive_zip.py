@@ -59,7 +59,7 @@ class ArchiveZipSafetyTests(unittest.TestCase):
         report = audit_zip(str(self.root))
         self.assertTrue(report["ok"])
         self.assertEqual(1, report["counts"]["zipCandidates"])
-        self.assertEqual(1, report["counts"]["statuses"]["SAFE_CENTRAL_DIRECTORY"])
+        self.assertEqual(1, report["counts"]["statuses"]["SAFE_CENTRAL_DIRECTORY"], report["counts"])
         self.assertTrue(report["noExtraction"])
         self.assertTrue(report["noMemberDecompression"])
         text = json.dumps(report)
@@ -101,7 +101,7 @@ class ArchiveZipSafetyTests(unittest.TestCase):
         data = sample_zip([("file.txt", b"fake")])
         self.register("id1", "record.zip", data, sha=hashlib.sha256(b"DIFFERENT").hexdigest())
         statuses = audit_zip(str(self.root))["counts"]["statuses"]
-        self.assertEqual(1, statuses["SOURCE_HASH_MISMATCH"])
+        self.assertEqual(1, statuses["SOURCE_HASH_MISMATCH"], statuses)
         self.assertEqual(0, statuses["SAFE_CENTRAL_DIRECTORY"])
 
     def test_external_path_is_rejected(self):
@@ -114,7 +114,7 @@ class ArchiveZipSafetyTests(unittest.TestCase):
         broken = b"PK\x03\x04garbage"
         self.register("id1", "bad.zip", broken)
         result = audit_zip(str(self.root))["counts"]["statuses"]
-        self.assertEqual(1, result["ZIP_MALFORMED"])
+        self.assertEqual(1, result["ZIP_MALFORMED"], result)
         self.assertEqual(0, result["SAFE_CENTRAL_DIRECTORY"])
 
     def test_unverified_document_not_scanned(self):
