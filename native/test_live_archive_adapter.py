@@ -66,6 +66,18 @@ class LiveArchiveTest(unittest.TestCase):
             db.commit()
         self.assertEqual(previous + 1, len(self.adapter.refresh()))
 
+    def test_generator_optional_zip_fixture_is_distinct_and_verifiable(self):
+        fresh = create(str(Path(self.temp.name) / "v015-zip"), include_zip=True)
+        package = VerifiedLiveArchive(str(fresh))
+        self.assertEqual(4, len(package.documents))
+        self.assertEqual({"PDF", "UDF", "TIF", "ZIP"},
+                         {x.metadata()["format"] for x in package.documents})
+        zipped = next(x for x in package.documents if x.extension == ".zip")
+        data = package.bytes_for(zipped.source_key)
+        self.assertIsNotNone(data)
+        self.assertEqual(hashlib.sha256(data[1]).hexdigest(), zipped.sha256)
+        self.assertFalse((fresh / "synthetic_note.txt").exists())
+
     def test_live_opaque_zip_available_without_extraction(self):
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w") as archive:
