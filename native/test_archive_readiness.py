@@ -11,6 +11,7 @@ from archive_document_policy import archive_kind
 from audit_real_archive import audit
 from create_mobile_live_demo import create
 from live_archive_adapter import VerifiedLiveArchive
+from mobile_archive_bridge import main as bridge_main
 
 
 class ArchiveReadinessTest(unittest.TestCase):
@@ -36,6 +37,14 @@ class ArchiveReadinessTest(unittest.TestCase):
                 "Test Court", name, str(fullpath), ext, size, actual_sha, status
             ))
             db.commit()
+
+    def test_debug_bridge_refuses_an_unmarked_archive(self):
+        marker = self.root / ".hukukarsivim-synthetic-only"
+        self.assertTrue(marker.is_file())
+        marker.unlink()
+        with self.assertRaises(SystemExit) as denial:
+            bridge_main(["--live-archive-root", str(self.root), "--port", "0"])
+        self.assertIn("LIVE_BRIDGE_DEBUG_SYNTHETIC_ONLY", str(denial.exception))
 
     def test_three_verified_sources_are_proven_without_document_data_in_result(self):
         report = audit(str(self.root))
