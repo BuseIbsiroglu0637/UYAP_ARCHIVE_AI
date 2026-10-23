@@ -10,7 +10,7 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 import hashlib
-from archive_document_policy import archive_kind
+from archive_document_policy import archive_kind, resolved_extension
 import hmac
 import json
 import sqlite3
@@ -68,12 +68,13 @@ class VerifiedLiveArchive:
             db.execute("PRAGMA query_only=ON")
             columns = {row[1] for row in db.execute("PRAGMA table_info(documents)")}
             required = {"document_id", "case_id", "institution_name", "display_name",
-                        "local_path", "extension", "size", "sha256", "status"}
+                        "local_path", "size", "sha256", "status"}
             if not required.issubset(columns):
                 raise ValueError("Unexpected live archive schema")
             extras = [col for col in ("source_system", "source_identity_hash") if col in columns]
+            extension_expr = "extension" if "extension" in columns else "NULL AS extension"
             sql = ("SELECT document_id,case_id,institution_name,display_name,local_path,"
-                   "extension,size,sha256," + ",".join(extras + ["status"]) +
+                   + extension_expr + ",size,sha256," + ",".join(extras + ["status"]) +
                    " FROM documents WHERE status='VERIFIED' ORDER BY document_id LIMIT ?")
             rows = db.execute(sql, (self.MAX_ROWS + 1,)).fetchall()
             if len(rows) > self.MAX_ROWS:
@@ -81,7 +82,7 @@ class VerifiedLiveArchive:
             for row in rows:
                 doc_id, case_id, institution, name, source_path, ext, size, sha = row[:8]
                 tail = row[8:]
-                ext = str(ext or "").lower()
+                ext = resolved_extension(ext, source_path)
                 digest = str(sha or "").lower()
                 if (ext not in EXTENSIONS or not HASH_PATTERN.fullmatch(digest) or
                     type(size) is not int or not 5 <= size <= MAX_DOCUMENT_BYTES or
