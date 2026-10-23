@@ -27,6 +27,22 @@ def normalized_file_parts(path: str) -> tuple[str, ...]:
     return tuple(p.casefold() for p in raw.split("/") if p not in ("", "."))
 
 
+def resolved_extension(db_extension: str | None, local_path: str) -> str:
+    """Resolve type from the actual local filename if a legacy DB lacks extension.
+
+    When the column exists, require its value to agree with the path suffix.
+    Filename alone is never sufficient: downstream magic, size, path containment
+    and SHA-256 verification are still mandatory.
+    """
+    parts = normalized_file_parts(local_path)
+    suffix = ("." + parts[-1].rsplit(".", 1)[-1]
+              if parts and "." in parts[-1] else "")
+    recorded = str(db_extension or "").strip().casefold()
+    if recorded and recorded != suffix:
+        return ""  # Conflicting metadata must fail closed.
+    return recorded or suffix
+
+
 def archive_kind(extension: str, local_path: str, display_name: str = "") -> str:
     """Return DOCUMENT_PDF/UDF/TIF, INTERNAL, or UNSUPPORTED."""
     parts = normalized_file_parts(local_path)
