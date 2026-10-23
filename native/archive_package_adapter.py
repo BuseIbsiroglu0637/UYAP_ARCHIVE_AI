@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse, parse_qs
 import hashlib
+from archive_document_policy import archive_kind
 import hmac
 import json
 import re
@@ -134,6 +135,8 @@ class VerifiedArchivePackage:
                 if (ext not in EXTENSIONS or not HASH_PATTERN.fullmatch(canonical_sha) or
                     not isinstance(size, int) or size < 5 or size > MAX_DOCUMENT_BYTES or
                     not doc_id or not case_id or not source_path):
+                    continue
+                if archive_kind(ext, str(source_path), str(display or "")) == "INTERNAL":
                     continue
                 # Source paths in exported packages may refer to a different PC.
                 # Resolve by verified *bytes*, size, suffix and unambiguous basename;
