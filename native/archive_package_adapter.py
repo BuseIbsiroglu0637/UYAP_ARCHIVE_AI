@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only UYAP Archive AI ZIP adapter for an explicit user-selected package.
 
-Supports VERIFIED PDF/UDF/TIF source bytes and their original archive IDs.
+Supports VERIFIED PDF/UDF/TIF/ZIP source bytes and their original archive IDs.
 Never performs UYAP requests, conversion, login, extraction or data mutation.
 Test builds only: do not move case data to an Android DEBUG application.
 """
@@ -25,9 +25,9 @@ MAX_ENTRIES = 5000
 MAX_TOTAL_UNCOMPRESSED = 256 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 32 * 1024 * 1024
 MAX_DB_BYTES = 16 * 1024 * 1024
-EXTENSIONS = {".pdf", ".udf", ".tif", ".tiff"}
+EXTENSIONS = {".pdf", ".udf", ".tif", ".tiff", ".zip"}
 MIME = {".pdf": "application/pdf", ".udf": "application/octet-stream",
-        ".tif": "image/tiff", ".tiff": "image/tiff"}
+        ".tif": "image/tiff", ".tiff": "image/tiff", ".zip": "application/zip"}
 HASH_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 DOC_KEY_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -194,6 +194,12 @@ class VerifiedArchivePackage:
             (b"PK\x03\x04", b"<?xml", b"<template")
         ):
             return None
+        if item.extension == ".zip":
+            # Treat ZIP as opaque bytes; check its bounded central directory.
+            # Import lazily to avoid a helper module dependency cycle.
+            from audit_archive_zip import inspect_central_directory
+            if inspect_central_directory(payload) != "SAFE_CENTRAL_DIRECTORY":
+                return None
         return item, payload
 
 
@@ -233,7 +239,7 @@ def make_archive_package_handler(package: VerifiedArchivePackage, token: str):
                 self.send_json(200, {
                     "schemaVersion": 2, "mode": package.mode,
                     "readOnly": True, "uyapDirectApi": False,
-                    "formats": ["PDF", "UDF", "TIF"], "count": len(package.documents),
+                    "formats": ["PDF", "UDF", "TIF", "ZIP"], "count": len(package.documents),
                 })
                 return
             if parsed.path == "/v2/documents":
