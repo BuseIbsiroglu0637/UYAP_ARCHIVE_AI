@@ -291,7 +291,7 @@ def main(argv=None):
             print("EMULATOR-ONLY PAIRING CODE (10 minute validity): " + gate.code)
             print("Code is one-use; new credentials on every restart. Do not photograph.")
         print("LIVE LOCAL ARCHIVE: " + str(len(live.documents)) +
-              " VERIFIED PDF/UDF/TIF; no ZIP and no UYAP API")
+              " VERIFIED PDF/UDF/TIF/ZIP sources; no intermediate package; no UYAP API")
     else:
         root = find_archive_root(args.archive_root)
         handler = make_handler(root, token)
