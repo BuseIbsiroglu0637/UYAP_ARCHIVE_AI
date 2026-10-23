@@ -15,7 +15,7 @@ import sqlite3
 
 REQUIRED = frozenset({
     "document_id", "case_id", "display_name", "local_path",
-    "extension", "size", "sha256", "status"
+    "size", "sha256", "status"
 })
 
 
@@ -33,6 +33,8 @@ def diagnose(selection: str) -> dict:
         "documentsTable": False,
         "columnCount": 0,
         "missingRequiredColumns": sorted(REQUIRED),
+        "missingOptionalColumns": [],
+        "extensionDetection": "UNKNOWN",
         "status": "SELECTED_FOLDER_NOT_FOUND",
         "ok": False,
     }
@@ -69,12 +71,22 @@ def diagnose(selection: str) -> dict:
         result["documentsTable"] = bool(columns)
         result["columnCount"] = len(columns)
         result["missingRequiredColumns"] = sorted(REQUIRED - columns)
+        result["missingOptionalColumns"] = (
+            ["extension"] if "extension" not in columns else []
+        )
+        result["extensionDetection"] = (
+            "PATH_SUFFIX_WITH_BYTE_VERIFICATION"
+            if "extension" not in columns else "DATABASE_AND_PATH_AGREEMENT"
+        )
         if not columns:
             result["status"] = "DOCUMENTS_TABLE_NOT_FOUND"
         elif result["missingRequiredColumns"]:
             result["status"] = "DOCUMENTS_SCHEMA_MISMATCH"
         else:
-            result["status"] = "SCHEMA_COMPATIBLE"
+            result["status"] = (
+                "SCHEMA_COMPATIBLE_LEGACY"
+                if "extension" not in columns else "SCHEMA_COMPATIBLE"
+            )
             result["ok"] = True
         return result
     except (OSError, ValueError, sqlite3.Error) as exc:
