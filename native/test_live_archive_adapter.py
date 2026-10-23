@@ -9,6 +9,8 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+import io
+import zipfile
 from contextlib import closing
 
 from archive_package_adapter import make_archive_package_handler
@@ -63,6 +65,58 @@ class LiveArchiveTest(unittest.TestCase):
             )
             db.commit()
         self.assertEqual(previous + 1, len(self.adapter.refresh()))
+
+    def test_live_opaque_zip_available_without_extraction(self):
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("evrak.txt", b"SYNTHETIC")
+        data = output.getvalue()
+        source = self.root / "synthetic_extra.zip"
+        source.write_bytes(data)
+        with closing(sqlite3.connect(self.db)) as db:
+            db.execute(
+                """INSERT INTO documents SELECT
+                    'zip-new', source_system, source_context,
+                    institution_name, court_name, 'zip-new',
+                    'zip-identity', source_fingerprint,
+                    case_id, folder_names, document_date,
+                    ?, uyap_path, target_path,
+                    ?, '.zip', ?, ?, verified_at, 'VERIFIED',
+                    archive_part, archive_part_index FROM documents
+                    WHERE document_id='sample-1'""",
+                ("synthetic_extra.zip", str(source), len(data),
+                 hashlib.sha256(data).hexdigest())
+            )
+            db.commit()
+        items = self.adapter.refresh()
+        one = next(x for x in items if x.extension == ".zip")
+        self.assertEqual(data, self.adapter.bytes_for(one.source_key)[1])
+        self.assertEqual("ZIP", one.metadata()["format"])
+
+    def test_live_opaque_zip_unsafe_member_is_denied(self):
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("../escape.txt", b"SYNTHETIC")
+        data = output.getvalue()
+        source = self.root / "synthetic_unsafe.zip"
+        source.write_bytes(data)
+        with closing(sqlite3.connect(self.db)) as db:
+            db.execute(
+                """INSERT INTO documents SELECT
+                    'zip-bad', source_system, source_context,
+                    institution_name, court_name, 'zip-bad',
+                    'zip-bad-id', source_fingerprint,
+                    case_id, folder_names, document_date,
+                    ?, uyap_path, target_path,
+                    ?, '.zip', ?, ?, verified_at, 'VERIFIED',
+                    archive_part, archive_part_index FROM documents
+                    WHERE document_id='sample-1'""",
+                ("synthetic_unsafe.zip", str(source), len(data),
+                 hashlib.sha256(data).hexdigest())
+            )
+            db.commit()
+        one = next(x for x in self.adapter.refresh() if x.extension == ".zip")
+        self.assertIsNone(self.adapter.bytes_for(one.source_key))
 
     def test_nonverified_records_never_appear(self):
         with closing(sqlite3.connect(self.db)) as db:
