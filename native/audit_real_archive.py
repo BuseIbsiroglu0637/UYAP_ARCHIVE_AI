@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from archive_document_policy import archive_kind
+from archive_document_policy import archive_kind, resolved_extension
 from archive_package_adapter import EXTENSIONS, HASH_PATTERN, MAX_DOCUMENT_BYTES
 
 MAX_AUDIT_ROWS = 50000
@@ -78,14 +78,18 @@ def audit(selected: str) -> dict:
             db_path.resolve(strict=True).parent != root):
         raise ValueError("Expected a local UYAP_Arsiv/_archive.db")
 
-    fields = ("document_id", "case_id", "display_name", "local_path",
-              "extension", "size", "sha256", "status")
+    required = ("document_id", "case_id", "display_name", "local_path",
+                "size", "sha256", "status")
     uri = db_path.as_uri() + "?mode=ro"
     with closing(sqlite3.connect(uri, uri=True, timeout=5)) as db:
         db.execute("PRAGMA query_only=ON")
         columns = {row[1] for row in db.execute("PRAGMA table_info(documents)")}
-        if not set(fields).issubset(columns):
+        if not set(required).issubset(columns):
             raise ValueError("Archive documents schema is not supported")
+        # Legacy databases do not have the optional extension column.
+        fields = list(required[:4]) + [
+            "extension" if "extension" in columns else "NULL AS extension"
+        ] + list(required[4:])
         rows = db.execute(
             "SELECT " + ",".join(fields) + " FROM documents LIMIT ?",
             (MAX_AUDIT_ROWS + 1,),
@@ -105,14 +109,14 @@ def audit(selected: str) -> dict:
             counts["notVerified"] += 1
             continue
         counts["verifiedInDatabase"] += 1
-        kind = archive_kind(ext, local, name)
+        extension = resolved_extension(ext, local)
+        kind = archive_kind(extension, local, name)
         if kind == "INTERNAL":
             counts["internalExcluded"] += 1
             continue
         if kind == "UNSUPPORTED":
             counts["unsupportedExcluded"] += 1
             continue
-        extension = str(ext or "").lower()
         digest = str(sha or "").lower()
         if (extension not in EXTENSIONS or not HASH_PATTERN.fullmatch(digest) or
                 type(size) is not int or not 5 <= size <= MAX_DOCUMENT_BYTES or
