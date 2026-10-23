@@ -203,7 +203,7 @@ class VerifiedArchivePackage:
         return item, payload
 
 
-def make_archive_package_handler(package: VerifiedArchivePackage, token: str):
+def make_archive_package_handler(package: VerifiedArchivePackage, token: str, pairing_gate=None):
     """Isolated, temporary localhost HTTP API; never expose to public networks."""
 
     class Handler(BaseHTTPRequestHandler):
@@ -222,10 +222,55 @@ def make_archive_package_handler(package: VerifiedArchivePackage, token: str):
             self.end_headers()
             self.wfile.write(data)
 
+        def do_POST(self):
+            # Only the two explicit ephemeral pairing endpoints accept POST.
+            if pairing_gate is None:
+                self.send_json(404, {"error": "NOT_FOUND"})
+                return
+            parsed = urlparse(self.path)
+            if parsed.path == "/v2/pair/revoke":
+                if pairing_gate.revoke(
+                    self.headers.get("Authorization", ""),
+                    self.headers.get("X-Device-Id", "")
+                ):
+                    self.send_json(200, {"revoked": True})
+                else:
+                    self.send_json(401, {"error": "UNAUTHORIZED"})
+                return
+            if parsed.path != "/v2/pair":
+                self.send_json(404, {"error": "NOT_FOUND"})
+                return
+            try:
+                raw_length = self.headers.get("Content-Length", "")
+                if not raw_length.isdecimal() or not 2 <= int(raw_length) <= 512:
+                    raise ValueError("INVALID_REQUEST")
+                if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                    raise ValueError("INVALID_REQUEST")
+                body = json.loads(self.rfile.read(int(raw_length)))
+                if not isinstance(body, dict) or set(body) != {"code", "deviceId"}:
+                    raise ValueError("INVALID_REQUEST")
+            except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+                self.send_json(400, {"error": "INVALID_REQUEST"})
+                return
+            session_token = pairing_gate.pair(body["code"], body["deviceId"])
+            if session_token is None:
+                self.send_json(401, {"error": "PAIRING_DENIED"})
+                return
+            from mobile_pairing import SESSION_TTL
+            self.send_json(200, {
+                "sessionToken": session_token, "validForSeconds": SESSION_TTL,
+                "mode": "EMULATOR_ONLY_EPHEMERAL_PAIRING", "tlsEnabled": False,
+                "realDocumentsAllowed": False
+            })
+
         def do_GET(self):
-            if not hmac.compare_digest(
+            authorized = pairing_gate.authorize(
+                self.headers.get("Authorization", ""),
+                self.headers.get("X-Device-Id", "")
+            ) if pairing_gate is not None else hmac.compare_digest(
                 self.headers.get("Authorization", ""), "Bearer " + token
-            ):
+            )
+            if not authorized:
                 self.send_json(401, {"error": "UNAUTHORIZED"})
                 return
             parsed = urlparse(self.path)
@@ -240,6 +285,8 @@ def make_archive_package_handler(package: VerifiedArchivePackage, token: str):
                     "schemaVersion": 2, "mode": package.mode,
                     "readOnly": True, "uyapDirectApi": False,
                     "formats": ["PDF", "UDF", "TIF", "ZIP"], "count": len(package.documents),
+                    "pairedSessionRequired": pairing_gate is not None,
+                    "productionReady": False,
                 })
                 return
             if parsed.path == "/v2/documents":
